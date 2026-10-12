@@ -623,6 +623,10 @@
             "type"
           ],
           "properties": {
+            "bezier_smooth": {
+              "default": false,
+              "type": "boolean"
+            },
             "bounds": {
               "description": "[min_x, min_y, width, height]",
               "type": "array",

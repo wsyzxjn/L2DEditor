@@ -1,7 +1,7 @@
 use crate::math::deform_path::transform_point_by_deform_path;
 use crate::math::interpolation::{compute_multidim_weights, blend_points};
 use crate::math::rotation::transform_point_by_rotation;
-use crate::math::warp::transform_point_by_warp;
+use crate::math::warp::transform_point_by_warp_ext;
 use crate::model::*;
 use std::collections::HashMap;
 
@@ -34,6 +34,7 @@ enum DeformerState {
         rows: usize,
         bounds: [f32; 4],
         control_points: Vec<[f32; 2]>,
+        bezier_smooth: bool,
     },
     Rotation {
         origin: [f32; 2],
@@ -88,6 +89,7 @@ pub fn evaluate_project(
                         rows: data.rows,
                         bounds: data.bounds,
                         control_points: cp,
+                        bezier_smooth: data.bezier_smooth,
                     },
                 );
             }
@@ -273,9 +275,9 @@ pub fn evaluate_project(
             for &ancestor_id in &ancestors {
                 if let Some(deformer) = deformer_states.get(ancestor_id) {
                     match deformer {
-                        DeformerState::Warp { cols, rows, bounds, control_points } => {
+                        DeformerState::Warp { cols, rows, bounds, control_points, bezier_smooth } => {
                             for pt in &mut vertices {
-                                *pt = transform_point_by_warp(*pt, *cols, *rows, *bounds, control_points);
+                                *pt = transform_point_by_warp_ext(*pt, *cols, *rows, *bounds, control_points, *bezier_smooth);
                             }
                         }
                         DeformerState::Rotation { origin, angle_deg, scale } => {
@@ -411,6 +413,7 @@ mod tests {
                         rows: 1,
                         bounds: warp_bounds,
                         control_points: default_grid.clone(),
+                        bezier_smooth: false,
                     }),
                 },
                 Node {

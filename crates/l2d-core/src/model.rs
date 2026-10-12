@@ -146,6 +146,8 @@ pub struct WarpDeformerData {
     pub bounds: [f32; 4],
     /// (cols + 1) * (rows + 1) control points in canvas space
     pub control_points: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub bezier_smooth: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

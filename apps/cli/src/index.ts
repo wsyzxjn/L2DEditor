@@ -374,4 +374,28 @@ program
     console.log(`Successfully rendered ${res.totalFrames} frames to video: ${res.videoPath || opts.out}`);
   });
 
+program
+  .command('update-psd <project> <new_psd_file>')
+  .description('Non-destructively reload updated PSD artwork, updating textures while preserving deformers and keyforms')
+  .action(async (projectInput, newPsdFile) => {
+    const file = resolveProjectPath(projectInput);
+    const projectDir = path.dirname(file);
+    const raw = fs.readFileSync(file, 'utf-8');
+    const existingProject: Project = JSON.parse(raw);
+
+    const buf = fs.readFileSync(newPsdFile);
+    const { project: updatedProject, extractedTextures } = await importPsdBuffer(buf, {
+      existingProject,
+    });
+
+    const texDir = path.join(projectDir, 'textures');
+    fs.mkdirSync(texDir, { recursive: true });
+    for (const t of extractedTextures) {
+      fs.writeFileSync(path.join(texDir, t.filename), t.buffer);
+    }
+
+    fs.writeFileSync(file, JSON.stringify(updatedProject, null, 2), 'utf-8');
+    console.log(`Successfully reloaded PSD artwork into '${projectDir}': preserved existing deformers and keyforms.`);
+  });
+
 program.parse();

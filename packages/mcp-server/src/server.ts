@@ -191,6 +191,24 @@ export function createMcpServer(): Server {
             required: ['projectPath', 'animationId', 'outputVideoPath'],
           },
         },
+        {
+          name: 'l2d_update_psd',
+          description: 'Non-destructively reload an updated PSD artwork file, updating texture bitmaps while preserving all existing deformers and keyforms.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: {
+                type: 'string',
+                description: 'Path to .l2dproj directory or project.json',
+              },
+              newPsdPath: {
+                type: 'string',
+                description: 'Path to updated Photoshop (.psd) file',
+              },
+            },
+            required: ['projectPath', 'newPsdPath'],
+          },
+        },
       ],
     };
   });
@@ -453,6 +471,35 @@ export function createMcpServer(): Server {
             {
               type: 'text',
               text: `Rendered ${res.totalFrames} frames to video: ${res.videoPath || outVideo}`,
+            },
+          ],
+        };
+      }
+
+      if (name === 'l2d_update_psd') {
+        const projectPath = resolveProjectJsonPath(args?.projectPath as string);
+        const projectDir = path.dirname(projectPath);
+        const raw = fs.readFileSync(projectPath, 'utf-8');
+        const existingProject: Project = JSON.parse(raw);
+        const psdPath = args?.newPsdPath as string;
+
+        const buf = fs.readFileSync(psdPath);
+        const { project: updatedProject, extractedTextures } = await importPsdBuffer(buf, {
+          existingProject,
+        });
+
+        const texDir = path.join(projectDir, 'textures');
+        fs.mkdirSync(texDir, { recursive: true });
+        for (const t of extractedTextures) {
+          fs.writeFileSync(path.join(texDir, t.filename), t.buffer);
+        }
+
+        fs.writeFileSync(projectPath, JSON.stringify(updatedProject, null, 2), 'utf-8');
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Successfully reloaded artwork from ${psdPath}: preserved all existing deformers, parameters, and keyforms.`,
             },
           ],
         };

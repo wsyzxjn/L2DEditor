@@ -38,6 +38,7 @@ export interface WarpDeformerData {
   rows: number;
   bounds: [number, number, number, number]; // min_x, min_y, width, height
   control_points: [number, number][];
+  bezier_smooth?: boolean;
 }
 
 export interface RotationDeformerData {

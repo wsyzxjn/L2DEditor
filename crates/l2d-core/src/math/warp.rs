@@ -25,6 +25,18 @@ pub fn transform_point_by_warp(
     bounds: [f32; 4],
     control_points: &[[f32; 2]],
 ) -> [f32; 2] {
+    transform_point_by_warp_ext(point, cols, rows, bounds, control_points, false)
+}
+
+/// Transforms a 2D point using a warp deformer grid with optional C1-continuous Hermite curvature smoothing.
+pub fn transform_point_by_warp_ext(
+    point: [f32; 2],
+    cols: usize,
+    rows: usize,
+    bounds: [f32; 4],
+    control_points: &[[f32; 2]],
+    smooth: bool,
+) -> [f32; 2] {
     let [min_x, min_y, w, h] = bounds;
     if w.abs() < 1e-6 || h.abs() < 1e-6 || cols == 0 || rows == 0 {
         return point;
@@ -44,8 +56,20 @@ pub fn transform_point_by_warp(
     let cell_x = (gx.floor() as isize).clamp(0, (cols - 1) as isize) as usize;
     let cell_y = (gy.floor() as isize).clamp(0, (rows - 1) as isize) as usize;
 
-    let s = gx - cell_x as f32;
-    let t = gy - cell_y as f32;
+    let raw_s = gx - cell_x as f32;
+    let raw_t = gy - cell_y as f32;
+
+    let s = if smooth {
+        raw_s * raw_s * (3.0 - 2.0 * raw_s)
+    } else {
+        raw_s
+    };
+
+    let t = if smooth {
+        raw_t * raw_t * (3.0 - 2.0 * raw_t)
+    } else {
+        raw_t
+    };
 
     let stride = cols + 1;
     let p00 = control_points[cell_y * stride + cell_x];
