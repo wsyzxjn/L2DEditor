@@ -13,6 +13,23 @@ export interface EditorContextValue {
   setParameterValue: (id: string, val: number) => void;
   executeCommand: (cmd: any) => void;
   notify: (text: string, type?: 'info' | 'success' | 'error') => void;
+  // Mesh Editing Mode
+  isMeshEditMode: boolean;
+  setIsMeshEditMode: (val: boolean) => void;
+  meshEditTool: 'select' | 'add' | 'delete';
+  setMeshEditTool: (tool: 'select' | 'add' | 'delete') => void;
+  selectedVertexIndex: number | null;
+  setSelectedVertexIndex: (idx: number | null) => void;
+  // Physics Mode
+  isPhysicsEnabled: boolean;
+  setIsPhysicsEnabled: (val: boolean) => void;
+  // Animation / Timeline Mode
+  isPlayingAnimation: boolean;
+  setIsPlayingAnimation: (val: boolean) => void;
+  currentPlayheadFrame: number;
+  setCurrentPlayheadFrame: (frame: number) => void;
+  activeAnimationId: string | null;
+  setActiveAnimationId: (id: string | null) => void;
 }
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

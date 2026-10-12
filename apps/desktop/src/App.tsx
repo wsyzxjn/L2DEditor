@@ -10,6 +10,7 @@ import { HierarchyPanel } from './components/HierarchyPanel.js';
 import { ParametersPanel } from './components/ParametersPanel.js';
 import { InspectorPanel } from './components/InspectorPanel.js';
 import { ViewportPanel } from './components/ViewportPanel.js';
+import { TimelinePanel } from './components/TimelinePanel.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import {
   FilePlus,
@@ -37,10 +38,14 @@ const defaultInitialProject: Project = {
     { id: 'ParamAngleY', name: 'Angle Y', min: -30, max: 30, default: 0 },
     { id: 'ParamEyeLOpen', name: 'Eye Left Open', min: 0, max: 1, default: 1 },
     { id: 'ParamEyeROpen', name: 'Eye Right Open', min: 0, max: 1, default: 1 },
+    { id: 'ParamHairFront', name: 'Hair Front Sway', min: -1, max: 1, default: 0 },
   ],
   nodes: [],
   keyforms: [],
   textures: [],
+  glues: [],
+  physics: [],
+  animations: [],
 };
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
@@ -51,6 +56,7 @@ const dockviewComponents = {
   viewport: ViewportPanel,
   parameters: ParametersPanel,
   inspector: InspectorPanel,
+  timeline: TimelinePanel,
 };
 
 export function App() {
@@ -61,6 +67,19 @@ export function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Mesh editing state
+  const [isMeshEditMode, setIsMeshEditMode] = useState(false);
+  const [meshEditTool, setMeshEditTool] = useState<'select' | 'add' | 'delete'>('select');
+  const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null);
+
+  // Physics state
+  const [isPhysicsEnabled, setIsPhysicsEnabled] = useState(false);
+
+  // Animation timeline state
+  const [isPlayingAnimation, setIsPlayingAnimation] = useState(false);
+  const [currentPlayheadFrame, setCurrentPlayheadFrame] = useState(0);
+  const [activeAnimationId, setActiveAnimationId] = useState<string | null>(null);
 
   const notify = (text: string, type: 'info' | 'success' | 'error' = 'info') => {
     setStatusMessage({ text, type });
@@ -93,6 +112,8 @@ export function App() {
           indices: node.kind.indices,
           blend_mode: node.kind.blend_mode,
           opacity: node.kind.opacity,
+          multiply_color: node.kind.multiply_color || [1, 1, 1, 1],
+          screen_color: node.kind.screen_color || [0, 0, 0, 0],
           draw_order: node.kind.draw_order,
           mask_ids: node.kind.mask_ids,
         });
@@ -104,6 +125,52 @@ export function App() {
       total_indices: meshes.reduce((acc, m) => acc + m.indices.length, 0),
     });
   }, [project, parameterValues]);
+
+  // Live Animation Playback Loop
+  useEffect(() => {
+    if (!isPlayingAnimation) return;
+
+    let lastTime = performance.now();
+    let animHandle: number;
+
+    const tick = (now: number) => {
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      const activeAnim = project.animations?.find((a) => a.id === activeAnimationId);
+      const fps = activeAnim?.fps || 30;
+      const duration = activeAnim?.duration_frames || 60;
+
+      setCurrentPlayheadFrame((prev) => {
+        let next = prev + dt * fps;
+        if (next >= duration) {
+          next = activeAnim?.loop_playback !== false ? next % duration : duration;
+        }
+        return next;
+      });
+
+      // Evaluate active animation keyframes if present
+      if (activeAnim) {
+        for (const track of activeAnim.tracks) {
+          if (track.keyframes.length > 0) {
+            // Find keyframe value at current frame
+            const kf = track.keyframes.reduce((prev, curr) =>
+              Math.abs(curr.frame - currentPlayheadFrame) < Math.abs(prev.frame - currentPlayheadFrame) ? curr : prev
+            );
+            setParameterValues((params) => ({
+              ...params,
+              [track.target_param_id]: kf.value,
+            }));
+          }
+        }
+      }
+
+      animHandle = requestAnimationFrame(tick);
+    };
+
+    animHandle = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animHandle);
+  }, [isPlayingAnimation, project.animations, activeAnimationId, currentPlayheadFrame]);
 
   const executeCommand = (cmd: any) => {
     const res = bus.execute(cmd);
@@ -232,6 +299,9 @@ export function App() {
       ) {
         e.preventDefault();
         handleRedo();
+      } else if (e.code === 'Space' && !e.repeat && (e.target as HTMLElement).tagName !== 'INPUT') {
+        e.preventDefault();
+        setIsPlayingAnimation((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -267,6 +337,15 @@ export function App() {
       title: 'Inspector',
       position: { referencePanel: rightTop, direction: 'below' },
     });
+
+    // Add Timeline at bottom
+    event.api.addPanel({
+      id: 'timeline_panel',
+      component: 'timeline',
+      title: 'Timeline & Animator',
+      position: { referencePanel: center, direction: 'below' },
+      initialHeight: 220,
+    });
   };
 
   const contextValue = {
@@ -281,6 +360,23 @@ export function App() {
       setParameterValues((prev) => ({ ...prev, [id]: val })),
     executeCommand,
     notify,
+    // Mesh editing mode
+    isMeshEditMode,
+    setIsMeshEditMode,
+    meshEditTool,
+    setMeshEditTool,
+    selectedVertexIndex,
+    setSelectedVertexIndex,
+    // Physics
+    isPhysicsEnabled,
+    setIsPhysicsEnabled,
+    // Animation
+    isPlayingAnimation,
+    setIsPlayingAnimation,
+    currentPlayheadFrame,
+    setCurrentPlayheadFrame,
+    activeAnimationId,
+    setActiveAnimationId,
   };
 
   return (
@@ -408,36 +504,7 @@ export function App() {
             else if (action === 'import_psd') handleImportPsd();
             else if (action === 'undo') handleUndo();
             else if (action === 'redo') handleRedo();
-            else if (action === 'add_warp') {
-              const id = `warp_${Date.now()}`;
-              const name = `Warp ${project.nodes.filter((n) => n.kind.type === 'WarpDeformer').length + 1}`;
-              executeCommand({
-                id: `cmd_${Date.now()}`,
-                name: 'node.add',
-                params: {
-                  id,
-                  name,
-                  parent_id: selectedNodeId,
-                  visible: true,
-                  locked: false,
-                  kind: {
-                    type: 'WarpDeformer',
-                    cols: 4,
-                    rows: 4,
-                    bounds: [760, 340, 400, 400],
-                    control_points: [
-                      [760, 340], [860, 340], [960, 340], [1060, 340], [1160, 340],
-                      [760, 440], [860, 440], [960, 440], [1060, 440], [1160, 440],
-                      [760, 540], [860, 540], [960, 540], [1060, 540], [1160, 540],
-                      [760, 640], [860, 640], [960, 640], [1060, 640], [1160, 640],
-                      [760, 740], [860, 740], [960, 740], [1060, 740], [1160, 740],
-                    ],
-                  },
-                },
-              });
-              setSelectedNodeId(id);
-              notify(`Created Warp Deformer: ${name}`, 'success');
-            } else if (action === 'lint') {
+            else if (action === 'lint') {
               notify('Running project linter...', 'info');
             } else if (action === 'macro_turn_xy') {
               if (selectedNodeId) {

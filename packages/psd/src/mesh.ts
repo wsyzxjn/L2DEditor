@@ -1,4 +1,5 @@
 import earcut from 'earcut';
+export { earcut };
 
 export interface GeneratedMesh {
   vertices: [number, number][];
