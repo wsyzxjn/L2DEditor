@@ -25,6 +25,10 @@ pub struct Project {
     pub animations: Vec<Animation>,
     #[serde(default)]
     pub parameter_groups: Vec<ParameterGroup>,
+    #[serde(default)]
+    pub pose_groups: Vec<PoseGroup>,
+    #[serde(default)]
+    pub expressions: Vec<Expression>,
 }
 
 impl Default for Project {
@@ -40,6 +44,8 @@ impl Default for Project {
             physics: Vec::new(),
             animations: Vec::new(),
             parameter_groups: Vec::new(),
+            pose_groups: Vec::new(),
+            expressions: Vec::new(),
         }
     }
 }
@@ -328,4 +334,50 @@ pub struct PhysicsPendulum {
     pub length: f32,
     pub damping: f32,
     pub mass: f32,
+}
+
+fn default_fade_time() -> f32 {
+    0.5
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct PoseGroup {
+    pub id: String,
+    pub name: String,
+    #[serde(default = "default_fade_time")]
+    pub fade_in_time: f32,
+    pub part_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ExpressionBlendType {
+    Add,
+    Multiply,
+    Overwrite,
+}
+
+impl Default for ExpressionBlendType {
+    fn default() -> Self {
+        Self::Add
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ExpressionParameter {
+    pub id: String,
+    pub value: f32,
+    #[serde(default)]
+    pub blend: ExpressionBlendType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct Expression {
+    pub id: String,
+    pub name: String,
+    #[serde(default = "default_fade_time")]
+    pub fade_in_time: f32,
+    #[serde(default = "default_fade_time")]
+    pub fade_out_time: f32,
+    pub parameters: Vec<ExpressionParameter>,
 }

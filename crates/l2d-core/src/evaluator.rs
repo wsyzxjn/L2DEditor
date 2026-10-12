@@ -460,6 +460,8 @@ mod tests {
             physics: vec![],
             animations: vec![],
             parameter_groups: vec![],
+            pose_groups: vec![],
+            expressions: vec![],
         };
 
         let mut params = HashMap::new();
@@ -548,6 +550,8 @@ mod tests {
             physics: vec![],
             animations: vec![],
             parameter_groups: vec![],
+            pose_groups: vec![],
+            expressions: vec![],
         };
 
         let frame = evaluate_project(&project, &HashMap::new());
@@ -636,6 +640,8 @@ mod tests {
             physics: vec![],
             animations: vec![],
             parameter_groups: vec![],
+            pose_groups: vec![],
+            expressions: vec![],
         };
 
         let mut params = HashMap::new();

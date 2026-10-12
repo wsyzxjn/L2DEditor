@@ -172,6 +172,60 @@ export function exportRuntimePackage(
     fs.writeFileSync(path.join(outDir, userDataFilename), JSON.stringify(userDataJson, null, 2), 'utf-8');
   }
 
+  // 4.6 Generate pose3.json
+  let poseFilename: string | undefined;
+  if (project.pose_groups && project.pose_groups.length > 0) {
+    const poseData = {
+      Type: 'Live2D Pose',
+      FadeInTime: project.pose_groups[0].fade_in_time || 0.5,
+      Groups: project.pose_groups.map((g) =>
+        g.part_ids.map((pid) => ({ Id: pid, Link: [] }))
+      ),
+    };
+    poseFilename = `${modelName}.pose3.json`;
+    fs.writeFileSync(path.join(outDir, poseFilename), JSON.stringify(poseData, null, 2), 'utf-8');
+  }
+
+  // 4.7 Generate expressions/*.exp3.json
+  const exprDir = path.join(outDir, 'expressions');
+  const expressionRefs: { Name: string; File: string }[] = [];
+  if (project.expressions && project.expressions.length > 0) {
+    fs.mkdirSync(exprDir, { recursive: true });
+    for (const expr of project.expressions) {
+      const expFile = `${expr.id}.exp3.json`;
+      const expData = {
+        Type: 'Live2D Expression',
+        FadeInTime: expr.fade_in_time || 0.5,
+        FadeOutTime: expr.fade_out_time || 0.5,
+        Parameters: expr.parameters.map((p) => ({
+          Id: p.id,
+          Value: p.value,
+          Blend: p.blend === 'multiply' ? 'Multiply' : p.blend === 'overwrite' ? 'Overwrite' : 'Add',
+        })),
+      };
+      fs.writeFileSync(path.join(exprDir, expFile), JSON.stringify(expData, null, 2), 'utf-8');
+      expressionRefs.push({
+        Name: expr.name || expr.id,
+        File: `expressions/${expFile}`,
+      });
+    }
+  }
+
+  // 4.8 Generate motionsync3.json if mouth parameter exists
+  let motionSyncFilename: string | undefined;
+  if (project.parameters.some((p) => p.id === 'ParamMouthOpen')) {
+    const msData = {
+      Version: 1,
+      Setting: {
+        AudioSampleRate: 44100,
+        MouthOpenParameter: 'ParamMouthOpen',
+        MouthFormParameter: 'ParamMouthForm',
+      },
+    };
+    motionSyncFilename = `${modelName}.motionsync3.json`;
+    fs.writeFileSync(path.join(outDir, motionSyncFilename), JSON.stringify(msData, null, 2), 'utf-8');
+  }
+
   // 5. Generate model3.json root manifest
   const hitAreas: { Id: string; Name: string }[] = [];
   for (const node of project.nodes) {
@@ -192,6 +246,9 @@ export function exportRuntimePackage(
       DisplayInfo: cdiFilename,
       Motions: motionReferences,
       ...(userDataFilename ? { UserData: userDataFilename } : {}),
+      ...(poseFilename ? { Pose: poseFilename } : {}),
+      ...(expressionRefs.length > 0 ? { Expressions: expressionRefs } : {}),
+      ...(motionSyncFilename ? { MotionSync: motionSyncFilename } : {}),
     },
     Groups: [
       {

@@ -17,6 +17,13 @@
     "canvas": {
       "$ref": "#/definitions/Canvas"
     },
+    "expressions": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Expression"
+      }
+    },
     "format_version": {
       "type": "integer",
       "format": "uint32",
@@ -62,6 +69,13 @@
       "type": "array",
       "items": {
         "$ref": "#/definitions/PhysicsGroup"
+      }
+    },
+    "pose_groups": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PoseGroup"
       }
     },
     "textures": {
@@ -174,6 +188,70 @@
         "stepped",
         "bezier"
       ]
+    },
+    "Expression": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "parameters"
+      ],
+      "properties": {
+        "fade_in_time": {
+          "default": 0.5,
+          "type": "number",
+          "format": "float"
+        },
+        "fade_out_time": {
+          "default": 0.5,
+          "type": "number",
+          "format": "float"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ExpressionParameter"
+          }
+        }
+      }
+    },
+    "ExpressionBlendType": {
+      "type": "string",
+      "enum": [
+        "add",
+        "multiply",
+        "overwrite"
+      ]
+    },
+    "ExpressionParameter": {
+      "type": "object",
+      "required": [
+        "id",
+        "value"
+      ],
+      "properties": {
+        "blend": {
+          "default": "add",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExpressionBlendType"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number",
+          "format": "float"
+        }
+      }
     },
     "ExtendedInterpolationType": {
       "type": "string",
@@ -990,6 +1068,33 @@
         "mass": {
           "type": "number",
           "format": "float"
+        }
+      }
+    },
+    "PoseGroup": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "part_ids"
+      ],
+      "properties": {
+        "fade_in_time": {
+          "default": 0.5,
+          "type": "number",
+          "format": "float"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "part_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

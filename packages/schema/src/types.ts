@@ -164,6 +164,29 @@ export interface PhysicsGroup {
   pendulums: PhysicsPendulum[];
 }
 
+export interface PoseGroup {
+  id: string;
+  name: string;
+  fade_in_time?: number;
+  part_ids: string[];
+}
+
+export type ExpressionBlendType = 'add' | 'multiply' | 'overwrite';
+
+export interface ExpressionParameter {
+  id: string;
+  value: number;
+  blend?: ExpressionBlendType;
+}
+
+export interface Expression {
+  id: string;
+  name: string;
+  fade_in_time?: number;
+  fade_out_time?: number;
+  parameters: ExpressionParameter[];
+}
+
 export type CurveType = 'linear' | 'stepped' | 'bezier';
 
 export interface TimelineKeyframe {
@@ -198,6 +221,8 @@ export interface Project {
   physics?: PhysicsGroup[];
   animations?: Animation[];
   parameter_groups?: ParameterGroup[];
+  pose_groups?: PoseGroup[];
+  expressions?: Expression[];
 }
 
 export type DiagnosticSeverity = 'error' | 'warning' | 'info';

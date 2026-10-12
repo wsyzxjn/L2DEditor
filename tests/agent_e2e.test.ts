@@ -366,4 +366,94 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(model3Json.HitAreas[0].Name).toBe('Head');
   });
 
+
+  it('should export pose3.json, exp3.json, and motionsync3.json matching Live2D specifications', () => {
+    const fullProject: Project = {
+      format_version: 1,
+      canvas: { width: 800, height: 800, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [
+        { id: 'ParamMouthOpen', name: 'Mouth Open', min: 0, max: 1, default: 0 },
+        { id: 'ParamMouthForm', name: 'Mouth Form', min: -1, max: 1, default: 0 },
+      ],
+      nodes: [
+        {
+          id: 'part_arm_a',
+          name: 'Arm A',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: { type: 'Part', opacity: 1.0, collapsed: false },
+        },
+        {
+          id: 'part_arm_b',
+          name: 'Arm B',
+          parent_id: null,
+          visible: false,
+          locked: false,
+          kind: { type: 'Part', opacity: 0.0, collapsed: false },
+        },
+      ],
+      keyforms: [],
+      textures: [{ id: 'tex_1', path: 'textures/t1.png', width: 100, height: 100 }],
+      pose_groups: [
+        {
+          id: 'arm_pose',
+          name: 'Arm Left Pose Group',
+          fade_in_time: 0.5,
+          part_ids: ['part_arm_a', 'part_arm_b'],
+        },
+      ],
+      expressions: [
+        {
+          id: 'f01_smile',
+          name: 'Happy Smile',
+          fade_in_time: 0.4,
+          fade_out_time: 0.4,
+          parameters: [
+            { id: 'ParamMouthForm', value: 1.0, blend: 'add' },
+          ],
+        },
+      ],
+    };
+
+    const dummyC = createCanvas(100, 100);
+    const ctx = dummyC.getContext('2d');
+    ctx.fillStyle = '#ff00ff';
+    ctx.fillRect(0, 0, 100, 100);
+    const texBuf = dummyC.toBuffer('image/png');
+
+    const tempDir = path.join('/tmp', `l2d_full_spec_${Date.now()}`);
+    const res = exportRuntimePackage(fullProject, () => texBuf, tempDir, {
+      modelName: 'full_spec_model',
+    });
+
+    // 1. Verify pose3.json
+    const posePath = path.join(tempDir, 'full_spec_model.pose3.json');
+    expect(fs.existsSync(posePath)).toBe(true);
+    const poseJson = JSON.parse(fs.readFileSync(posePath, 'utf-8'));
+    expect(poseJson.Type).toBe('Live2D Pose');
+    expect(poseJson.Groups[0][0].Id).toBe('part_arm_a');
+    expect(poseJson.Groups[0][1].Id).toBe('part_arm_b');
+
+    // 2. Verify expressions/f01_smile.exp3.json
+    const expPath = path.join(tempDir, 'expressions/f01_smile.exp3.json');
+    expect(fs.existsSync(expPath)).toBe(true);
+    const expJson = JSON.parse(fs.readFileSync(expPath, 'utf-8'));
+    expect(expJson.Type).toBe('Live2D Expression');
+    expect(expJson.Parameters[0].Id).toBe('ParamMouthForm');
+    expect(expJson.Parameters[0].Blend).toBe('Add');
+
+    // 3. Verify motionsync3.json
+    const msPath = path.join(tempDir, 'full_spec_model.motionsync3.json');
+    expect(fs.existsSync(msPath)).toBe(true);
+    const msJson = JSON.parse(fs.readFileSync(msPath, 'utf-8'));
+    expect(msJson.Setting.MouthOpenParameter).toBe('ParamMouthOpen');
+
+    // 4. Verify model3.json file references
+    const model3Json = JSON.parse(fs.readFileSync(res.model3JsonPath, 'utf-8'));
+    expect(model3Json.FileReferences.Pose).toBe('full_spec_model.pose3.json');
+    expect(model3Json.FileReferences.Expressions[0].Name).toBe('Happy Smile');
+    expect(model3Json.FileReferences.MotionSync).toBe('full_spec_model.motionsync3.json');
+  });
+
 });

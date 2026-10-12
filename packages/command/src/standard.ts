@@ -168,6 +168,32 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  // Pose Groups
+  bus.register<any>('pose.add_group', (draft, group) => {
+    if (!draft.pose_groups) draft.pose_groups = [];
+    draft.pose_groups = draft.pose_groups.filter((g) => g.id !== group.id);
+    draft.pose_groups.push(group);
+  });
+
+  bus.register<{ id: string }>('pose.delete_group', (draft, { id }) => {
+    if (draft.pose_groups) {
+      draft.pose_groups = draft.pose_groups.filter((g) => g.id !== id);
+    }
+  });
+
+  // Expressions
+  bus.register<any>('expression.add', (draft, expr) => {
+    if (!draft.expressions) draft.expressions = [];
+    draft.expressions = draft.expressions.filter((e) => e.id !== expr.id);
+    draft.expressions.push(expr);
+  });
+
+  bus.register<{ id: string }>('expression.delete', (draft, { id }) => {
+    if (draft.expressions) {
+      draft.expressions = draft.expressions.filter((e) => e.id !== id);
+    }
+  });
+
   // Animations / Timeline
   bus.register<any>('animation.add', (draft, anim) => {
     if (!draft.animations) draft.animations = [];
