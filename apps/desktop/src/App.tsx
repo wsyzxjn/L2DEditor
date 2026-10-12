@@ -5,6 +5,7 @@ import {
 } from 'dockview-react';
 import type { Project, EvaluatedFrameJs } from '@l2d/schema';
 import { CommandBus, registerStandardCommands } from '@l2d/command';
+import { EditorContext } from './context/EditorContext.js';
 import { HierarchyPanel } from './components/HierarchyPanel.js';
 import { ParametersPanel } from './components/ParametersPanel.js';
 import { InspectorPanel } from './components/InspectorPanel.js';
@@ -43,6 +44,14 @@ const defaultInitialProject: Project = {
 };
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+
+// Stable dockview components dictionary
+const dockviewComponents = {
+  hierarchy: HierarchyPanel,
+  viewport: ViewportPanel,
+  parameters: ParametersPanel,
+  inspector: InspectorPanel,
+};
 
 export function App() {
   const [project, setProject] = useState<Project>(defaultInitialProject);
@@ -229,44 +238,6 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [project, currentFilePath]);
 
-  // Dockview Components Dictionary
-  const components = {
-    hierarchy: () => (
-      <HierarchyPanel
-        project={project}
-        selectedNodeId={selectedNodeId}
-        onSelectNode={setSelectedNodeId}
-        onExecuteCommand={executeCommand}
-      />
-    ),
-    viewport: () => (
-      <ViewportPanel
-        project={project}
-        frame={frame}
-        selectedNodeId={selectedNodeId}
-        onExecuteCommand={executeCommand}
-      />
-    ),
-    parameters: () => (
-      <ParametersPanel
-        project={project}
-        parameterValues={parameterValues}
-        onChangeParameter={(id, val) =>
-          setParameterValues((prev) => ({ ...prev, [id]: val }))
-        }
-        onExecuteCommand={executeCommand}
-        selectedNodeId={selectedNodeId}
-      />
-    ),
-    inspector: () => (
-      <InspectorPanel
-        project={project}
-        selectedNodeId={selectedNodeId}
-        onExecuteCommand={executeCommand}
-      />
-    ),
-  };
-
   const onReady = (event: DockviewReadyEvent) => {
     const left = event.api.addPanel({
       id: 'hierarchy_panel',
@@ -298,170 +269,215 @@ export function App() {
     });
   };
 
+  const contextValue = {
+    project,
+    bus,
+    frame,
+    selectedNodeId,
+    parameterValues,
+    currentFilePath,
+    setSelectedNodeId,
+    setParameterValue: (id: string, val: number) =>
+      setParameterValues((prev) => ({ ...prev, [id]: val })),
+    executeCommand,
+    notify,
+  };
+
   return (
-    <div className="flex flex-col w-screen h-screen bg-dcc-bg text-dcc-text">
-      {/* Top Menu / App Toolbar */}
-      <header
-        className={`flex items-center justify-between h-9 ${isMac ? 'pl-[78px]' : 'pl-3'} pr-3 bg-dcc-header border-b border-dcc-border select-none app-drag-region`}
-      >
-        <div className="flex items-center space-x-3 app-no-drag">
-          <span className="font-bold tracking-tight text-white flex items-center space-x-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-            <span>L2DEditor</span>
-          </span>
+    <EditorContext.Provider value={contextValue}>
+      <div className="flex flex-col w-screen h-screen bg-dcc-bg text-dcc-text">
+        {/* Top Menu / App Toolbar */}
+        <header
+          className={`flex items-center justify-between h-9 ${isMac ? 'pl-[78px]' : 'pl-3'} pr-3 bg-dcc-header border-b border-dcc-border select-none app-drag-region`}
+        >
+          <div className="flex items-center space-x-3 app-no-drag">
+            <span className="font-bold tracking-tight text-white flex items-center space-x-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+              <span>L2DEditor</span>
+            </span>
 
-          <div className="h-4 w-px bg-dcc-border" />
+            <div className="h-4 w-px bg-dcc-border" />
 
-          <div className="flex items-center space-x-1">
-            <button
-              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
-              onClick={handleNew}
-              title="New Project (Ctrl+N)"
-            >
-              <FilePlus className="w-3.5 h-3.5 mr-1" /> New
-            </button>
-            <button
-              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
-              onClick={handleOpen}
-              title="Open Project (Ctrl+O)"
-            >
-              <FolderOpen className="w-3.5 h-3.5 mr-1" /> Open
-            </button>
-            <button
-              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
-              onClick={handleSave}
-              title="Save Project (Ctrl+S)"
-            >
-              <Save className="w-3.5 h-3.5 mr-1" /> Save
-            </button>
-            <button
-              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
-              onClick={handleImportPsd}
-              title="Import PSD Document"
-            >
-              <FileUp className="w-3.5 h-3.5 mr-1" /> Import PSD
-            </button>
+            <div className="flex items-center space-x-1">
+              <button
+                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
+                onClick={handleNew}
+                title="New Project (Ctrl+N)"
+              >
+                <FilePlus className="w-3.5 h-3.5 mr-1" /> New
+              </button>
+              <button
+                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
+                onClick={handleOpen}
+                title="Open Project (Ctrl+O)"
+              >
+                <FolderOpen className="w-3.5 h-3.5 mr-1" /> Open
+              </button>
+              <button
+                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
+                onClick={handleSave}
+                title="Save Project (Ctrl+S)"
+              >
+                <Save className="w-3.5 h-3.5 mr-1" /> Save
+              </button>
+              <button
+                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
+                onClick={handleImportPsd}
+                title="Import PSD Document"
+              >
+                <FileUp className="w-3.5 h-3.5 mr-1" /> Import PSD
+              </button>
+            </div>
+
+            <div className="h-4 w-px bg-dcc-border" />
+
+            <div className="flex items-center space-x-1">
+              <button
+                className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white transition-colors"
+                onClick={handleUndo}
+                title="Undo (Ctrl+Z)"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white transition-colors"
+                onClick={handleRedo}
+                title="Redo (Ctrl+Y)"
+              >
+                <Redo2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
-          <div className="h-4 w-px bg-dcc-border" />
+          {/* Right Info & Palette */}
+          <div className="flex items-center space-x-3 app-no-drag">
+            {statusMessage && (
+              <span
+                className={`flex items-center text-dcc-sm px-2 py-0.5 rounded font-medium transition-all ${
+                  statusMessage.type === 'success'
+                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800'
+                    : statusMessage.type === 'error'
+                    ? 'bg-rose-950/80 text-rose-300 border border-rose-800'
+                    : 'bg-zinc-800 text-zinc-300 border border-zinc-700'
+                }`}
+              >
+                {statusMessage.type === 'success' ? (
+                  <Check className="w-3 h-3 mr-1 text-emerald-400" />
+                ) : statusMessage.type === 'error' ? (
+                  <AlertCircle className="w-3 h-3 mr-1 text-rose-400" />
+                ) : null}
+                {statusMessage.text}
+              </span>
+            )}
 
-          <div className="flex items-center space-x-1">
+            {currentFilePath && (
+              <span className="text-dcc-sm text-dcc-muted font-mono truncate max-w-xs" title={currentFilePath}>
+                {currentFilePath.split('/').pop()}
+              </span>
+            )}
+
             <button
-              className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white transition-colors"
-              onClick={handleUndo}
-              title="Undo (Ctrl+Z)"
+              className="flex items-center px-2 py-1 text-dcc-sm bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border space-x-1.5 transition-colors"
+              onClick={() => setCommandPaletteOpen(true)}
             >
-              <Undo2 className="w-3.5 h-3.5" />
-            </button>
-            <button
-              className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white transition-colors"
-              onClick={handleRedo}
-              title="Redo (Ctrl+Y)"
-            >
-              <Redo2 className="w-3.5 h-3.5" />
+              <CommandIcon className="w-3 h-3 text-blue-400" />
+              <span>Commands</span>
+              <kbd className="px-1 py-0.2 bg-zinc-900 text-zinc-400 rounded text-[9px] font-mono">⌘K</kbd>
             </button>
           </div>
-        </div>
+        </header>
 
-        {/* Right Info & Palette */}
-        <div className="flex items-center space-x-3 app-no-drag">
-          {statusMessage && (
-            <span
-              className={`flex items-center text-dcc-sm px-2 py-0.5 rounded font-medium transition-all ${
-                statusMessage.type === 'success'
-                  ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800'
-                  : statusMessage.type === 'error'
-                  ? 'bg-rose-950/80 text-rose-300 border border-rose-800'
-                  : 'bg-zinc-800 text-zinc-300 border border-zinc-700'
-              }`}
-            >
-              {statusMessage.type === 'success' ? (
-                <Check className="w-3 h-3 mr-1 text-emerald-400" />
-              ) : statusMessage.type === 'error' ? (
-                <AlertCircle className="w-3 h-3 mr-1 text-rose-400" />
-              ) : null}
-              {statusMessage.text}
-            </span>
-          )}
+        {/* Main Dockview Area */}
+        <main className="flex-1 w-full h-full relative overflow-hidden">
+          <DockviewReact
+            className="dockview-theme-dcc w-full h-full"
+            onReady={onReady}
+            components={dockviewComponents}
+          />
+        </main>
 
-          {currentFilePath && (
-            <span className="text-dcc-sm text-dcc-muted font-mono truncate max-w-xs" title={currentFilePath}>
-              {currentFilePath.split('/').pop()}
-            </span>
-          )}
-
-          <button
-            className="flex items-center px-2 py-1 text-dcc-sm bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border space-x-1.5 transition-colors"
-            onClick={() => setCommandPaletteOpen(true)}
-          >
-            <CommandIcon className="w-3 h-3 text-blue-400" />
-            <span>Commands</span>
-            <kbd className="px-1 py-0.2 bg-zinc-900 text-zinc-400 rounded text-[9px] font-mono">⌘K</kbd>
-          </button>
-        </div>
-      </header>
-
-      {/* Main Dockview Area */}
-      <main className="flex-1 w-full h-full relative overflow-hidden">
-        <DockviewReact
-          className="dockview-theme-dcc w-full h-full"
-          onReady={onReady}
-          components={components}
-        />
-      </main>
-
-      {/* Command Palette Modal */}
-      <CommandPalette
-        open={commandPaletteOpen}
-        onOpenChange={setCommandPaletteOpen}
-        onAction={(action) => {
-          if (action === 'new') handleNew();
-          else if (action === 'save') handleSave();
-          else if (action === 'save_as') handleSaveAs();
-          else if (action === 'open') handleOpen();
-          else if (action === 'import_psd') handleImportPsd();
-          else if (action === 'undo') handleUndo();
-          else if (action === 'redo') handleRedo();
-          else if (action === 'lint') {
-            notify('Running project linter...', 'info');
-          } else if (action === 'macro_turn_xy') {
-            if (selectedNodeId) {
+        {/* Command Palette Modal */}
+        <CommandPalette
+          open={commandPaletteOpen}
+          onOpenChange={setCommandPaletteOpen}
+          onAction={(action) => {
+            if (action === 'new') handleNew();
+            else if (action === 'save') handleSave();
+            else if (action === 'save_as') handleSaveAs();
+            else if (action === 'open') handleOpen();
+            else if (action === 'import_psd') handleImportPsd();
+            else if (action === 'undo') handleUndo();
+            else if (action === 'redo') handleRedo();
+            else if (action === 'add_warp') {
+              const id = `warp_${Date.now()}`;
+              const name = `Warp ${project.nodes.filter((n) => n.kind.type === 'WarpDeformer').length + 1}`;
               executeCommand({
                 id: `cmd_${Date.now()}`,
-                name: 'macro.setup_turn_xy',
-                params: { target_node_id: selectedNodeId },
+                name: 'node.add',
+                params: {
+                  id,
+                  name,
+                  parent_id: selectedNodeId,
+                  visible: true,
+                  locked: false,
+                  kind: {
+                    type: 'WarpDeformer',
+                    cols: 4,
+                    rows: 4,
+                    bounds: [760, 340, 400, 400],
+                    control_points: [
+                      [760, 340], [860, 340], [960, 340], [1060, 340], [1160, 340],
+                      [760, 440], [860, 440], [960, 440], [1060, 440], [1160, 440],
+                      [760, 540], [860, 540], [960, 540], [1060, 540], [1160, 540],
+                      [760, 640], [860, 640], [960, 640], [1060, 640], [1160, 640],
+                      [760, 740], [860, 740], [960, 740], [1060, 740], [1160, 740],
+                    ],
+                  },
+                },
               });
-              notify('Applied 3x3 Turn XY Macro', 'success');
-            } else {
-              notify('Please select a Warp Deformer first', 'error');
+              setSelectedNodeId(id);
+              notify(`Created Warp Deformer: ${name}`, 'success');
+            } else if (action === 'lint') {
+              notify('Running project linter...', 'info');
+            } else if (action === 'macro_turn_xy') {
+              if (selectedNodeId) {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'macro.setup_turn_xy',
+                  params: { target_node_id: selectedNodeId },
+                });
+                notify('Applied 3x3 Turn XY Macro', 'success');
+              } else {
+                notify('Please select a Warp Deformer first', 'error');
+              }
             }
-          }
-        }}
-      />
+          }}
+        />
 
-      {/* Hidden Web Fallback File Input */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        accept=".json,.l2dproj"
-        className="hidden"
-        onChange={async (e) => {
-          const file = e.target.files?.[0];
-          if (file) {
-            const text = await file.text();
-            try {
-              const parsed = JSON.parse(text);
-              bus.setProject(parsed);
-              setProject(parsed);
-              setCurrentFilePath(file.name);
-              notify(`Opened ${file.name}`, 'success');
-            } catch (err: any) {
-              notify(`Failed to parse file: ${err?.message || err}`, 'error');
+        {/* Hidden Web Fallback File Input */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept=".json,.l2dproj"
+          className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              const text = await file.text();
+              try {
+                const parsed = JSON.parse(text);
+                bus.setProject(parsed);
+                setProject(parsed);
+                setCurrentFilePath(file.name);
+                notify(`Opened ${file.name}`, 'success');
+              } catch (err: any) {
+                notify(`Failed to parse file: ${err?.message || err}`, 'error');
+              }
             }
-          }
-        }}
-      />
-    </div>
+          }}
+        />
+      </div>
+    </EditorContext.Provider>
   );
 }
 

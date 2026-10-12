@@ -1,20 +1,11 @@
 import React from 'react';
-import type { Node, Project } from '@l2d/schema';
+import type { Node } from '@l2d/schema';
+import { useEditor } from '../context/EditorContext.js';
 import { Eye, EyeOff, Lock, Unlock, Grid, RotateCw, Image, Folder, Plus } from 'lucide-react';
 
-interface HierarchyPanelProps {
-  project: Project;
-  selectedNodeId: string | null;
-  onSelectNode: (id: string | null) => void;
-  onExecuteCommand: (cmd: any) => void;
-}
+export const HierarchyPanel: React.FC = () => {
+  const { project, selectedNodeId, setSelectedNodeId, executeCommand, notify } = useEditor();
 
-export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
-  project,
-  selectedNodeId,
-  onSelectNode,
-  onExecuteCommand,
-}) => {
   // Group nodes by parent_id
   const childrenMap = new Map<string | null, Node[]>();
   for (const node of project.nodes) {
@@ -41,7 +32,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
             isSelected ? 'bg-dcc-accent/20 text-blue-300 font-medium' : 'text-dcc-text'
           }`}
           style={{ paddingLeft: `${8 + depth * 14}px` }}
-          onClick={() => onSelectNode(node.id)}
+          onClick={() => setSelectedNodeId(node.id)}
         >
           {/* Kind icon */}
           <KindIcon className="w-3.5 h-3.5 mr-1.5 text-dcc-muted shrink-0" />
@@ -53,7 +44,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
             className="p-1 hover:text-white text-dcc-muted"
             onClick={(e) => {
               e.stopPropagation();
-              onExecuteCommand({
+              executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'node.update',
                 params: { id: node.id, changes: { visible: !node.visible } },
@@ -68,7 +59,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
             className="p-1 hover:text-white text-dcc-muted ml-0.5"
             onClick={(e) => {
               e.stopPropagation();
-              onExecuteCommand({
+              executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'node.update',
                 params: { id: node.id, changes: { locked: !node.locked } },
@@ -88,12 +79,13 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
 
   const handleAddWarp = () => {
     const id = `warp_${Date.now()}`;
-    onExecuteCommand({
+    const name = `Warp ${project.nodes.filter((n) => n.kind.type === 'WarpDeformer').length + 1}`;
+    executeCommand({
       id: `cmd_${Date.now()}`,
       name: 'node.add',
       params: {
         id,
-        name: `Warp ${project.nodes.length + 1}`,
+        name,
         parent_id: selectedNodeId,
         visible: true,
         locked: false,
@@ -101,12 +93,59 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
           type: 'WarpDeformer',
           cols: 4,
           rows: 4,
-          bounds: [600, 300, 400, 400],
-          control_points: generateDefaultPoints(4, 4, [600, 300, 400, 400]),
+          bounds: [760, 340, 400, 400],
+          control_points: generateDefaultPoints(4, 4, [760, 340, 400, 400]),
         },
       },
     });
-    onSelectNode(id);
+    setSelectedNodeId(id);
+    notify(`Created Warp Deformer: ${name}`, 'success');
+  };
+
+  const handleAddRotation = () => {
+    const id = `rot_${Date.now()}`;
+    const name = `Rotation ${project.nodes.filter((n) => n.kind.type === 'RotationDeformer').length + 1}`;
+    executeCommand({
+      id: `cmd_${Date.now()}`,
+      name: 'node.add',
+      params: {
+        id,
+        name,
+        parent_id: selectedNodeId,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'RotationDeformer',
+          origin: [960, 540],
+          angle_deg: 0,
+          scale: [1, 1],
+        },
+      },
+    });
+    setSelectedNodeId(id);
+    notify(`Created Rotation Deformer: ${name}`, 'success');
+  };
+
+  const handleAddPart = () => {
+    const id = `part_${Date.now()}`;
+    const name = `Part ${project.nodes.filter((n) => n.kind.type === 'Part').length + 1}`;
+    executeCommand({
+      id: `cmd_${Date.now()}`,
+      name: 'node.add',
+      params: {
+        id,
+        name,
+        parent_id: selectedNodeId,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'Part',
+          collapsed: false,
+        },
+      },
+    });
+    setSelectedNodeId(id);
+    notify(`Created Part folder: ${name}`, 'success');
   };
 
   return (
@@ -116,19 +155,36 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
         <span className="text-dcc font-semibold uppercase tracking-wider text-dcc-muted">Hierarchy</span>
         <div className="flex items-center space-x-1">
           <button
-            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded"
+            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
             onClick={handleAddWarp}
-            title="Add Warp Deformer"
+            title="Create Warp Deformer"
           >
             <Plus className="w-3 h-3 mr-0.5" /> Warp
+          </button>
+          <button
+            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
+            onClick={handleAddRotation}
+            title="Create Rotation Deformer"
+          >
+            <Plus className="w-3 h-3 mr-0.5" /> Rot
+          </button>
+          <button
+            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
+            onClick={handleAddPart}
+            title="Create Part Folder"
+          >
+            <Plus className="w-3 h-3 mr-0.5" /> Part
           </button>
         </div>
       </div>
 
       {/* Node list */}
       <div className="flex-1 overflow-y-auto py-1">
-        {rootNodes.length === 0 ? (
-          <div className="p-4 text-center text-dcc text-dcc-muted">No nodes. Import PSD to begin.</div>
+        {project.nodes.length === 0 ? (
+          <div className="p-4 text-center text-dcc text-dcc-muted">
+            <p>No nodes yet.</p>
+            <p className="mt-1 text-dcc-sm text-zinc-500">Click + Warp above or Import PSD.</p>
+          </div>
         ) : (
           rootNodes.map((n) => renderNode(n, 0))
         )}
@@ -137,7 +193,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
   );
 };
 
-function generateDefaultPoints(cols: number, rows: number, bounds: [number, number, number, number]) {
+function generateDefaultPoints(cols: number, rows: number, bounds: [number, number, number, number]): [number, number][] {
   const [minX, minY, w, h] = bounds;
   const pts: [number, number][] = [];
   for (let r = 0; r <= rows; r++) {

@@ -1,19 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
-import type { Project, EvaluatedFrameJs } from '@l2d/schema';
+import { useEditor } from '../context/EditorContext.js';
 
-interface ViewportPanelProps {
-  project: Project;
-  frame: EvaluatedFrameJs | null;
-  selectedNodeId: string | null;
-  onExecuteCommand: (cmd: any) => void;
-}
-
-export const ViewportPanel: React.FC<ViewportPanelProps> = ({
-  project,
-  frame,
-  selectedNodeId,
-  onExecuteCommand,
-}) => {
+export const ViewportPanel: React.FC = () => {
+  const { project, frame, selectedNodeId, executeCommand } = useEditor();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(0.8);
@@ -49,6 +38,18 @@ export const ViewportPanel: React.FC<ViewportPanelProps> = ({
     ctx.strokeStyle = '#3f3f46';
     ctx.lineWidth = 2 / zoom;
     ctx.strokeRect(0, 0, project.canvas.width, project.canvas.height);
+
+    // If there are no meshes yet, draw empty guidance
+    if (!frame || frame.meshes.length === 0) {
+      ctx.fillStyle = '#27272a';
+      ctx.font = `${Math.round(24 / zoom)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(
+        'Empty Stage — Import PSD or create Deformers to begin',
+        project.canvas.width / 2,
+        project.canvas.height / 2
+      );
+    }
 
     // Draw evaluated meshes (wireframe or solid preview)
     if (frame) {
@@ -119,10 +120,10 @@ export const ViewportPanel: React.FC<ViewportPanelProps> = ({
         const [cx, cy] = cps[i];
         ctx.fillStyle = i === draggingCpIndex ? '#f43f5e' : '#38bdf8';
         ctx.beginPath();
-        ctx.arc(cx, cy, 4 / zoom, 0, Math.PI * 2);
+        ctx.arc(cx, cy, 5 / zoom, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1 / zoom;
+        ctx.lineWidth = 1.2 / zoom;
         ctx.stroke();
       }
       ctx.restore();
@@ -189,6 +190,7 @@ export const ViewportPanel: React.FC<ViewportPanelProps> = ({
         <span>Zoom: {(zoom * 100).toFixed(0)}%</span>
         <span>Pan: ({pan.x.toFixed(0)}, {pan.y.toFixed(0)})</span>
         <span>Meshes: {frame?.meshes.length ?? 0}</span>
+        {selectedNode && <span className="text-blue-400">Selected: {selectedNode.name || selectedNode.id}</span>}
       </div>
     </div>
   );

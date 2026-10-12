@@ -1,23 +1,10 @@
 import React from 'react';
-import type { Project, Node, BlendMode } from '@l2d/schema';
+import { useEditor } from '../context/EditorContext.js';
 import { ScrubInput } from './ScrubInput.js';
 import { Info, Sparkles, Layers } from 'lucide-react';
 
-interface InspectorPanelProps {
-  project: Project;
-  selectedNodeId: string | null;
-  onExecuteCommand: (cmd: any) => void;
-  onChangeStart?: () => void;
-  onChangeEnd?: () => void;
-}
-
-export const InspectorPanel: React.FC<InspectorPanelProps> = ({
-  project,
-  selectedNodeId,
-  onExecuteCommand,
-  onChangeStart,
-  onChangeEnd,
-}) => {
+export const InspectorPanel: React.FC = () => {
+  const { project, selectedNodeId, executeCommand, notify } = useEditor();
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId);
 
   if (!selectedNode) {
@@ -34,7 +21,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             <ScrubInput
               value={project.canvas.width}
               onChange={(v) =>
-                onExecuteCommand({
+                executeCommand({
                   id: `cmd_${Date.now()}`,
                   name: 'canvas.update',
                   params: { width: v },
@@ -42,8 +29,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               }
               step={10}
               min={100}
-              onChangeStart={onChangeStart}
-              onChangeEnd={onChangeEnd}
             />
           </div>
           <div>
@@ -51,7 +36,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             <ScrubInput
               value={project.canvas.height}
               onChange={(v) =>
-                onExecuteCommand({
+                executeCommand({
                   id: `cmd_${Date.now()}`,
                   name: 'canvas.update',
                   params: { height: v },
@@ -59,8 +44,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               }
               step={10}
               min={100}
-              onChangeStart={onChangeStart}
-              onChangeEnd={onChangeEnd}
             />
           </div>
         </div>
@@ -95,7 +78,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             className="w-full h-6 px-1.5 text-dcc bg-dcc-bg border border-dcc-border rounded text-dcc-text outline-none focus:border-dcc-accent"
             value={selectedNode.name}
             onChange={(e) =>
-              onExecuteCommand({
+              executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'node.update',
                 params: { id: selectedNode.id, changes: { name: e.target.value } },
@@ -121,17 +104,76 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           </div>
 
           <button
-            className="w-full mt-2 flex items-center justify-center px-2 py-1.5 text-dcc bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded font-medium"
-            onClick={() =>
-              onExecuteCommand({
+            className="w-full mt-2 flex items-center justify-center px-2 py-1.5 text-dcc bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded font-medium transition-colors"
+            onClick={() => {
+              executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'macro.setup_turn_xy',
                 params: { target_node_id: selectedNode.id },
-              })
-            }
+              });
+              notify(`Setup 3x3 Turn XY on ${selectedNode.name || selectedNode.id}`, 'success');
+            }}
           >
             <Sparkles className="w-3.5 h-3.5 mr-1" /> Auto Setup Turn XY (3x3)
           </button>
+        </div>
+      )}
+
+      {/* Rotation Deformer Properties */}
+      {kind.type === 'RotationDeformer' && (
+        <div className="space-y-2 pt-2 border-t border-dcc-border">
+          <span className="text-dcc font-semibold text-dcc-muted uppercase">Rotation Deformer</span>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-dcc-sm text-dcc-muted">Origin X</label>
+              <ScrubInput
+                value={kind.origin[0]}
+                onChange={(v) =>
+                  executeCommand({
+                    id: `cmd_${Date.now()}`,
+                    name: 'node.update',
+                    params: {
+                      id: selectedNode.id,
+                      changes: { kind: { ...kind, origin: [v, kind.origin[1]] } },
+                    },
+                  })
+                }
+              />
+            </div>
+            <div>
+              <label className="text-dcc-sm text-dcc-muted">Origin Y</label>
+              <ScrubInput
+                value={kind.origin[1]}
+                onChange={(v) =>
+                  executeCommand({
+                    id: `cmd_${Date.now()}`,
+                    name: 'node.update',
+                    params: {
+                      id: selectedNode.id,
+                      changes: { kind: { ...kind, origin: [kind.origin[0], v] } },
+                    },
+                  })
+                }
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-dcc-sm text-dcc-muted">Angle (deg)</label>
+            <ScrubInput
+              value={kind.angle_deg}
+              onChange={(v) =>
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'node.update',
+                  params: {
+                    id: selectedNode.id,
+                    changes: { kind: { ...kind, angle_deg: v } },
+                  },
+                })
+              }
+              step={1}
+            />
+          </div>
         </div>
       )}
 
@@ -154,7 +196,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             <ScrubInput
               value={kind.opacity}
               onChange={(v) =>
-                onExecuteCommand({
+                executeCommand({
                   id: `cmd_${Date.now()}`,
                   name: 'node.update',
                   params: {
@@ -166,8 +208,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               step={0.05}
               min={0}
               max={1}
-              onChangeStart={onChangeStart}
-              onChangeEnd={onChangeEnd}
             />
           </div>
         </div>
