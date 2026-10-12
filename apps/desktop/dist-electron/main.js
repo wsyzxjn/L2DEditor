@@ -1,6 +1,6 @@
-import { app as Tt, BrowserWindow as jn, ipcMain as qt, dialog as zn } from "electron";
-import * as nt from "path";
-import * as rt from "fs";
+import { app as Tt, BrowserWindow as zn, ipcMain as Rt, dialog as Kt } from "electron";
+import * as it from "path";
+import * as ot from "fs";
 import { fileURLToPath as ti } from "url";
 import { createCanvas as Vn, clearAllCache as ni } from "@napi-rs/canvas";
 function ii(c, q, k, S, l = 2) {
@@ -20,10 +20,10 @@ function ii(c, q, k, S, l = 2) {
     }
   return { vertices: P, uvs: ee, indices: ye };
 }
-var ct = {}, $e = {}, Bt = {}, et = {}, ft = {}, tt = {}, dt = {}, on;
+var ct = {}, $e = {}, jt = {}, et = {}, ft = {}, tt = {}, dt = {}, rn;
 function oi() {
-  if (on) return dt;
-  on = 1;
+  if (rn) return dt;
+  rn = 1;
   const c = 4, q = 0, k = 1, S = 2;
   function l(d) {
     let L = d.length;
@@ -244,9 +244,9 @@ function oi() {
   }, Z = (d, L, o) => (d.pending_buf[d.sym_buf + d.sym_next++] = L, d.pending_buf[d.sym_buf + d.sym_next++] = L >> 8, d.pending_buf[d.sym_buf + d.sym_next++] = o, L === 0 ? d.dyn_ltree[o * 2]++ : (d.matches++, L--, d.dyn_ltree[(G[o] + y + 1) * 2]++, d.dyn_dtree[ue(L) * 2]++), d.sym_next === d.sym_end);
   return dt._tr_init = r, dt._tr_stored_block = h, dt._tr_flush_block = U, dt._tr_tally = Z, dt._tr_align = w, dt;
 }
-var jt, rn;
+var zt, sn;
 function Nn() {
-  return rn || (rn = 1, jt = (q, k, S, l) => {
+  return sn || (sn = 1, zt = (q, k, S, l) => {
     let f = q & 65535 | 0, a = q >>> 16 & 65535 | 0, P = 0;
     for (; S !== 0; ) {
       P = S > 2e3 ? 2e3 : S, S -= P;
@@ -256,12 +256,12 @@ function Nn() {
       f %= 65521, a %= 65521;
     }
     return f | a << 16 | 0;
-  }), jt;
+  }), zt;
 }
-var zt, sn;
+var Vt, an;
 function Gn() {
-  if (sn) return zt;
-  sn = 1;
+  if (an) return Vt;
+  an = 1;
   const c = () => {
     let S, l = [];
     for (var f = 0; f < 256; f++) {
@@ -272,17 +272,17 @@ function Gn() {
     }
     return l;
   }, q = new Uint32Array(c());
-  return zt = (S, l, f, a) => {
+  return Vt = (S, l, f, a) => {
     const P = q, ee = a + f;
     S ^= -1;
     for (let ye = a; ye < ee; ye++)
       S = S >>> 8 ^ P[(S ^ l[ye]) & 255];
     return S ^ -1;
-  }, zt;
+  }, Vt;
 }
-var Vt, an;
-function Kt() {
-  return an || (an = 1, Vt = {
+var Nt, ln;
+function Yt() {
+  return ln || (ln = 1, Nt = {
     2: "need dictionary",
     /* Z_NEED_DICT       2  */
     1: "stream end",
@@ -301,11 +301,11 @@ function Kt() {
     /* Z_BUF_ERROR     (-5) */
     "-6": "incompatible version"
     /* Z_VERSION_ERROR (-6) */
-  }), Vt;
+  }), Nt;
 }
-var Nt, ln;
+var Gt, cn;
 function gt() {
-  return ln || (ln = 1, Nt = {
+  return cn || (cn = 1, Gt = {
     /* Allowed flush values; see deflate() and inflate() below for details */
     Z_NO_FLUSH: 0,
     Z_PARTIAL_FLUSH: 1,
@@ -344,13 +344,13 @@ function gt() {
     /* The deflate compression method */
     Z_DEFLATED: 8
     //Z_NULL:                 null // Use -1 or null inline, depending on var type
-  }), Nt;
+  }), Gt;
 }
-var cn;
+var fn;
 function ri() {
-  if (cn) return tt;
-  cn = 1;
-  const { _tr_init: c, _tr_stored_block: q, _tr_flush_block: k, _tr_tally: S, _tr_align: l } = oi(), f = Nn(), a = Gn(), P = Kt(), {
+  if (fn) return tt;
+  fn = 1;
+  const { _tr_init: c, _tr_stored_block: q, _tr_flush_block: k, _tr_tally: S, _tr_align: l } = oi(), f = Nn(), a = Gn(), P = Yt(), {
     Z_NO_FLUSH: ee,
     Z_PARTIAL_FLUSH: ye,
     Z_FULL_FLUSH: O,
@@ -694,10 +694,10 @@ function ri() {
   };
   return tt.deflateInit = s, tt.deflateInit2 = Ne, tt.deflateReset = Ce, tt.deflateResetKeep = ge, tt.deflateSetHeader = De, tt.deflate = D, tt.deflateEnd = ae, tt.deflateSetDictionary = K, tt.deflateInfo = "pako deflate (from Nodeca project)", tt;
 }
-var Et = {}, fn;
+var Et = {}, dn;
 function Hn() {
-  if (fn) return Et;
-  fn = 1;
+  if (dn) return Et;
+  dn = 1;
   const c = (q, k) => Object.prototype.hasOwnProperty.call(q, k);
   return Et.assign = function(q) {
     const k = Array.prototype.slice.call(arguments, 1);
@@ -723,10 +723,10 @@ function Hn() {
     return S;
   }, Et;
 }
-var kt = {}, dn;
+var kt = {}, un;
 function Wn() {
-  if (dn) return kt;
-  dn = 1;
+  if (un) return kt;
+  un = 1;
   let c = !0;
   try {
     String.fromCharCode.apply(null, new Uint8Array(1));
@@ -788,20 +788,20 @@ function Wn() {
     return f < 0 || f === 0 ? l : f + q[S[f]] > l ? f : l;
   }, kt;
 }
-var Gt, un;
+var Ht, hn;
 function $n() {
-  if (un) return Gt;
-  un = 1;
+  if (hn) return Ht;
+  hn = 1;
   function c() {
     this.input = null, this.next_in = 0, this.avail_in = 0, this.total_in = 0, this.output = null, this.next_out = 0, this.avail_out = 0, this.total_out = 0, this.msg = "", this.state = null, this.data_type = 2, this.adler = 0;
   }
-  return Gt = c, Gt;
+  return Ht = c, Ht;
 }
-var hn;
+var pn;
 function si() {
-  if (hn) return ft;
-  hn = 1;
-  const c = ri(), q = Hn(), k = Wn(), S = Kt(), l = $n(), f = Object.prototype.toString, {
+  if (pn) return ft;
+  pn = 1;
+  const c = ri(), q = Hn(), k = Wn(), S = Yt(), l = $n(), f = Object.prototype.toString, {
     Z_NO_FLUSH: a,
     Z_SYNC_FLUSH: P,
     Z_FULL_FLUSH: ee,
@@ -882,12 +882,12 @@ function si() {
   }
   return ft.Deflate = ce, ft.deflate = ie, ft.deflateRaw = he, ft.gzip = fe, ft.constants = gt(), ft;
 }
-var ut = {}, Qe = {}, Ht, pn;
+var ut = {}, Qe = {}, Wt, gn;
 function ai() {
-  if (pn) return Ht;
-  pn = 1;
+  if (gn) return Wt;
+  gn = 1;
   const c = 16209, q = 16191;
-  return Ht = function(S, l) {
+  return Wt = function(S, l) {
     let f, a, P, ee, ye, O, y, H, V, le, ce, ie, he, fe, ne, B, z, C, F, N, J, W, n, p;
     const g = S.state;
     f = S.next_in, n = S.input, a = f + (S.avail_in - 5), P = S.next_out, p = S.output, ee = P - (l - S.avail_out), ye = P + (S.avail_out - 257), O = g.dmax, y = g.wsize, H = g.whave, V = g.wnext, le = g.window, ce = g.hold, ie = g.bits, he = g.lencode, fe = g.distcode, ne = (1 << g.lenbits) - 1, B = (1 << g.distbits) - 1;
@@ -974,12 +974,12 @@ function ai() {
           }
       } while (f < a && P < ye);
     F = ie >> 3, f -= F, ie -= F << 3, ce &= (1 << ie) - 1, S.next_in = f, S.next_out = P, S.avail_in = f < a ? 5 + (a - f) : 5 - (f - a), S.avail_out = P < ye ? 257 + (ye - P) : 257 - (P - ye), g.hold = ce, g.bits = ie;
-  }, Ht;
+  }, Wt;
 }
-var Wt, gn;
+var $t, mn;
 function li() {
-  if (gn) return Wt;
-  gn = 1;
+  if (mn) return $t;
+  mn = 1;
   const c = 15, q = 852, k = 592, S = 0, l = 1, f = 2, a = new Uint16Array([
     /* Length codes 257..285 base */
     3,
@@ -1115,7 +1115,7 @@ function li() {
     64,
     64
   ]);
-  return Wt = (y, H, V, le, ce, ie, he, fe) => {
+  return $t = (y, H, V, le, ce, ie, he, fe) => {
     const ne = fe.bits;
     let B = 0, z = 0, C = 0, F = 0, N = 0, J = 0, W = 0, n = 0, p = 0, g = 0, E, G, M, re, Q, se = null, me;
     const te = new Uint16Array(c + 1), ve = new Uint16Array(c + 1);
@@ -1162,12 +1162,12 @@ function li() {
       }
     }
     return g !== 0 && (ce[Q + g] = B - W << 24 | 64 << 16 | 0), fe.bits = N, 0;
-  }, Wt;
+  }, $t;
 }
-var mn;
+var bn;
 function ci() {
-  if (mn) return Qe;
-  mn = 1;
+  if (bn) return Qe;
+  bn = 1;
   const c = Nn(), q = Gn(), k = ai(), S = li(), l = 0, f = 1, a = 2, {
     Z_FINISH: P,
     Z_BLOCK: ee,
@@ -1702,20 +1702,20 @@ function ci() {
   };
   return Qe.inflateReset = e, Qe.inflateReset2 = i, Qe.inflateResetKeep = oe, Qe.inflateInit = h, Qe.inflateInit2 = r, Qe.inflate = o, Qe.inflateEnd = _, Qe.inflateGetHeader = I, Qe.inflateSetDictionary = x, Qe.inflateInfo = "pako inflate (from Nodeca project)", Qe;
 }
-var $t, bn;
+var Zt, yn;
 function fi() {
-  if (bn) return $t;
-  bn = 1;
+  if (yn) return Zt;
+  yn = 1;
   function c() {
     this.text = 0, this.time = 0, this.xflags = 0, this.os = 0, this.extra = null, this.extra_len = 0, this.name = "", this.comment = "", this.hcrc = 0, this.done = !1;
   }
-  return $t = c, $t;
+  return Zt = c, Zt;
 }
-var yn;
+var wn;
 function di() {
-  if (yn) return ut;
-  yn = 1;
-  const c = ci(), q = Hn(), k = Wn(), S = Kt(), l = $n(), f = fi(), a = Object.prototype.toString, {
+  if (wn) return ut;
+  wn = 1;
+  const c = ci(), q = Hn(), k = Wn(), S = Yt(), l = $n(), f = fi(), a = Object.prototype.toString, {
     Z_NO_FLUSH: P,
     Z_FINISH: ee,
     Z_OK: ye,
@@ -1784,17 +1784,17 @@ function di() {
   }
   return ut.Inflate = ce, ut.inflate = ie, ut.inflateRaw = he, ut.ungzip = ie, ut.constants = gt(), ut;
 }
-var wn;
+var Sn;
 function Zn() {
-  if (wn) return et;
-  wn = 1;
+  if (Sn) return et;
+  Sn = 1;
   const { Deflate: c, deflate: q, deflateRaw: k, gzip: S } = si(), { Inflate: l, inflate: f, inflateRaw: a, ungzip: P } = di(), ee = gt();
   return et.Deflate = c, et.deflate = q, et.deflateRaw = k, et.gzip = S, et.Inflate = l, et.inflate = f, et.inflateRaw = a, et.ungzip = P, et.constants = ee, et;
 }
-var Pt = {}, Sn;
+var Pt = {}, _n;
 function ui() {
-  if (Sn) return Pt;
-  Sn = 1, Object.defineProperty(Pt, "__esModule", { value: !0 }), Pt.decodeJpeg = ne;
+  if (_n) return Pt;
+  _n = 1, Object.defineProperty(Pt, "__esModule", { value: !0 }), Pt.decodeJpeg = ne;
   const c = new Int32Array([
     0,
     1,
@@ -2441,9 +2441,9 @@ function ui() {
   }
   return Pt;
 }
-var _n;
+var vn;
 function mt() {
-  return _n || (_n = 1, (function(c) {
+  return vn || (vn = 1, (function(c) {
     Object.defineProperty(c, "__esModule", { value: !0 }), c.createImageData = c.createCanvas = c.MaskParams = c.LayerMaskFlags = c.ColorSpace = c.largeAdditionalInfoKeys = c.layerColors = c.toBlendMode = c.fromBlendMode = c.RAW_IMAGE_DATA = c.MOCK_HANDLERS = void 0, c.revMap = S, c.createEnum = l, c.offsetForChannel = ee, c.clamp = ye, c.hasAlpha = O, c.resetImageData = y, c.imageDataToCanvas = H, c.decodeBitmap = V, c.writeDataRaw = le, c.writeDataRLE = ce, c.writeDataZipWithoutPrediction = ie, c.createCanvasFromData = he, c.initializeCanvas = z;
     const q = Zn(), k = ui();
     c.MOCK_HANDLERS = !1, c.RAW_IMAGE_DATA = !1, c.fromBlendMode = {}, c.toBlendMode = {
@@ -2684,12 +2684,12 @@ function mt() {
     function z(C, F) {
       c.createCanvas = C, c.createImageData = F || c.createImageData;
     }
-  })(Bt)), Bt;
+  })(jt)), jt;
 }
-var Zt = {}, It = {}, vn;
-function Yt() {
-  if (vn) return It;
-  vn = 1, It.byteLength = P, It.toByteArray = ye, It.fromByteArray = H;
+var Xt = {}, It = {}, kn;
+function Jt() {
+  if (kn) return It;
+  kn = 1, It.byteLength = P, It.toByteArray = ye, It.fromByteArray = H;
   for (var c = [], q = [], k = typeof Uint8Array < "u" ? Uint8Array : Array, S = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", l = 0, f = S.length; l < f; ++l)
     c[l] = S[l], q[S.charCodeAt(l)] = l;
   q[45] = 62, q[95] = 63;
@@ -2734,10 +2734,10 @@ function Yt() {
   }
   return It;
 }
-var Ft = {}, Dt = {}, Xt = {}, ht = {}, kn;
+var Ft = {}, Dt = {}, qt = {}, ht = {}, In;
 function hi() {
-  if (kn) return ht;
-  kn = 1, Object.defineProperty(ht, "__esModule", { value: !0 }), ht.stringLengthInBytes = k, ht.encodeStringTo = l, ht.encodeString = f, ht.decodeString = a;
+  if (In) return ht;
+  In = 1, Object.defineProperty(ht, "__esModule", { value: !0 }), ht.stringLengthInBytes = k, ht.encodeStringTo = l, ht.encodeString = f, ht.decodeString = a;
   function c(P) {
     return (P & 4294967168) === 0 ? 1 : (P & 4294965248) === 0 ? 2 : (P & 4294901760) === 0 ? 3 : 4;
   }
@@ -2813,9 +2813,9 @@ function hi() {
   }
   return ht;
 }
-var Ot = {}, In;
-function Jt() {
-  return In || (In = 1, (function(c) {
+var Ot = {}, Fn;
+function Qt() {
+  return Fn || (Fn = 1, (function(c) {
     var q = Ot && Ot.__rest || function(o, _) {
       var I = {};
       for (var x in o) Object.prototype.hasOwnProperty.call(o, x) && _.indexOf(x) < 0 && (I[x] = o[x]);
@@ -4643,11 +4643,11 @@ function Jt() {
     });
   })(Ot)), Ot;
 }
-var Fn;
+var Dn;
 function Xn() {
-  return Fn || (Fn = 1, (function(c) {
+  return Dn || (Dn = 1, (function(c) {
     Object.defineProperty(c, "__esModule", { value: !0 }), c.resourceHandlersMap = c.resourceHandlers = void 0;
-    const q = Yt(), k = bt(), S = At(), l = mt(), f = hi(), a = Jt();
+    const q = Jt(), k = bt(), S = At(), l = mt(), f = hi(), a = Qt();
     c.resourceHandlers = [], c.resourceHandlersMap = {};
     function P(n, p, g, E) {
       const G = { key: n, has: p, read: g, write: E };
@@ -5468,11 +5468,11 @@ function Xn() {
         (0, S.writeBytes)(n, p._ir4002);
       }
     );
-  })(Xt)), Xt;
+  })(qt)), qt;
 }
-var Dn;
+var On;
 function bt() {
-  return Dn || (Dn = 1, (function(c) {
+  return On || (On = 1, (function(c) {
     var q = Dt && Dt.__rest || function(s, D) {
       var ae = {};
       for (var K in s) Object.prototype.hasOwnProperty.call(s, K) && D.indexOf(K) < 0 && (ae[K] = s[K]);
@@ -5482,7 +5482,7 @@ function bt() {
       return ae;
     };
     Object.defineProperty(c, "__esModule", { value: !0 }), c.supportedColorModes = void 0, c.createReader = ee, c.warnOrThrow = ye, c.readUint8 = O, c.peekUint8 = y, c.readInt16 = H, c.readUint16 = V, c.readUint16LE = le, c.readInt32 = ce, c.readInt32LE = ie, c.readUint32 = he, c.readFloat32 = fe, c.readFloat64 = ne, c.readFixedPoint32 = B, c.readFixedPointPath32 = z, c.readBytes = C, c.readSignature = F, c.validSignatureAt = N, c.readPascalString = J, c.readUnicodeString = W, c.readUnicodeStringWithLength = n, c.readUnicodeStringWithLengthLE = p, c.readAsciiString = g, c.skipBytes = E, c.checkSignature = G, c.readPsd = Q, c.readLayerInfo = se, c.getCompositeImageData = Ie, c.getCompositeCanvas = xe, c.getLayerImageData = Ae, c.getLayerMaskImageData = ze, c.getLayerRealMaskImageData = Pe, c.getLayerCanvas = Re, c.getLayerMaskCanvas = Ve, c.getLayerRealMaskCanvas = Ge, c.decodeLayerPixels = A, c.readGlobalLayerMaskInfo = e, c.readAdditionalLayerInfo = w, c.readDataZip = X, c.readDataRLE = u, c.readSection = $, c.readColor = be, c.readPattern = ge;
-    const k = Zn(), S = mt(), l = Qt(), f = Xn();
+    const k = Zn(), S = mt(), l = en(), f = Xn();
     c.supportedColorModes = [
       0,
       1,
@@ -6267,37 +6267,37 @@ function bt() {
       for (let Ze = 0, Ke = 0; Ze < He + 2; Ze++) {
         if (!he(s))
           continue;
-        const wt = he(s), Kn = he(s), en = he(s), tn = he(s), Yn = he(s), Jn = he(s), Qn = V(s), nn = O(s), ei = wt - 23, yt = C(s, ei);
+        const wt = he(s), Kn = he(s), tn = he(s), nn = he(s), Yn = he(s), Jn = he(s), Qn = V(s), on = O(s), ei = wt - 23, yt = C(s, ei);
         if (Kn !== 8 || Qn !== 8)
           throw new Error("16bit pixel depth not supported for patterns");
-        const Je = Jn - tn, it = Yn - en, St = tn - Ee, _t = en - Se;
-        if (nn === 0) {
+        const Je = Jn - nn, rt = Yn - tn, St = nn - Ee, _t = tn - Se;
+        if (on === 0) {
           if (t === 3 && Ke < 3)
-            for (let qe = 0; qe < it; qe++)
+            for (let qe = 0; qe < rt; qe++)
               for (let Xe = 0; Xe < Je; Xe++) {
-                const lt = Xe + qe * Je, ot = (St + Xe + (qe + _t) * Me) * 4;
-                We[ot + Ke] = yt[lt];
+                const lt = Xe + qe * Je, st = (St + Xe + (qe + _t) * Me) * 4;
+                We[st + Ke] = yt[lt];
               }
           else if (t === 1 && Ke < 1)
-            for (let qe = 0; qe < it; qe++)
+            for (let qe = 0; qe < rt; qe++)
               for (let Xe = 0; Xe < Je; Xe++) {
-                const lt = Xe + qe * Je, ot = (St + Xe + (qe + _t) * Me) * 4, vt = yt[lt];
-                We[ot + 0] = vt, We[ot + 1] = vt, We[ot + 2] = vt;
+                const lt = Xe + qe * Je, st = (St + Xe + (qe + _t) * Me) * 4, vt = yt[lt];
+                We[st + 0] = vt, We[st + 1] = vt, We[st + 2] = vt;
               }
           else if (t === 2)
-            for (let qe = 0; qe < it; qe++)
+            for (let qe = 0; qe < rt; qe++)
               for (let Xe = 0; Xe < Je; Xe++) {
-                const lt = Xe + qe * Je, ot = (St + Xe + (qe + _t) * Me) * 4, vt = yt[lt], Rt = we[vt];
-                We[ot + 0] = Rt.r, We[ot + 1] = Rt.g, We[ot + 2] = Rt.b;
+                const lt = Xe + qe * Je, st = (St + Xe + (qe + _t) * Me) * 4, vt = yt[lt], Bt = we[vt];
+                We[st + 0] = Bt.r, We[st + 1] = Bt.g, We[st + 2] = Bt.b;
               }
           else if (s.throwForMissingFeatures)
             throw new Error("Invalid color pattern");
-        } else if (nn === 1) {
-          De(s, Je * it);
-          const qe = { data: We, width: Me, height: je }, Xe = { data: new Uint8Array(Je * it), width: Je, height: it }, lt = ee(yt.buffer, yt.byteOffset, yt.byteLength);
-          if (t === 3 && Ke < 3 && (u(lt, Xe, Je, it, 8, 1, [0], !1), Ce(Xe, qe, St, _t, Ke)), t === 1 && Ke < 1 && (u(lt, Xe, Je, it, 8, 1, [0], !1), Ce(Xe, qe, St, _t, 0), P(qe)), t === 2)
+        } else if (on === 1) {
+          De(s, Je * rt);
+          const qe = { data: We, width: Me, height: je }, Xe = { data: new Uint8Array(Je * rt), width: Je, height: rt }, lt = ee(yt.buffer, yt.byteOffset, yt.byteLength);
+          if (t === 3 && Ke < 3 && (u(lt, Xe, Je, rt, 8, 1, [0], !1), Ce(Xe, qe, St, _t, Ke)), t === 1 && Ke < 1 && (u(lt, Xe, Je, rt, 8, 1, [0], !1), Ce(Xe, qe, St, _t, 0), P(qe)), t === 2)
             throw new Error("Indexed pattern color mode not implemented");
-          Ne(s, Je * it);
+          Ne(s, Je * rt);
         } else
           throw new Error("Invalid pattern compression mode");
         Ke++;
@@ -6324,10 +6324,10 @@ function bt() {
     }
   })(Dt)), Dt;
 }
-var On;
+var Cn;
 function pi() {
-  if (On) return Ft;
-  On = 1, Object.defineProperty(Ft, "__esModule", { value: !0 }), Ft.readEffects = ee, Ft.writeEffects = O;
+  if (Cn) return Ft;
+  Cn = 1, Object.defineProperty(Ft, "__esModule", { value: !0 }), Ft.readEffects = ee, Ft.writeEffects = O;
   const c = mt(), q = bt(), k = At(), S = [
     void 0,
     "outer bevel",
@@ -6481,10 +6481,10 @@ function pi() {
   }
   return Ft;
 }
-var Ct = {}, Cn;
+var Ct = {}, xn;
 function gi() {
-  if (Cn) return Ct;
-  Cn = 1, Object.defineProperty(Ct, "__esModule", { value: !0 }), Ct.parseEngineData = k, Ct.serializeEngineData = f;
+  if (xn) return Ct;
+  xn = 1, Object.defineProperty(Ct, "__esModule", { value: !0 }), Ct.parseEngineData = k, Ct.serializeEngineData = f;
   function c(a) {
     return a === 32 || a === 10 || a === 13 || a === 9;
   }
@@ -6719,10 +6719,10 @@ function gi() {
   }
   return Ct;
 }
-var xt = {}, xn;
+var xt = {}, An;
 function mi() {
-  if (xn) return xt;
-  xn = 1, Object.defineProperty(xt, "__esModule", { value: !0 }), xt.decodeEngineData = z, xt.encodeEngineData = C;
+  if (An) return xt;
+  An = 1, Object.defineProperty(xt, "__esModule", { value: !0 }), xt.decodeEngineData = z, xt.encodeEngineData = C;
   const c = {
     name: "MyriadPro-Regular",
     script: 0,
@@ -7173,10 +7173,10 @@ function mi() {
   }
   return xt;
 }
-var Ut = {}, An;
+var Ut = {}, En;
 function bi() {
-  if (An) return Ut;
-  An = 1, Object.defineProperty(Ut, "__esModule", { value: !0 }), Ut.decodeEngineData2 = a;
+  if (En) return Ut;
+  En = 1, Object.defineProperty(Ut, "__esModule", { value: !0 }), Ut.decodeEngineData2 = a;
   const c = {
     0: {
       uproot: !0,
@@ -7578,11 +7578,11 @@ function bi() {
   }
   return Ut;
 }
-var En;
-function Qt() {
-  return En || (En = 1, (function(c) {
+var Pn;
+function en() {
+  return Pn || (Pn = 1, (function(c) {
     Object.defineProperty(c, "__esModule", { value: !0 }), c.booleanOperations = c.infoHandlersMap = c.infoHandlers = void 0, c.readBezierKnot = ie, c.readVectorMask = fe, c.hasMultiEffects = oe;
-    const q = Yt(), k = pi(), S = mt(), l = bt(), f = At(), a = Jt(), P = gi(), ee = mi(), ye = bi(), O = "abcdefghijklmnopqrstuvwxyz";
+    const q = Jt(), k = pi(), S = mt(), l = bt(), f = At(), a = Qt(), P = gi(), ee = mi(), ye = bi(), O = "abcdefghijklmnopqrstuvwxyz";
     c.infoHandlers = [], c.infoHandlersMap = {};
     function y(e, i, r, h) {
       const w = { key: e, has: i, read: r, write: h };
@@ -10175,13 +10175,13 @@ function Qt() {
     }, (e, i) => {
       (0, f.writeUint8)(e, i.transparencyShapesLayer ? 1 : 0), (0, f.writeZeros)(e, 3);
     });
-  })(Zt)), Zt;
+  })(Xt)), Xt;
 }
-var Pn;
+var Un;
 function At() {
-  if (Pn) return $e;
-  Pn = 1, Object.defineProperty($e, "__esModule", { value: !0 }), $e.createWriter = S, $e.getWriterBuffer = l, $e.getWriterBufferNoCopy = f, $e.writeUint8 = a, $e.writeInt16 = P, $e.writeUint16 = ee, $e.writeUint16LE = ye, $e.writeInt32 = O, $e.writeInt32LE = y, $e.writeUint32 = H, $e.writeFloat32 = V, $e.writeFloat64 = le, $e.writeFixedPoint32 = ce, $e.writeFixedPointPath32 = ie, $e.writeBytes = he, $e.writeZeros = fe, $e.writeSignature = ne, $e.writeAsciiString = B, $e.writePascalString = z, $e.writeUnicodeStringWithoutLength = C, $e.writeUnicodeStringWithoutLengthLE = F, $e.writeUnicodeString = N, $e.writeUnicodeStringWithPadding = J, $e.writeSection = n, $e.writePsd = g, $e.writeColor = Ge, $e.writePattern = Be;
-  const c = mt(), q = Qt(), k = Xn();
+  if (Un) return $e;
+  Un = 1, Object.defineProperty($e, "__esModule", { value: !0 }), $e.createWriter = S, $e.getWriterBuffer = l, $e.getWriterBufferNoCopy = f, $e.writeUint8 = a, $e.writeInt16 = P, $e.writeUint16 = ee, $e.writeUint16LE = ye, $e.writeInt32 = O, $e.writeInt32LE = y, $e.writeUint32 = H, $e.writeFloat32 = V, $e.writeFloat64 = le, $e.writeFixedPoint32 = ce, $e.writeFixedPointPath32 = ie, $e.writeBytes = he, $e.writeZeros = fe, $e.writeSignature = ne, $e.writeAsciiString = B, $e.writePascalString = z, $e.writeUnicodeStringWithoutLength = C, $e.writeUnicodeStringWithoutLengthLE = F, $e.writeUnicodeString = N, $e.writeUnicodeStringWithPadding = J, $e.writeSection = n, $e.writePsd = g, $e.writeColor = Ge, $e.writePattern = Be;
+  const c = mt(), q = en(), k = Xn();
   function S(v = 4096) {
     const A = new ArrayBuffer(v), Y = new DataView(A);
     return { buffer: A, view: Y, offset: 0, tempBuffer: void 0 };
@@ -10656,11 +10656,11 @@ function At() {
   }
   return $e;
 }
-var Lt = {}, Un;
+var Lt = {}, Ln;
 function yi() {
-  if (Un) return Lt;
-  Un = 1, Object.defineProperty(Lt, "__esModule", { value: !0 }), Lt.readAbr = ye;
-  const c = Jt(), q = bt(), k = ["off", "fade", "pen pressure", "pen tilt", "stylus wheel", "initial direction", "direction", "initial rotation", "rotation"], S = ["round point", "round blunt", "round curve", "round angle", "round fan", "flat point", "flat blunt", "flat curve", "flat angle", "flat fan"], l = ["erodible point", "erodible flat", "erodible round", "erodible square", "erodible triangle", "custom"], f = {
+  if (Ln) return Lt;
+  Ln = 1, Object.defineProperty(Lt, "__esModule", { value: !0 }), Lt.readAbr = ye;
+  const c = Qt(), q = bt(), k = ["off", "fade", "pen pressure", "pen tilt", "stylus wheel", "initial direction", "direction", "initial rotation", "rotation"], S = ["round point", "round blunt", "round curve", "round angle", "round fan", "flat point", "flat blunt", "flat curve", "flat angle", "flat fan"], l = ["erodible point", "erodible flat", "erodible round", "erodible square", "erodible triangle", "custom"], f = {
     _: "brush",
     MixB: "mixer brush",
     SmTl: "smudge brush"
@@ -10921,11 +10921,11 @@ function yi() {
   }
   return Lt;
 }
-var Mt = {}, Ln;
+var Mt = {}, Mn;
 function wi() {
-  if (Ln) return Mt;
-  Ln = 1, Object.defineProperty(Mt, "__esModule", { value: !0 }), Mt.readCsh = k;
-  const c = Qt(), q = bt();
+  if (Mn) return Mt;
+  Mn = 1, Object.defineProperty(Mt, "__esModule", { value: !0 }), Mt.readCsh = k;
+  const c = en(), q = bt();
   function k(S) {
     const l = (0, q.createReader)(S.buffer, S.byteOffset, S.byteLength), f = { shapes: [] };
     if ((0, q.checkSignature)(l, "cush"), (0, q.readUint32)(l) !== 2)
@@ -10944,10 +10944,10 @@ function wi() {
   }
   return Mt;
 }
-var Ye = {}, Mn;
+var Ye = {}, Tn;
 function Si() {
-  if (Mn) return Ye;
-  Mn = 1, Object.defineProperty(Ye, "__esModule", { value: !0 }), Ye.Compression = Ye.ChannelID = Ye.LayerCompCapturedInfo = Ye.SectionDividerType = Ye.ColorMode = void 0;
+  if (Tn) return Ye;
+  Tn = 1, Object.defineProperty(Ye, "__esModule", { value: !0 }), Ye.Compression = Ye.ChannelID = Ye.LayerCompCapturedInfo = Ye.SectionDividerType = Ye.ColorMode = void 0;
   var c;
   (function(f) {
     f[f.Bitmap = 0] = "Bitmap", f[f.Grayscale = 1] = "Grayscale", f[f.Indexed = 2] = "Indexed", f[f.RGB = 3] = "RGB", f[f.CMYK = 4] = "CMYK", f[f.Multichannel = 7] = "Multichannel", f[f.Duotone = 8] = "Duotone", f[f.Lab = 9] = "Lab";
@@ -10969,9 +10969,9 @@ function Si() {
     f[f.RawData = 0] = "RawData", f[f.RleCompressed = 1] = "RleCompressed", f[f.ZipWithoutPrediction = 2] = "ZipWithoutPrediction", f[f.ZipWithPrediction = 3] = "ZipWithPrediction";
   })(l || (Ye.Compression = l = {})), Ye;
 }
-var Tn;
+var Rn;
 function _i() {
-  return Tn || (Tn = 1, (function(c) {
+  return Rn || (Rn = 1, (function(c) {
     var q = ct && ct.__createBinding || (Object.create ? (function(y, H, V, le) {
       le === void 0 && (le = V);
       var ce = Object.getOwnPropertyDescriptor(H, V);
@@ -11004,7 +11004,7 @@ function _i() {
     } }), Object.defineProperty(c, "getCompositeCanvas", { enumerable: !0, get: function() {
       return l.getCompositeCanvas;
     } });
-    const f = Yt();
+    const f = Jt();
     k(yi(), c), k(wi(), c);
     var a = mt();
     Object.defineProperty(c, "initializeCanvas", { enumerable: !0, get: function() {
@@ -11176,10 +11176,10 @@ function ki(c) {
 function Ii(c) {
   return c.trim().replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, "");
 }
-const Rn = nt.dirname(ti(import.meta.url));
-let st = null;
-function Bn() {
-  st = new jn({
+const Bn = it.dirname(ti(import.meta.url));
+let nt = null;
+function jn() {
+  nt = new zn({
     width: 1440,
     height: 900,
     minWidth: 1024,
@@ -11189,62 +11189,79 @@ function Bn() {
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 14, y: 10 },
     webPreferences: {
-      preload: nt.join(Rn, "preload.js"),
+      preload: it.join(Bn, "preload.js"),
       nodeIntegration: !1,
       contextIsolation: !0
     }
-  }), process.env.VITE_DEV_SERVER_URL ? st.loadURL(process.env.VITE_DEV_SERVER_URL) : st.loadFile(nt.join(Rn, "../dist/index.html")), st.on("closed", () => {
-    st = null;
+  }), process.env.VITE_DEV_SERVER_URL ? nt.loadURL(process.env.VITE_DEV_SERVER_URL) : nt.loadFile(it.join(Bn, "../dist/index.html")), nt.on("closed", () => {
+    nt = null;
   });
 }
 Tt.whenReady().then(() => {
-  Bn(), Tt.on("activate", () => {
-    jn.getAllWindows().length === 0 && Bn();
+  jn(), Tt.on("activate", () => {
+    zn.getAllWindows().length === 0 && jn();
   });
 });
 Tt.on("window-all-closed", () => {
   process.platform !== "darwin" && Tt.quit();
 });
-qt.handle("l2d:open-project-dialog", async () => {
-  if (!st) return null;
-  const { canceled: c, filePaths: q } = await zn.showOpenDialog(st, {
+Rt.handle("l2d:open-project-dialog", async () => {
+  if (!nt) return null;
+  const { canceled: c, filePaths: q } = await Kt.showOpenDialog(nt, {
     title: "Open L2DEditor Project",
     properties: ["openDirectory", "openFile"],
     filters: [{ name: "L2D Project", extensions: ["json", "l2dproj"] }]
   });
   if (c || q.length === 0) return null;
   let k = q[0];
-  if (rt.statSync(k).isDirectory() && (k = nt.join(k, "project.json")), rt.existsSync(k)) {
-    const S = rt.readFileSync(k, "utf-8");
+  if (ot.statSync(k).isDirectory() && (k = it.join(k, "project.json")), ot.existsSync(k)) {
+    const S = ot.readFileSync(k, "utf-8");
     return { path: k, content: S };
   }
   return null;
 });
-qt.handle("l2d:save-project", async (c, q, k) => {
+Rt.handle("l2d:save-project", async (c, q, k) => {
   try {
-    return rt.writeFileSync(q, k, "utf-8"), !0;
+    return ot.writeFileSync(q, k, "utf-8"), !0;
   } catch (S) {
     return console.error("Failed to save project:", S), !1;
   }
 });
-qt.handle("l2d:import-psd-dialog", async () => {
-  if (!st) return null;
-  const { canceled: c, filePaths: q } = await zn.showOpenDialog(st, {
+Rt.handle("l2d:save-project-as-dialog", async (c, q, k) => {
+  if (!nt) return null;
+  const { canceled: S, filePath: l } = await Kt.showSaveDialog(nt, {
+    title: "Save Project As",
+    defaultPath: k || "project.json",
+    filters: [
+      { name: "L2D Project JSON", extensions: ["json"] },
+      { name: "All Files", extensions: ["*"] }
+    ]
+  });
+  if (S || !l) return null;
+  try {
+    return ot.writeFileSync(l, q, "utf-8"), { path: l, success: !0 };
+  } catch (f) {
+    return console.error("Failed to save project:", f), { error: f.message || String(f), success: !1 };
+  }
+});
+Rt.handle("l2d:import-psd-dialog", async () => {
+  if (!nt) return null;
+  const { canceled: c, filePaths: q } = await Kt.showOpenDialog(nt, {
     title: "Select Photoshop (.psd) File",
     filters: [{ name: "Photoshop Document", extensions: ["psd"] }],
     properties: ["openFile"]
   });
   if (c || q.length === 0) return null;
-  const k = q[0], S = nt.join(nt.dirname(k), `${nt.basename(k, ".psd")}.l2dproj`);
+  const k = q[0], S = it.join(it.dirname(k), `${it.basename(k, ".psd")}.l2dproj`);
   try {
-    const l = rt.readFileSync(k), { project: f, extractedTextures: a } = await vi(l, { meshDensity: 2 });
-    rt.mkdirSync(S, { recursive: !0 });
-    const P = nt.join(S, "textures");
-    rt.mkdirSync(P, { recursive: !0 });
+    const l = ot.readFileSync(k), { project: f, extractedTextures: a } = await vi(l, { meshDensity: 2 });
+    ot.mkdirSync(S, { recursive: !0 });
+    const P = it.join(S, "textures");
+    ot.mkdirSync(P, { recursive: !0 });
     for (const O of a)
-      rt.writeFileSync(nt.join(P, O.filename), O.buffer);
-    const ee = nt.join(S, "project.json"), ye = JSON.stringify(f, null, 2);
-    return rt.writeFileSync(ee, ye, "utf-8"), { outputPath: ee, projectContent: ye };
+      ot.writeFileSync(it.join(P, O.filename), O.buffer);
+    const ee = it.join(S, "project.json"), ye = JSON.stringify(f, null, 2);
+    return ot.writeFileSync(ee, ye, "utf-8"), { outputPath: ee, projectContent: ye };
   } catch (l) {
     return console.error("Failed to import PSD:", l), null;
   }

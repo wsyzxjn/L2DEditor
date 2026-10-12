@@ -18,6 +18,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         onOpenChange(!open);
+      } else if (e.key === 'Escape' && open) {
+        e.preventDefault();
+        onOpenChange(false);
       }
     };
     document.addEventListener('keydown', down);
@@ -27,15 +30,35 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 bg-black/60 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center pt-24 bg-black/60 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onOpenChange(false);
+        }
+      }}
+    >
       <div className="w-full max-w-lg bg-dcc-panel border border-dcc-border rounded-lg shadow-2xl overflow-hidden">
         <Command className="w-full text-dcc">
-          <div className="flex items-center px-3 border-b border-dcc-border">
+          <div className="flex items-center justify-between px-3 border-b border-dcc-border">
             <Command.Input
               autoFocus
               placeholder="Type a command or search..."
               className="w-full h-10 bg-transparent text-dcc-text outline-none text-dcc"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  onOpenChange(false);
+                }
+              }}
             />
+            <button
+              className="px-1.5 py-0.5 text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded border border-dcc-border"
+              onClick={() => onOpenChange(false)}
+              title="Close (ESC)"
+            >
+              ESC
+            </button>
           </div>
           <Command.List className="max-h-72 overflow-y-auto p-1.5 space-y-0.5">
             <Command.Empty className="py-6 text-center text-dcc-muted">No commands found.</Command.Empty>

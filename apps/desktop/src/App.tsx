@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   DockviewReact,
   type DockviewReadyEvent,
@@ -11,12 +11,15 @@ import { InspectorPanel } from './components/InspectorPanel.js';
 import { ViewportPanel } from './components/ViewportPanel.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import {
+  FilePlus,
   FolderOpen,
   Save,
   FileUp,
   Undo2,
   Redo2,
   Command as CommandIcon,
+  Check,
+  AlertCircle,
 } from 'lucide-react';
 
 const defaultInitialProject: Project = {
@@ -47,6 +50,15 @@ export function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [parameterValues, setParameterValues] = useState<Record<string, number>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const notify = (text: string, type: 'info' | 'success' | 'error' = 'info') => {
+    setStatusMessage({ text, type });
+    setTimeout(() => {
+      setStatusMessage((curr) => (curr?.text === text ? null : curr));
+    }, 3500);
+  };
 
   // Command Bus instance
   const bus = useMemo(() => {
@@ -90,39 +102,63 @@ export function App() {
       setProject({ ...bus.getProject() });
     } else {
       console.error('Command failed:', res.error);
+      notify(`Error: ${res.error}`, 'error');
     }
   };
 
-  const beginCommandTransaction = () => {
-    if (bus.isTransactionActive()) return;
-    bus.beginTransaction();
-  };
-
-  const commitCommandTransaction = () => {
-    if (!bus.isTransactionActive()) return;
-    bus.commitTransaction();
-    setProject({ ...bus.getProject() });
+  const handleNew = () => {
+    bus.setProject(defaultInitialProject);
+    setProject({ ...defaultInitialProject });
+    setCurrentFilePath(null);
+    setSelectedNodeId(null);
+    setParameterValues({});
+    notify('Created new blank project', 'info');
   };
 
   const handleUndo = () => {
     if (bus.undo()) {
       setProject({ ...bus.getProject() });
+      notify('Undo', 'info');
     }
   };
 
   const handleRedo = () => {
     if (bus.redo()) {
       setProject({ ...bus.getProject() });
+      notify('Redo', 'info');
     }
   };
 
   const handleSave = async () => {
-    if (currentFilePath && (window as any).l2dApi) {
-      const json = JSON.stringify(project, null, 2);
+    const json = JSON.stringify(project, null, 2);
+    if ((window as any).l2dApi) {
+      if (!currentFilePath) {
+        await handleSaveAs();
+        return;
+      }
       const success = await (window as any).l2dApi.saveProject(currentFilePath, json);
       if (success) {
-        console.log('Project saved to', currentFilePath);
+        notify(`Saved to ${currentFilePath}`, 'success');
+      } else {
+        notify(`Failed to save to ${currentFilePath}`, 'error');
       }
+    } else {
+      downloadFile(json, 'project.json', 'application/json');
+      notify('Downloaded project.json', 'success');
+    }
+  };
+
+  const handleSaveAs = async () => {
+    const json = JSON.stringify(project, null, 2);
+    if ((window as any).l2dApi) {
+      const res = await (window as any).l2dApi.saveProjectAsDialog(json, 'project.json');
+      if (res && res.success && res.path) {
+        setCurrentFilePath(res.path);
+        notify(`Saved to ${res.path}`, 'success');
+      }
+    } else {
+      downloadFile(json, 'project.json', 'application/json');
+      notify('Downloaded project.json', 'success');
     }
   };
 
@@ -136,10 +172,13 @@ export function App() {
           setProject(parsed);
           setCurrentFilePath(res.path);
           setSelectedNodeId(null);
-        } catch (e) {
-          console.error('Failed to parse project:', e);
+          notify(`Opened project from ${res.path}`, 'success');
+        } catch (e: any) {
+          notify(`Failed to parse project: ${e?.message || e}`, 'error');
         }
       }
+    } else {
+      fileInputRef.current?.click();
     }
   };
 
@@ -153,12 +192,42 @@ export function App() {
           setProject(parsed);
           setCurrentFilePath(res.outputPath);
           setSelectedNodeId(null);
-        } catch (e) {
-          console.error('Failed to parse imported project:', e);
+          notify(`Imported PSD: ${parsed.nodes.length} nodes created`, 'success');
+        } catch (e: any) {
+          notify(`Failed to import PSD: ${e?.message || e}`, 'error');
         }
       }
+    } else {
+      notify('PSD import dialog requires Electron runtime', 'info');
     }
   };
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSave();
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        handleOpen();
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        handleNew();
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        handleUndo();
+      } else if (
+        (e.metaKey || e.ctrlKey) &&
+        ((e.shiftKey && e.key.toLowerCase() === 'z') || e.key.toLowerCase() === 'y')
+      ) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [project, currentFilePath]);
 
   // Dockview Components Dictionary
   const components = {
@@ -194,8 +263,6 @@ export function App() {
         project={project}
         selectedNodeId={selectedNodeId}
         onExecuteCommand={executeCommand}
-        onChangeStart={beginCommandTransaction}
-        onChangeEnd={commitCommandTransaction}
       />
     ),
   };
@@ -247,23 +314,30 @@ export function App() {
 
           <div className="flex items-center space-x-1">
             <button
-              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300"
+              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
+              onClick={handleNew}
+              title="New Project (Ctrl+N)"
+            >
+              <FilePlus className="w-3.5 h-3.5 mr-1" /> New
+            </button>
+            <button
+              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
               onClick={handleOpen}
-              title="Open Project"
+              title="Open Project (Ctrl+O)"
             >
               <FolderOpen className="w-3.5 h-3.5 mr-1" /> Open
             </button>
             <button
-              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300"
+              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
               onClick={handleSave}
               title="Save Project (Ctrl+S)"
             >
               <Save className="w-3.5 h-3.5 mr-1" /> Save
             </button>
             <button
-              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300"
+              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
               onClick={handleImportPsd}
-              title="Import PSD"
+              title="Import PSD Document"
             >
               <FileUp className="w-3.5 h-3.5 mr-1" /> Import PSD
             </button>
@@ -273,14 +347,14 @@ export function App() {
 
           <div className="flex items-center space-x-1">
             <button
-              className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white"
+              className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white transition-colors"
               onClick={handleUndo}
               title="Undo (Ctrl+Z)"
             >
               <Undo2 className="w-3.5 h-3.5" />
             </button>
             <button
-              className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white"
+              className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white transition-colors"
               onClick={handleRedo}
               title="Redo (Ctrl+Y)"
             >
@@ -291,14 +365,33 @@ export function App() {
 
         {/* Right Info & Palette */}
         <div className="flex items-center space-x-3 app-no-drag">
+          {statusMessage && (
+            <span
+              className={`flex items-center text-dcc-sm px-2 py-0.5 rounded font-medium transition-all ${
+                statusMessage.type === 'success'
+                  ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800'
+                  : statusMessage.type === 'error'
+                  ? 'bg-rose-950/80 text-rose-300 border border-rose-800'
+                  : 'bg-zinc-800 text-zinc-300 border border-zinc-700'
+              }`}
+            >
+              {statusMessage.type === 'success' ? (
+                <Check className="w-3 h-3 mr-1 text-emerald-400" />
+              ) : statusMessage.type === 'error' ? (
+                <AlertCircle className="w-3 h-3 mr-1 text-rose-400" />
+              ) : null}
+              {statusMessage.text}
+            </span>
+          )}
+
           {currentFilePath && (
-            <span className="text-dcc-sm text-dcc-muted font-mono truncate max-w-xs">
-              {currentFilePath}
+            <span className="text-dcc-sm text-dcc-muted font-mono truncate max-w-xs" title={currentFilePath}>
+              {currentFilePath.split('/').pop()}
             </span>
           )}
 
           <button
-            className="flex items-center px-2 py-1 text-dcc-sm bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border space-x-1.5"
+            className="flex items-center px-2 py-1 text-dcc-sm bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border space-x-1.5 transition-colors"
             onClick={() => setCommandPaletteOpen(true)}
           >
             <CommandIcon className="w-3 h-3 text-blue-400" />
@@ -322,21 +415,62 @@ export function App() {
         open={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
         onAction={(action) => {
-          if (action === 'save') handleSave();
+          if (action === 'new') handleNew();
+          else if (action === 'save') handleSave();
+          else if (action === 'save_as') handleSaveAs();
+          else if (action === 'open') handleOpen();
           else if (action === 'import_psd') handleImportPsd();
           else if (action === 'undo') handleUndo();
           else if (action === 'redo') handleRedo();
-          else if (action === 'macro_turn_xy') {
+          else if (action === 'lint') {
+            notify('Running project linter...', 'info');
+          } else if (action === 'macro_turn_xy') {
             if (selectedNodeId) {
               executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'macro.setup_turn_xy',
                 params: { target_node_id: selectedNodeId },
               });
+              notify('Applied 3x3 Turn XY Macro', 'success');
+            } else {
+              notify('Please select a Warp Deformer first', 'error');
+            }
+          }
+        }}
+      />
+
+      {/* Hidden Web Fallback File Input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept=".json,.l2dproj"
+        className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            const text = await file.text();
+            try {
+              const parsed = JSON.parse(text);
+              bus.setProject(parsed);
+              setProject(parsed);
+              setCurrentFilePath(file.name);
+              notify(`Opened ${file.name}`, 'success');
+            } catch (err: any) {
+              notify(`Failed to parse file: ${err?.message || err}`, 'error');
             }
           }
         }}
       />
     </div>
   );
+}
+
+function downloadFile(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }

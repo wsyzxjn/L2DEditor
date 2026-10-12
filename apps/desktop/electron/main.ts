@@ -86,6 +86,27 @@ ipcMain.handle('l2d:save-project', async (_, filePath: string, content: string) 
   }
 });
 
+ipcMain.handle('l2d:save-project-as-dialog', async (_, content: string, defaultName?: string) => {
+  if (!mainWindow) return null;
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save Project As',
+    defaultPath: defaultName || 'project.json',
+    filters: [
+      { name: 'L2D Project JSON', extensions: ['json'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  });
+  if (canceled || !filePath) return null;
+
+  try {
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return { path: filePath, success: true };
+  } catch (err: any) {
+    console.error('Failed to save project:', err);
+    return { error: err.message || String(err), success: false };
+  }
+});
+
 ipcMain.handle('l2d:import-psd-dialog', async () => {
   if (!mainWindow) return null;
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
