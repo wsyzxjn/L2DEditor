@@ -39,6 +39,8 @@ const defaultInitialProject: Project = {
   textures: [],
 };
 
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+
 export function App() {
   const [project, setProject] = useState<Project>(defaultInitialProject);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
@@ -232,8 +234,10 @@ export function App() {
   return (
     <div className="flex flex-col w-screen h-screen bg-dcc-bg text-dcc-text">
       {/* Top Menu / App Toolbar */}
-      <header className="flex items-center justify-between h-9 px-3 bg-dcc-header border-b border-dcc-border select-none">
-        <div className="flex items-center space-x-3">
+      <header
+        className={`flex items-center justify-between h-9 ${isMac ? 'pl-[78px]' : 'pl-3'} pr-3 bg-dcc-header border-b border-dcc-border select-none app-drag-region`}
+      >
+        <div className="flex items-center space-x-3 app-no-drag">
           <span className="font-bold tracking-tight text-white flex items-center space-x-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
             <span>L2DEditor</span>
@@ -286,7 +290,7 @@ export function App() {
         </div>
 
         {/* Right Info & Palette */}
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-3 app-no-drag">
           {currentFilePath && (
             <span className="text-dcc-sm text-dcc-muted font-mono truncate max-w-xs">
               {currentFilePath}

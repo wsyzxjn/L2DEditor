@@ -17,6 +17,7 @@ function createWindow() {
     backgroundColor: '#141416',
     title: 'L2DEditor',
     titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 10 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,

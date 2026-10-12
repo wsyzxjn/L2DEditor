@@ -15,6 +15,15 @@
   --dcc-muted: #a1a1aa;
 }
 
+/* Window Drag Regions */
+.app-drag-region {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
 /* Dockview Dark Theme Customization */
 .dockview-theme-dcc {
   --dv-drag-over-background-color: rgba(59, 130, 246, 0.2);
