@@ -77,10 +77,10 @@ export interface ArtMeshData {
 }
 
 export type NodeKind =
-  | { type: 'Part'; collapsed?: boolean }
-  | { type: 'WarpDeformer'; cols: number; rows: number; bounds: [number, number, number, number]; control_points: [number, number][] }
-  | { type: 'RotationDeformer'; origin: [number, number]; angle_deg: number; scale: [number, number] }
-  | { type: 'DeformPath'; control_points: [number, number][]; target_mesh_ids: string[] }
+  | { type: 'Part'; collapsed?: boolean; opacity?: number }
+  | ({ type: 'WarpDeformer' } & WarpDeformerData)
+  | ({ type: 'RotationDeformer' } & RotationDeformerData)
+  | ({ type: 'DeformPath' } & DeformPathData)
   | ({ type: 'ArtMesh' } & ArtMeshData);
 
 export interface Node {

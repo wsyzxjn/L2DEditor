@@ -463,4 +463,122 @@ export function registerStandardCommands(bus: CommandBus): void {
       draft.keyforms.push(binding);
     }
   });
+
+  // Macro: auto_rig (Scans ArtMeshes, categorizes layers by semantics, builds standard deformer tree & keyforms)
+  bus.register<any>('macro.auto_rig', (draft) => {
+    const artMeshes = draft.nodes.filter((n) => n.kind.type === 'ArtMesh');
+    if (artMeshes.length === 0) return;
+
+    // Helper: compute bounding box of meshes matching filter
+    const getMeshBounds = (filter: (name: string) => boolean): [number, number, number, number] | null => {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let count = 0;
+      for (const m of artMeshes) {
+        if (filter(m.name.toLowerCase() + ' ' + m.id.toLowerCase())) {
+          count++;
+          if (m.kind.type === 'ArtMesh') {
+            for (const [vx, vy] of m.kind.vertices) {
+              if (vx < minX) minX = vx;
+              if (vx > maxX) maxX = vx;
+              if (vy < minY) minY = vy;
+              if (vy > maxY) maxY = vy;
+            }
+          }
+        }
+      }
+      if (count === 0 || minX === Infinity) return null;
+      const pad = 20;
+      return [minX - pad, minY - pad, (maxX - minX) + pad * 2, (maxY - minY) + pad * 2];
+    };
+
+    const genPoints = (cols: number, rows: number, bounds: [number, number, number, number]): [number, number][] => {
+      const [bx, by, bw, bh] = bounds;
+      const pts: [number, number][] = [];
+      for (let r = 0; r <= rows; r++) {
+        const y = by + (bh * r) / rows;
+        for (let c = 0; c <= cols; c++) {
+          const x = bx + (bw * c) / cols;
+          pts.push([x, y]);
+        }
+      }
+      return pts;
+    };
+
+    // 1. Head Warp enclosing everything
+    let headBounds = getMeshBounds(() => true) || [600, 200, 720, 800];
+    const headWarpId = 'warp_head';
+    if (!draft.nodes.some((n) => n.id === headWarpId)) {
+      draft.nodes.unshift({
+        id: headWarpId,
+        name: 'Head Warp',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'WarpDeformer',
+          cols: 4,
+          rows: 4,
+          bounds: headBounds,
+          control_points: genPoints(4, 4, headBounds),
+          bezier_smooth: true,
+        },
+      });
+    }
+
+    // 2. Specialized sub-warp deformers
+    const categories = [
+      { id: 'warp_face', name: 'Face Warp', cols: 3, rows: 3, regex: /face|cheek|chin|head_base|脸|顔/i },
+      { id: 'warp_eye_l', name: 'Eye Left Warp', cols: 2, rows: 2, regex: /eye.*l|l.*eye|左眼/i },
+      { id: 'warp_eye_r', name: 'Eye Right Warp', cols: 2, rows: 2, regex: /eye.*r|r.*eye|右眼/i },
+      { id: 'warp_mouth', name: 'Mouth Warp', cols: 2, rows: 2, regex: /mouth|lip|teeth|tongue|嘴/i },
+      { id: 'warp_hair_front', name: 'Hair Front Warp', cols: 3, rows: 3, regex: /hair.*front|front.*hair|前发|前髪/i },
+    ];
+
+    for (const cat of categories) {
+      const bounds = getMeshBounds((str) => cat.regex.test(str));
+      if (bounds) {
+        if (!draft.nodes.some((n) => n.id === cat.id)) {
+          draft.nodes.push({
+            id: cat.id,
+            name: cat.name,
+            parent_id: headWarpId,
+            visible: true,
+            locked: false,
+            kind: {
+              type: 'WarpDeformer',
+              cols: cat.cols,
+              rows: cat.rows,
+              bounds,
+              control_points: genPoints(cat.cols, cat.rows, bounds),
+              bezier_smooth: true,
+            },
+          });
+        }
+      }
+    }
+
+    // 3. Reparent ArtMeshes into matching deformers
+    for (const mesh of artMeshes) {
+      const name = (mesh.name + ' ' + mesh.id).toLowerCase();
+      let assigned = false;
+      for (const cat of categories) {
+        if (cat.regex.test(name) && draft.nodes.some((n) => n.id === cat.id)) {
+          mesh.parent_id = cat.id;
+          assigned = true;
+          break;
+        }
+      }
+      if (!assigned) {
+        mesh.parent_id = headWarpId;
+      }
+    }
+
+    // 4. Setup Turn XY on Head Warp
+    const busDummy = { draft };
+    const setupTurnFn = (bus as any).handlers.get('macro.setup_turn_xy');
+    if (setupTurnFn) {
+      setupTurnFn(draft, { target_node_id: headWarpId });
+    }
+  });
+
 }

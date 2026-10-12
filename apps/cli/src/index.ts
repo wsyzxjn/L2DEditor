@@ -398,4 +398,30 @@ program
     console.log(`Successfully reloaded PSD artwork into '${projectDir}': preserved existing deformers and keyforms.`);
   });
 
+program
+  .command('auto-rig <project>')
+  .description('Automatically categorize layers and build standard Live2D hierarchical deformer tree and keyforms')
+  .action((projectInput) => {
+    const file = resolveProjectPath(projectInput);
+    const raw = fs.readFileSync(file, 'utf-8');
+    const project: Project = JSON.parse(raw);
+
+    const bus = new CommandBus(project);
+    registerStandardCommands(bus);
+
+    const res = bus.execute({
+      id: `cmd_autorig_${Date.now()}`,
+      name: 'macro.auto_rig',
+      params: {},
+    });
+
+    if (!res.success) {
+      console.error('Auto-rig failed:', res.error);
+      process.exit(1);
+    }
+
+    fs.writeFileSync(file, JSON.stringify(bus.getProject(), null, 2), 'utf-8');
+    console.log(`Successfully auto-rigged project: created hierarchical deformers and turn XY spaces.`);
+  });
+
 program.parse();

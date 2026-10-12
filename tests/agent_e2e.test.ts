@@ -712,4 +712,116 @@ describe('Agent-First Full Feature Pipeline', () => {
     }
   });
 
+
+  it('should verify macro.auto_rig semantic layer categorization and zero-click hierarchy generation', () => {
+    const rawPsdProject: Project = {
+      format_version: 1,
+      canvas: { width: 1200, height: 1200, origin_x: 0.5, origin_y: 0.5, background_color: '#18181b' },
+      parameters: [],
+      nodes: [
+        {
+          id: 'layer_face_base',
+          name: 'Face Base',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_face',
+            vertices: [[500, 450], [700, 450], [600, 650]],
+            uvs: [[0, 0], [1, 0], [0.5, 1]],
+            indices: [0, 1, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 10,
+            mask_ids: [],
+          },
+        },
+        {
+          id: 'layer_eye_l_pupil',
+          name: 'Eye L Pupil',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_eye',
+            vertices: [[520, 470], [560, 470], [540, 500]],
+            uvs: [[0, 0], [1, 0], [0.5, 1]],
+            indices: [0, 1, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 20,
+            mask_ids: [],
+          },
+        },
+        {
+          id: 'layer_mouth_lip',
+          name: 'Mouth Lip',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_mouth',
+            vertices: [[580, 580], [620, 580], [600, 600]],
+            uvs: [[0, 0], [1, 0], [0.5, 1]],
+            indices: [0, 1, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 30,
+            mask_ids: [],
+          },
+        },
+      ],
+      keyforms: [],
+      textures: [
+        { id: 'tex_face', path: 'textures/face.png', width: 200, height: 200 },
+        { id: 'tex_eye', path: 'textures/eye.png', width: 50, height: 50 },
+        { id: 'tex_mouth', path: 'textures/mouth.png', width: 50, height: 50 },
+      ],
+    };
+
+    const bus = new CommandBus(rawPsdProject);
+    registerStandardCommands(bus);
+
+    // Run Auto-Rig
+    const res = bus.execute({
+      id: 'cmd_autorig_test',
+      name: 'macro.auto_rig',
+      params: {},
+    });
+    expect(res.success).toBe(true);
+
+    const rigged = bus.getProject();
+
+    // 1. Root head warp must be present
+    expect(rigged.nodes.some((n) => n.id === 'warp_head')).toBe(true);
+
+    // 2. Specialized sub-warp deformers should be generated
+    expect(rigged.nodes.some((n) => n.id === 'warp_face')).toBe(true);
+    expect(rigged.nodes.some((n) => n.id === 'warp_eye_l')).toBe(true);
+    expect(rigged.nodes.some((n) => n.id === 'warp_mouth')).toBe(true);
+
+    // 3. Meshes should be reparented into their semantic deformers
+    const eyeMesh = rigged.nodes.find((n) => n.id === 'layer_eye_l_pupil');
+    expect(eyeMesh?.parent_id).toBe('warp_eye_l');
+
+    const mouthMesh = rigged.nodes.find((n) => n.id === 'layer_mouth_lip');
+    expect(mouthMesh?.parent_id).toBe('warp_mouth');
+
+    // 4. Sub-deformers should be parented to warp_head
+    const eyeWarp = rigged.nodes.find((n) => n.id === 'warp_eye_l');
+    expect(eyeWarp?.parent_id).toBe('warp_head');
+
+    // 5. 3x3 Keyforms generated on warp_head
+    const headBinding = rigged.keyforms.find((k) => k.target_node_id === 'warp_head');
+    expect(headBinding).toBeDefined();
+    expect(headBinding?.keyforms.length).toBe(9); // 3x3 matrix
+
+    // 6. Linter validation passes with zero errors
+    const diags = lintProjectJson(JSON.stringify(rigged)) as any[];
+    expect(diags.filter((d) => d.severity === 'error').length).toBe(0);
+  });
+
 });

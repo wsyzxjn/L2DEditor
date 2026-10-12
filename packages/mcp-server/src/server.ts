@@ -209,6 +209,20 @@ export function createMcpServer(): Server {
             required: ['projectPath', 'newPsdPath'],
           },
         },
+        {
+          name: 'l2d_auto_rig',
+          description: 'Automatically scan ArtMeshes, categorize parts by semantics (face, eyes, mouth, hair), build standard Live2D hierarchical deformer tree and 3x3 turn keyforms.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: {
+                type: 'string',
+                description: 'Path to .l2dproj directory or project.json',
+              },
+            },
+            required: ['projectPath'],
+          },
+        },
       ],
     };
   });
@@ -503,6 +517,39 @@ export function createMcpServer(): Server {
             },
           ],
         };
+      }
+
+      if (name === 'l2d_auto_rig') {
+        const projectPath = resolveProjectJsonPath(args?.projectPath as string);
+        const raw = fs.readFileSync(projectPath, 'utf-8');
+        const project: Project = JSON.parse(raw);
+
+        const bus = new CommandBus(project);
+        registerStandardCommands(bus);
+
+        const res = bus.execute({
+          id: `cmd_autorig_${Date.now()}`,
+          name: 'macro.auto_rig',
+          params: {},
+        });
+
+        if (res.success) {
+          const updated = bus.getProject();
+          fs.writeFileSync(projectPath, JSON.stringify(updated, null, 2), 'utf-8');
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Successfully auto-rigged project: created ${updated.nodes.filter(n => n.kind.type !== 'ArtMesh').length} deformers and parameter spaces.`,
+              },
+            ],
+          };
+        } else {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Auto-rig failed: ${res.error}` }],
+          };
+        }
       }
 
       throw new Error(`Tool not found: ${name}`);
