@@ -171,3 +171,99 @@ mod tests {
         assert!((val30.get("ParamAngleX").unwrap() - 30.0).abs() < 1e-4);
     }
 }
+
+impl Animation {
+    /// Parses a legacy Live2D Animator .mtn file into an Animation.
+    pub fn from_mtn_str(id: &str, name: &str, content: &str) -> Result<Self, String> {
+        let mut fps = 30.0;
+        let mut tracks = Vec::new();
+        let mut max_frames = 0.0f32;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+
+            if let Some(rest) = trimmed.strip_prefix("$fps=") {
+                if let Ok(val) = rest.parse::<f32>() {
+                    fps = val;
+                }
+                continue;
+            }
+
+            if let Some((target, values_str)) = trimmed.split_once('=') {
+                let target_param = target.trim();
+                let mut keyframes = Vec::new();
+
+                for (frame_idx, val_str) in values_str.split(',').enumerate() {
+                    let val_trimmed = val_str.trim();
+                    if let Ok(v) = val_trimmed.parse::<f32>() {
+                        let f = frame_idx as f32;
+                        if f > max_frames {
+                            max_frames = f;
+                        }
+                        keyframes.push(TimelineKeyframe {
+                            frame: f,
+                            value: v,
+                            curve: CurveType::Linear,
+                            bezier_handles: None,
+                        });
+                    }
+                }
+
+                if !keyframes.is_empty() {
+                    tracks.push(AnimationTrack {
+                        target_param_id: target_param.to_string(),
+                        keyframes,
+                    });
+                }
+            }
+        }
+
+        Ok(Animation {
+            id: id.to_string(),
+            name: name.to_string(),
+            duration_frames: max_frames,
+            fps,
+            loop_playback: true,
+            tracks,
+        })
+    }
+}
+
+#[cfg(test)]
+mod mtn_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_mtn_data() {
+        let mtn = "$fps=30\nPARAM_ANGLE_X=0.0,5.0,10.0\nPARAM_ANGLE_Y=0.0,-2.5,-5.0\n";
+        let anim = Animation::from_mtn_str("m1", "Haru Idle", mtn).unwrap();
+        assert_eq!(anim.fps, 30.0);
+        assert_eq!(anim.duration_frames, 2.0);
+        assert_eq!(anim.tracks.len(), 2);
+
+        let frame1 = anim.evaluate_at_frame(1.0);
+        assert!((frame1.get("PARAM_ANGLE_X").unwrap() - 5.0).abs() < 1e-4);
+        assert!((frame1.get("PARAM_ANGLE_Y").unwrap() - -2.5).abs() < 1e-4);
+    }
+}
+
+    #[test]
+    fn test_parse_real_haru_idle_file() {
+        let path = "/Volumes/AmatsukaM/Applications/Live2D Cubism 5.3/data/template/mtn/idle/haru_idle_01.mtn";
+        if std::path::Path::new(path).exists() {
+            let content = std::fs::read_to_string(path).expect("Failed to read haru_idle_01.mtn");
+            let anim = Animation::from_mtn_str("haru_idle_01", "Haru Idle 01", &content).unwrap();
+            assert_eq!(anim.fps, 30.0);
+            assert!(anim.duration_frames > 100.0);
+            assert!(anim.tracks.len() >= 15);
+
+            // Verify evaluating at frame 10 produces expected continuous motion
+            let f10 = anim.evaluate_at_frame(10.0);
+            assert!(f10.contains_key("PARAM_ANGLE_X"));
+            assert!(f10.contains_key("PARAM_EYE_L_OPEN"));
+            assert_eq!(f10.get("PARAM_EYE_L_OPEN").copied().unwrap(), 1.0);
+        }
+    }

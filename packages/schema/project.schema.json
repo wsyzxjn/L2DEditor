@@ -168,6 +168,14 @@
         "bezier"
       ]
     },
+    "ExtendedInterpolationType": {
+      "type": "string",
+      "enum": [
+        "linear",
+        "circle",
+        "bezier"
+      ]
+    },
     "GlueBinding": {
       "type": "object",
       "required": [
@@ -766,6 +774,17 @@
         "param_id"
       ],
       "properties": {
+        "extended_interpolation": {
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ExtendedInterpolationType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "keys": {
           "description": "Monotonically increasing key values, e.g. [-30.0, 0.0, 30.0]",
           "type": "array",

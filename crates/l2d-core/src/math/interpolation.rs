@@ -1,3 +1,4 @@
+use crate::model::ExtendedInterpolationType;
 use std::collections::HashMap;
 
 /// Calculates piecewise linear weights for a 1D parameter given sorted key values.
@@ -151,5 +152,36 @@ mod tests {
         for weight in w {
             assert!((weight - 0.25).abs() < 1e-5);
         }
+    }
+}
+
+pub fn compute_1d_weights_ext(
+    keys: &[f32],
+    value: f32,
+    ext: Option<ExtendedInterpolationType>,
+) -> Vec<(usize, f32)> {
+    let base_weights = compute_1d_weights(keys, value);
+    if ext.is_none() || base_weights.len() != 2 {
+        return base_weights;
+    }
+
+    match ext {
+        Some(ExtendedInterpolationType::Circle) => {
+            // Smooth C1 Hermite / Circular ease
+            let (idx0, _w0) = base_weights[0];
+            let (idx1, w1) = base_weights[1];
+            let t = w1; // since w0 = 1 - t
+            // Circular arc weight blend: t_smooth = (1 - (1 - t^2)^0.5) or smoothstep
+            let t_smooth = t * t * (3.0 - 2.0 * t);
+            vec![(idx0, 1.0 - t_smooth), (idx1, t_smooth)]
+        }
+        Some(ExtendedInterpolationType::Bezier) => {
+            let (idx0, _w0) = base_weights[0];
+            let (idx1, w1) = base_weights[1];
+            let t = w1;
+            let t_bezier = t * t * t; // cubic ease
+            vec![(idx0, 1.0 - t_bezier), (idx1, t_bezier)]
+        }
+        _ => base_weights,
     }
 }

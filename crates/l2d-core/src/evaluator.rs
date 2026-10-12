@@ -424,6 +424,7 @@ mod tests {
                 dimensions: vec![ParamDimension {
                     param_id: "ParamAngleX".into(),
                     keys: vec![0.0, 30.0],
+                    extended_interpolation: None,
                 }],
                 keyforms: vec![
                     KeyformState {
@@ -587,6 +588,7 @@ mod tests {
                 dimensions: vec![ParamDimension {
                     param_id: "ParamAngleX".into(),
                     keys: vec![0.0, 30.0],
+                    extended_interpolation: None,
                 }],
                 keyforms: vec![
                     KeyformState {

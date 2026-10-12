@@ -81,9 +81,12 @@ export interface Node {
   kind: NodeKind;
 }
 
+export type ExtendedInterpolationType = 'linear' | 'circle' | 'bezier';
+
 export interface ParamDimension {
   param_id: string;
   keys: number[];
+  extended_interpolation?: ExtendedInterpolationType;
 }
 
 export type KeyformPayload =

@@ -213,11 +213,21 @@ pub struct KeyformBinding {
     pub keyforms: Vec<KeyformState>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ExtendedInterpolationType {
+    Linear,
+    Circle,
+    Bezier,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ParamDimension {
     pub param_id: String,
     /// Monotonically increasing key values, e.g. [-30.0, 0.0, 30.0]
     pub keys: Vec<f32>,
+    #[serde(default)]
+    pub extended_interpolation: Option<ExtendedInterpolationType>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
