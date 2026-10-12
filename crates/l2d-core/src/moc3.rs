@@ -173,8 +173,17 @@ pub fn export_moc3_binary(project: &Project, version: u8) -> Result<Vec<u8>, Moc
         .enumerate()
         .map(|(i, p)| (p.id.clone(), i))
         .collect();
+    let default_param_map: HashMap<String, f32> =
+        params.iter().map(|p| (p.id.clone(), p.default)).collect();
+    let default_eval_frame = crate::evaluator::evaluate_project(project, &default_param_map);
+    let tex_id_to_no: HashMap<&str, i32> = project
+        .textures
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.id.as_str(), i as i32))
+        .collect();
 
-    // 3. Collect ArtMeshes (guarantee >= 1 ArtMesh with >= 3 vertices)
+    // 3. Collect ArtMeshes & tessellated ArtPaths (guarantee >= 1 ArtMesh with >= 3 vertices)
     let mut mesh_nodes: Vec<(Node, ArtMeshData)> = project
         .nodes
         .iter()
@@ -189,6 +198,36 @@ pub fn export_moc3_binary(project: &Project, version: u8) -> Result<Vec<u8>, Moc
                     m_cloned.uvs.resize(m_cloned.vertices.len(), [0.0, 0.0]);
                 }
                 Some((n.clone(), m_cloned))
+            }
+            NodeKind::ArtPath(ap) if ap.points.len() >= 2 => {
+                let (vertices, uvs, indices, avg_op) =
+                    crate::evaluator::tessellate_art_path(&ap.points, ap.closed);
+                if vertices.is_empty() {
+                    None
+                } else {
+                    Some((
+                        n.clone(),
+                        ArtMeshData {
+                            texture_id: ap
+                                .texture_id
+                                .clone()
+                                .unwrap_or_else(|| "texture_00".into()),
+                            vertices,
+                            uvs,
+                            indices,
+                            blend_mode: ap.blend_mode,
+                            opacity: (ap.opacity * avg_op).clamp(0.0, 1.0),
+                            multiply_color: ap.color,
+                            screen_color: [0.0, 0.0, 0.0, 0.0],
+                            draw_order: ap.draw_order,
+                            mask_ids: ap.mask_ids.clone(),
+                            is_mask_inverted: ap.is_mask_inverted,
+                            morph_targets: vec![],
+                            hit_area_name: None,
+                            user_data: None,
+                        },
+                    ))
+                }
             }
             _ => None,
         })
@@ -254,7 +293,7 @@ pub fn export_moc3_binary(project: &Project, version: u8) -> Result<Vec<u8>, Moc
     };
 
     // Helper to find effective driving ParamDimensions for an ArtMesh (from self or ancestor deformer)
-    let resolve_driving_dims = |mesh_node: &Node| -> Vec<ParamDimension> {
+    let resolve_driving_dims = |mesh_node: &Node, mesh_data: &ArtMeshData| -> Vec<ParamDimension> {
         let mut cur_id = Some(mesh_node.id.as_str());
         let mut visited = std::collections::HashSet::new();
         while let Some(nid) = cur_id {
@@ -275,14 +314,31 @@ pub fn export_moc3_binary(project: &Project, version: u8) -> Result<Vec<u8>, Moc
             }
             cur_id = node_map.get(nid).and_then(|n| n.parent_id.as_deref());
         }
-        Vec::new()
+        // Also check MorphTargets / BlendShapes on the ArtMesh
+        let mut morph_dims = Vec::new();
+        for mt in &mesh_data.morph_targets {
+            if let Some(&p_idx) = param_id_to_idx.get(&mt.param_id) {
+                if !morph_dims.iter().any(|d: &ParamDimension| d.param_id == mt.param_id) {
+                    let p = &params[p_idx];
+                    morph_dims.push(ParamDimension {
+                        param_id: p.id.clone(),
+                        keys: vec![p.min, p.default, p.max],
+                        extended_interpolation: None,
+                    });
+                    if morph_dims.len() >= 2 {
+                        break;
+                    }
+                }
+            }
+        }
+        morph_dims
     };
 
     // 4. Build ParameterBindings (dK) grouped by Parameter so each parameter has a contiguous range
     let mut per_param_key_lists: Vec<Vec<Vec<f32>>> = vec![Vec::new(); num_params];
     let mut mesh_driving_dims: Vec<Vec<ParamDimension>> = Vec::with_capacity(num_artmeshes);
-    for (mnode, _) in &mesh_nodes {
-        let dims = resolve_driving_dims(mnode);
+    for (mnode, mdata) in &mesh_nodes {
+        let dims = resolve_driving_dims(mnode, mdata);
         for d in &dims {
             let p_idx = param_id_to_idx[&d.param_id];
             if !per_param_key_lists[p_idx].iter().any(|k| k == &d.keys) {
@@ -334,7 +390,7 @@ pub fn export_moc3_binary(project: &Project, version: u8) -> Result<Vec<u8>, Moc
     let am_is_enabled: Vec<i32> = vec![1; num_artmeshes];
     let mut am_parent_part_idx: Vec<i32> = Vec::with_capacity(num_artmeshes);
     let am_parent_deformer_idx: Vec<i32> = vec![0; num_artmeshes];
-    let am_texture_no: Vec<i32> = vec![0; num_artmeshes];
+    let mut am_texture_no: Vec<i32> = Vec::with_capacity(num_artmeshes);
     let mut am_drawable_flag: Vec<u8> = Vec::with_capacity(num_artmeshes);
     let mut am_vertex_count: Vec<i32> = Vec::with_capacity(num_artmeshes);
     let mut am_uv_begin: Vec<i32> = Vec::with_capacity(num_artmeshes);
@@ -367,6 +423,12 @@ pub fn export_moc3_binary(project: &Project, version: u8) -> Result<Vec<u8>, Moc
         am_ids_bytes.extend_from_slice(&pack_id_64(&mnode.id));
         am_is_visible.push(if mnode.visible { 1 } else { 0 });
         am_parent_part_idx.push(resolve_parent_part_idx(mnode.parent_id.as_deref()));
+        am_texture_no.push(
+            tex_id_to_no
+                .get(mesh.texture_id.as_str())
+                .copied()
+                .unwrap_or(0),
+        );
 
         let blend_code: u8 = match mesh.blend_mode {
             BlendMode::Normal => 0,
@@ -410,19 +472,42 @@ pub fn export_moc3_binary(project: &Project, version: u8) -> Result<Vec<u8>, Moc
         if dims.is_empty() {
             am_kf_binding_idx.push(0);
             am_kf_count.push(1);
-            am_kf_opacity.push(mesh.opacity);
-            am_kf_draw_order.push(mesh.draw_order as f32);
+            let eval_mesh = default_eval_frame.meshes.iter().find(|em| em.id == mnode.id);
+            let op = eval_mesh.map(|em| em.opacity).unwrap_or(mesh.opacity);
+            let d_order = eval_mesh.map(|em| em.draw_order).unwrap_or(mesh.draw_order);
+            let mc = eval_mesh
+                .map(|em| em.multiply_color)
+                .unwrap_or(mesh.multiply_color);
+            let sc = eval_mesh
+                .map(|em| em.screen_color)
+                .unwrap_or(mesh.screen_color);
+            am_kf_opacity.push(op);
+            am_kf_draw_order.push(d_order as f32);
             am_kf_pos_begin.push(da_positions.len() as i32);
             am_kf_color_begin_v5.push(mult_r.len() as i32);
-            mult_r.push(mesh.multiply_color[0]);
-            mult_g.push(mesh.multiply_color[1]);
-            mult_b.push(mesh.multiply_color[2]);
-            scr_r.push(mesh.screen_color[0]);
-            scr_g.push(mesh.screen_color[1]);
-            scr_b.push(mesh.screen_color[2]);
-            for &[x, y] in &mesh.vertices {
-                da_positions.push(x);
-                da_positions.push(y);
+            mult_r.push(mc[0]);
+            mult_g.push(mc[1]);
+            mult_b.push(mc[2]);
+            scr_r.push(sc[0]);
+            scr_g.push(sc[1]);
+            scr_b.push(sc[2]);
+            if let Some(em) = eval_mesh {
+                if em.vertices.len() == v_count {
+                    for &[x, y] in &em.vertices {
+                        da_positions.push(x);
+                        da_positions.push(y);
+                    }
+                } else {
+                    for &[x, y] in &mesh.vertices {
+                        da_positions.push(x);
+                        da_positions.push(y);
+                    }
+                }
+            } else {
+                for &[x, y] in &mesh.vertices {
+                    da_positions.push(x);
+                    da_positions.push(y);
+                }
             }
         } else {
             let dj_start = dj_indices.len() as i32;

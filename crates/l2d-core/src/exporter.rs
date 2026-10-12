@@ -146,6 +146,7 @@ pub fn export_runtime_bundle(
 
     // 3. Generate .physics3.json
     let mut physics_settings: Vec<Value> = Vec::new();
+    let mut physics_dictionary: Vec<Value> = Vec::new();
     let mut total_inputs = 0usize;
     let mut total_outputs = 0usize;
     let mut total_vertices = 0usize;
@@ -154,6 +155,10 @@ pub fn export_runtime_bundle(
         total_inputs += group.inputs.len();
         total_outputs += group.outputs.len();
         total_vertices += group.pendulums.len();
+        physics_dictionary.push(json!({
+            "Id": group.id,
+            "Name": if group.name.is_empty() { &group.id } else { &group.name },
+        }));
 
         let inputs: Vec<Value> = group
             .inputs
@@ -177,6 +182,8 @@ pub fn export_runtime_bundle(
                     "VertexIndex": out.pendulum_index,
                     "Scale": out.angle_scale,
                     "Weight": out.weight,
+                    "Type": "Angle",
+                    "Reflect": false,
                 })
             })
             .collect();
@@ -198,6 +205,10 @@ pub fn export_runtime_bundle(
 
         physics_settings.push(json!({
             "Id": group.id,
+            "Normalization": {
+                "Position": { "Minimum": -10.0, "Default": 0.0, "Maximum": 10.0 },
+                "Angle": { "Minimum": -10.0, "Default": 0.0, "Maximum": 10.0 }
+            },
             "Input": inputs,
             "Output": outputs,
             "Vertices": vertices,
@@ -212,10 +223,12 @@ pub fn export_runtime_bundle(
             "TotalInputCount": total_inputs,
             "TotalOutputCount": total_outputs,
             "VertexCount": total_vertices,
+            "Fps": 60,
             "EffectiveForces": {
                 "Gravity": { "X": 0.0, "Y": -1.0 },
                 "Wind": { "X": 0.0, "Y": 0.0 }
-            }
+            },
+            "PhysicsDictionary": physics_dictionary,
         },
         "PhysicsSettings": physics_settings,
     });
@@ -256,11 +269,24 @@ pub fn export_runtime_bundle(
             })
         })
         .collect();
+    let mut combined_params: Vec<Vec<String>> = Vec::new();
+    for kb in &project.keyforms {
+        if kb.dimensions.len() == 2 {
+            let pair = vec![
+                kb.dimensions[0].param_id.clone(),
+                kb.dimensions[1].param_id.clone(),
+            ];
+            if !combined_params.contains(&pair) {
+                combined_params.push(pair);
+            }
+        }
+    }
     let cdi3_val = json!({
         "Version": 3,
         "Parameters": cdi_params,
         "ParameterGroups": cdi_groups,
         "Parts": cdi_parts,
+        "CombinedParameters": combined_params,
     });
     let cdi3_json = serde_json::to_string_pretty(&cdi3_val).unwrap_or_default();
 
@@ -293,12 +319,17 @@ pub fn export_runtime_bundle(
                         }
                         CurveType::Bezier => {
                             let dt = (t1 - t0) / 3.0;
+                            let (c1t, c1v, c2t, c2v) = if let Some(h) = prev.bezier_handles {
+                                (h[0], h[1], h[2], h[3])
+                            } else {
+                                (t0 + dt, prev.value, t1 - dt, kf.value)
+                            };
                             segments.extend_from_slice(&[
                                 1.0,
-                                t0 + dt,
-                                prev.value,
-                                t1 - dt,
-                                kf.value,
+                                c1t,
+                                c1v,
+                                c2t,
+                                c2v,
                                 t1,
                                 kf.value,
                             ]);
@@ -325,6 +356,16 @@ pub fn export_runtime_bundle(
             curves.push(Value::Object(curve_obj));
         }
 
+        let mut motion_userdata: Vec<Value> = Vec::new();
+        let mut motion_userdata_size = 0usize;
+        for marker in &anim.markers {
+            motion_userdata_size += marker.label.len();
+            motion_userdata.push(json!({
+                "Time": marker.frame / fps,
+                "Value": marker.label,
+            }));
+        }
+
         let motion_val = json!({
             "Version": 3,
             "Meta": {
@@ -332,11 +373,16 @@ pub fn export_runtime_bundle(
                 "Fps": fps,
                 "Loop": anim.loop_playback,
                 "AreBeziersRestricted": true,
+                "FadeInTime": 0.5,
+                "FadeOutTime": 0.5,
                 "CurveCount": curves.len(),
                 "TotalSegmentCount": total_segments,
                 "TotalPointCount": total_points,
+                "UserDataCount": motion_userdata.len(),
+                "TotalUserDataSize": motion_userdata_size,
             },
             "Curves": curves,
+            "UserData": motion_userdata,
         });
         motion_files.push(ExportedTextFile {
             relative_path: motion_rel.clone(),

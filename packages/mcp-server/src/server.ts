@@ -14,6 +14,8 @@ import {
   exportRuntimePackage,
   renderAnimationSequence,
   applyCubismAiFaceRig,
+  serializeMoc3Container,
+  parseMoc3ToProject,
 } from '@l2d/renderer';
 import type { Project } from '@l2d/schema';
 // Wasm node bindings
@@ -309,6 +311,31 @@ export function createMcpServer(): Server {
               projectPath: { type: 'string' },
             },
             required: ['projectPath'],
+          },
+        },
+        {
+          name: 'l2d_export_moc3',
+          description: 'Export project directly to a spec-compliant Live2D .moc3 binary (ver 1..5) in pure Rust.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string' },
+              outputPath: { type: 'string' },
+              mocVersion: { type: 'number', description: 'MOC3 version 1..5 (default: 5 = Cubism 5.0)' },
+            },
+            required: ['projectPath', 'outputPath'],
+          },
+        },
+        {
+          name: 'l2d_import_moc3',
+          description: 'Import a Live2D .moc3 binary into an L2DEditor project.json in pure Rust.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              moc3Path: { type: 'string' },
+              outputPath: { type: 'string' },
+            },
+            required: ['moc3Path', 'outputPath'],
           },
         },
       ],
@@ -742,6 +769,32 @@ export function createMcpServer(): Server {
         fs.writeFileSync(projectPath, JSON.stringify(updated, null, 2), 'utf-8');
         return {
           content: [{ type: 'text', text: `Generated ONNX AI 3x3 Face Deformer keyforms on ${projectPath}` }],
+        };
+      }
+
+      if (name === 'l2d_export_moc3') {
+        const projectPath = resolveProjectJsonPath(args?.projectPath as string);
+        const outPath = args?.outputPath as string;
+        const ver = Number(args?.mocVersion) || 5;
+        const project: Project = JSON.parse(fs.readFileSync(projectPath, 'utf-8'));
+        const moc3Buf = serializeMoc3Container(project, ver);
+        fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
+        fs.writeFileSync(outPath, moc3Buf);
+        return {
+          content: [{ type: 'text', text: `Exported .moc3 (v${ver}, ${moc3Buf.length} bytes) to ${outPath}` }],
+        };
+      }
+
+      if (name === 'l2d_import_moc3') {
+        const moc3Path = args?.moc3Path as string;
+        const outPath = args?.outputPath as string;
+        const buf = fs.readFileSync(moc3Path);
+        const { mocVersion, project } = parseMoc3ToProject(buf);
+        const targetFile = outPath.endsWith('.json') ? outPath : path.join(outPath, 'project.json');
+        fs.mkdirSync(path.dirname(path.resolve(targetFile)), { recursive: true });
+        fs.writeFileSync(targetFile, JSON.stringify(project, null, 2), 'utf-8');
+        return {
+          content: [{ type: 'text', text: `Imported .moc3 (v${mocVersion}, ${project.nodes.length} nodes) to ${targetFile}` }],
         };
       }
 

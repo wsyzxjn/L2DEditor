@@ -562,7 +562,7 @@ fn extract_keyform_coords(
 }
 
 /// Tessellates an ArtPath polyline into a variable-width triangle strip ribbon mesh.
-fn tessellate_art_path(
+pub(crate) fn tessellate_art_path(
     points: &[ArtPathPoint],
     closed: bool,
 ) -> (Vec<[f32; 2]>, Vec<[f32; 2]>, Vec<u32>, f32) {

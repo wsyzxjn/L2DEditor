@@ -11,6 +11,8 @@ import {
   analyzeWavForLipSync,
   renderAnimationSequence,
   applyCubismAiFaceRig,
+  serializeMoc3Container,
+  parseMoc3ToProject,
 } from '@l2d/renderer';
 import { exportModelingTemplate, type Project } from '@l2d/schema';
 import { WasmModel, lintProjectJson, getProjectStats, importMtnMotion, bakePhysicsToAnimation } from '@l2d/schema/wasm-node';
@@ -299,10 +301,39 @@ program
     });
 
     console.log(`Successfully exported runtime package to '${opts.out}':`);
+    console.log(`  - MOC3 Binary: ${res.moc3Path}`);
     console.log(`  - Manifest: ${res.model3JsonPath}`);
     console.log(`  - Textures: ${res.numTextures} atlas sheet(s)`);
     console.log(`  - Motions: ${res.numMotions} motion file(s)`);
     if (res.zipPath) console.log(`  - Archive: ${res.zipPath}`);
+  });
+
+program
+  .command('export-moc3 <project>')
+  .description('Export project directly to a spec-compliant Live2D .moc3 binary (v1..v5) in pure Rust')
+  .requiredOption('-o, --out <out_moc3>', 'Target .moc3 binary path')
+  .option('-v, --moc-version <ver>', 'Target MOC3 version (1=V3.00, 2=V3.03, 3=V4.00, 4=V4.02, 5=V5.00)', '5')
+  .action((projectInput, opts) => {
+    const file = resolveProjectPath(projectInput);
+    const project: Project = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    const ver = Number(opts.mocVersion) || 5;
+    const moc3Buf = serializeMoc3Container(project, ver);
+    fs.mkdirSync(path.dirname(path.resolve(opts.out)), { recursive: true });
+    fs.writeFileSync(opts.out, moc3Buf);
+    console.log(`Successfully exported .moc3 (v${ver}, ${moc3Buf.length} bytes) to ${opts.out}`);
+  });
+
+program
+  .command('import-moc3 <moc3_file>')
+  .description('Import a Live2D .moc3 binary into an L2DEditor project.json in pure Rust')
+  .requiredOption('-o, --out <out_project>', 'Target .l2dproj directory or project.json path')
+  .action((moc3File, opts) => {
+    const buf = fs.readFileSync(moc3File);
+    const { mocVersion, project } = parseMoc3ToProject(buf);
+    const targetFile = opts.out.endsWith('.json') ? opts.out : path.join(opts.out, 'project.json');
+    fs.mkdirSync(path.dirname(path.resolve(targetFile)), { recursive: true });
+    fs.writeFileSync(targetFile, JSON.stringify(project, null, 2), 'utf-8');
+    console.log(`Imported .moc3 (v${mocVersion}, ${project.nodes.length} nodes, ${project.parameters.length} parameters) to ${targetFile}`);
   });
 
 program
