@@ -1,7 +1,7 @@
 use l2d_core::{
     bake_physics_to_animation, classify_artmesh_pure_rust, evaluate_mlp_forward, evaluate_project,
-    export_moc3_binary, export_project_schema, import_moc3_binary, lint_project, Animation,
-    Diagnostic, DiagnosticSeverity, Node, Project,
+    export_moc3_binary, export_project_schema, export_runtime_bundle, import_moc3_binary,
+    lint_project, Animation, Diagnostic, DiagnosticSeverity, Node, Project,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -282,4 +282,25 @@ pub fn classify_artmesh_pure_rust_wasm(
         predicted_class,
     })
     .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+}
+
+#[wasm_bindgen(js_name = exportRuntimeBundle)]
+pub fn export_runtime_bundle_wasm(
+    project_json: &str,
+    model_name: &str,
+    atlas_size: u32,
+    padding: u32,
+) -> Result<JsValue, JsValue> {
+    let project: Project = serde_json::from_str(project_json)
+        .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+    let bundle = export_runtime_bundle(
+        &project,
+        model_name,
+        atlas_size,
+        padding,
+        &["textures/texture_00.png".to_string()],
+    )
+    .map_err(|e| JsValue::from_str(&e))?;
+    serde_wasm_bindgen::to_value(&bundle)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
 }

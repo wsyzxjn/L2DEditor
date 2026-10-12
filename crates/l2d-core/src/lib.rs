@@ -1,5 +1,6 @@
 pub mod animation;
 pub mod evaluator;
+pub mod exporter;
 pub mod lint;
 pub mod math;
 pub mod moc3;
@@ -12,6 +13,10 @@ pub use animation::{
     TimelineKeyframe, TimelineMarker,
 };
 pub use evaluator::{evaluate_project, EvaluatedFrame, EvaluatedMesh};
+pub use exporter::{
+    compute_atlas_layout_and_remap_uvs, export_runtime_bundle, AtlasPlacement, ExportedTextFile,
+    RuntimeBundleOutput,
+};
 pub use lint::{lint_project, Diagnostic, DiagnosticSeverity};
 pub use moc3::{export_moc3_binary, import_moc3_binary, Moc3Error, DEFAULT_MOC3_VERSION, MOC3_MAGIC};
 pub use model::{
