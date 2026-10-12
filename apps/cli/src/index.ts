@@ -3,15 +3,16 @@ import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CommandBus, registerStandardCommands } from '@l2d/command';
-import { importPsdBuffer } from '@l2d/psd';
+import { importPsdBuffer, exportModelToPsdBuffer } from '@l2d/psd';
 import {
   renderFrameToCanvas,
   generateTextureAtlas,
   exportRuntimePackage,
   analyzeWavForLipSync,
   renderAnimationSequence,
+  applyCubismAiFaceRig,
 } from '@l2d/renderer';
-import type { Project } from '@l2d/schema';
+import { exportModelingTemplate, type Project } from '@l2d/schema';
 import { WasmModel, lintProjectJson, getProjectStats, importMtnMotion, bakePhysicsToAnimation } from '@l2d/schema/wasm-node';
 
 const program = new Command();
@@ -405,7 +406,7 @@ program
     };
 
     const tempFramesDir = path.join('/tmp', `l2d_anim_${Date.now()}`);
-    const format = opts.out.endsWith('.webm') ? 'webm' : 'mp4';
+    const format = opts.out.endsWith('.gif') ? 'gif' : opts.out.endsWith('.webm') ? 'webm' : 'mp4';
     const res = renderAnimationSequence(project, animationId, textureResolver, tempFramesDir, {
       fps: Number(opts.fps),
       format,
@@ -413,6 +414,50 @@ program
     });
 
     console.log(`Successfully rendered ${res.totalFrames} frames to video: ${res.videoPath || opts.out}`);
+  });
+
+program
+  .command('export-psd <project>')
+  .description('Export evaluated model layers back into a multi-layer .psd file (CMD_EXPORT_MODEL_AS_PSD)')
+  .requiredOption('-o, --out <out_psd>', 'Target .psd output path')
+  .action((projectInput, opts) => {
+    const file = resolveProjectPath(projectInput);
+    const projectDir = path.dirname(file);
+    const project: Project = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    const textureResolver = (textureId: string): Buffer | null => {
+      const meta = project.textures.find((t) => t.id === textureId);
+      if (!meta) return null;
+      const fullPath = path.isAbsolute(meta.path) ? meta.path : path.join(projectDir, meta.path);
+      return fs.existsSync(fullPath) ? fs.readFileSync(fullPath) : null;
+    };
+    const psdBuf = exportModelToPsdBuffer(project, textureResolver);
+    fs.mkdirSync(path.dirname(path.resolve(opts.out)), { recursive: true });
+    fs.writeFileSync(opts.out, psdBuf);
+    console.log(`Successfully exported layered PSD to ${opts.out} (${psdBuf.length} bytes)`);
+  });
+
+program
+  .command('ai-face-rig <project>')
+  .description('Run Cubism 5.3 AI ONNX Face Deformer motion generator (face_deformer_xy.onnx + face_deformer_4corner.onnx)')
+  .action((projectInput) => {
+    const file = resolveProjectPath(projectInput);
+    const project: Project = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    const updated = applyCubismAiFaceRig(project);
+    fs.writeFileSync(file, JSON.stringify(updated, null, 2), 'utf-8');
+    console.log(`Successfully generated ONNX AI 3x3 Face Deformer keyforms on ${file}`);
+  });
+
+program
+  .command('export-template <project>')
+  .description('Export model rigging structure (parameters, deformers, keyforms, physics) as a reusable template (CMD_EXPORT_AS_TEMPLATE)')
+  .requiredOption('-o, --out <out_json>', 'Output template JSON path')
+  .action((projectInput, opts) => {
+    const file = resolveProjectPath(projectInput);
+    const project: Project = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    const tpl = exportModelingTemplate(project);
+    fs.mkdirSync(path.dirname(path.resolve(opts.out)), { recursive: true });
+    fs.writeFileSync(opts.out, JSON.stringify(tpl, null, 2), 'utf-8');
+    console.log(`Exported modeling template (${tpl.deformers.length} deformers, ${tpl.keyforms.length} keyforms) to ${opts.out}`);
   });
 
 program

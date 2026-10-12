@@ -14,9 +14,11 @@ import {
   runCubismLayerClassifierOnnx,
   serializeMoc3Container,
   parseMoc3ToProject,
+  applyCubismAiFaceRig,
 } from '../packages/renderer/dist/index.js';
+import { importPsdBuffer, exportModelToPsdBuffer } from '../packages/psd/dist/index.js';
 import { startCubismWebSocketServer, WebSocket } from '../packages/mcp-server/dist/index.js';
-import { evaluateProjectJs, type Project } from '../packages/schema/dist/index.js';
+import { evaluateProjectJs, exportModelingTemplate, lintProjectJs, type Project } from '../packages/schema/dist/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -1987,6 +1989,104 @@ describe('Agent-First Full Feature Pipeline', () => {
     const parsedMoc = parseMoc3ToProject(moc3Buf);
     expect(parsedMoc.mocVersion).toBe(5);
     expect(parsedMoc.project.nodes.length).toBe(bus.getProject().nodes.length);
+  });
+
+  it('should support AI ONNX Face Rigging (applyCubismAiFaceRig), PSD Export/Import Round-Trip, Modeling Templates, and Deformer Protrusion Validation', async () => {
+    const bus = new CommandBus(initialProject);
+    registerStandardCommands(bus);
+
+    // 1. Build 24-node Full-Body Deformer Tree and run AI ONNX Face Rigging
+    bus.execute({
+      id: 'ai_tree',
+      name: 'macro.ai_full_body_deformers',
+      params: {},
+    });
+    const faceRigged = applyCubismAiFaceRig(bus.getProject());
+    const faceKf = faceRigged.keyforms.find((k) => k.target_node_id === 'FACE');
+    expect(faceKf).toBeDefined();
+    expect(faceKf!.keyforms.length).toBe(9);
+
+    // 2. Export Modeling Template (`CMD_EXPORT_AS_TEMPLATE`) and apply onto a blank project (`CMD_MODELING_TEMPLATE`)
+    const tpl = exportModelingTemplate(faceRigged);
+    expect(tpl.deformers.length).toBeGreaterThanOrEqual(24);
+    expect(tpl.keyforms.length).toBeGreaterThanOrEqual(1);
+
+    const targetBus = new CommandBus({
+      ...initialProject,
+      canvas: { ...initialProject.canvas, width: 2000, height: 2000 },
+    });
+    registerStandardCommands(targetBus);
+    targetBus.execute({
+      id: 'apply_tpl',
+      name: 'template.apply',
+      params: { template: tpl },
+    });
+    expect(targetBus.getProject().nodes.some((n) => n.id === 'FACE')).toBe(true);
+    expect(targetBus.getProject().keyforms.some((k) => k.target_node_id === 'FACE')).toBe(true);
+
+    // 3. Test CHILD_OUTSIDE_WARP_BOUNDS (`CMD_VALIDATE_DEFORMER_DIALOG`)
+    targetBus.execute({
+      id: 'protruding_mesh',
+      name: 'node.add',
+      params: {
+        id: 'mesh_outside',
+        name: 'Protruding Mesh',
+        parent_id: 'FACE',
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'ArtMesh',
+          texture_id: 't1',
+          vertices: [[10, 10], [20, 10], [10, 20]], // Outside FACE bounds
+          uvs: [[0, 0], [1, 0], [0, 1]],
+          indices: [0, 1, 2],
+          blend_mode: 'normal',
+          opacity: 1,
+          draw_order: 10,
+          mask_ids: [],
+        },
+      },
+    });
+    const wasmDiags = lintProjectJson(JSON.stringify(targetBus.getProject())) as any[];
+    const jsDiags = lintProjectJs(targetBus.getProject());
+    expect(wasmDiags.some((d) => d.code === 'CHILD_OUTSIDE_WARP_BOUNDS')).toBe(true);
+    expect(jsDiags.some((d) => d.code === 'CHILD_OUTSIDE_WARP_BOUNDS')).toBe(true);
+
+    // 4. Test Layered PSD Export (`CMD_EXPORT_MODEL_AS_PSD`) & Re-Import Round-Trip
+    const texCanvas = createCanvas(64, 64);
+    const texCtx = texCanvas.getContext('2d');
+    texCtx.fillStyle = '#38bdf8';
+    texCtx.fillRect(0, 0, 64, 64);
+    const texPng = texCanvas.toBuffer('image/png');
+
+    const psdProj: Project = {
+      ...initialProject,
+      nodes: [
+        {
+          id: 'layer_face',
+          name: 'Face_Layer',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_face',
+            vertices: [[100, 100], [164, 100], [164, 164], [100, 164]],
+            uvs: [[0, 0], [1, 0], [1, 1], [0, 1]],
+            indices: [0, 1, 2, 0, 2, 3],
+            blend_mode: 'normal',
+            opacity: 1,
+            draw_order: 1,
+            mask_ids: [],
+          },
+        },
+      ],
+      textures: [{ id: 'tex_face', path: 'textures/face.png', width: 64, height: 64 }],
+    };
+    const exportedPsd = exportModelToPsdBuffer(psdProj, () => texPng);
+    expect(exportedPsd.toString('ascii', 0, 4)).toBe('8BPS'); // Official Adobe PSD magic signature
+    const reimported = await importPsdBuffer(exportedPsd);
+    expect(reimported.project.nodes.some((n) => n.id === 'Face_Layer')).toBe(true);
   });
 
 });

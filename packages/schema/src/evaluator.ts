@@ -841,6 +841,32 @@ export function lintProjectJs(project: Project): Diagnostic[] {
         target_id: n.id,
         json_path: `/nodes/${idx}/parent_id`,
       });
+    } else if (n.parent_id) {
+      const parentNode = nodeMap.get(n.parent_id);
+      if (parentNode && parentNode.kind.type === 'WarpDeformer') {
+        const [bx, by, bw, bh] = parentNode.kind.bounds;
+        const eps = 1e-2;
+        const pts =
+          n.kind.type === 'ArtMesh'
+            ? n.kind.vertices
+            : n.kind.type === 'WarpDeformer'
+            ? n.kind.control_points
+            : null;
+        if (pts) {
+          const outside = pts.filter(
+            ([px, py]) => px < bx - eps || px > bx + bw + eps || py < by - eps || py > by + bh + eps
+          );
+          if (outside.length > 0) {
+            diags.push({
+              code: 'CHILD_OUTSIDE_WARP_BOUNDS',
+              severity: 'warning',
+              message: `Node '${n.id}' has ${outside.length} point(s) protruding outside parent WarpDeformer '${parentNode.id}'`,
+              target_id: n.id,
+              json_path: `/nodes/${idx}`,
+            });
+          }
+        }
+      }
     }
   });
 
@@ -1007,4 +1033,37 @@ export function generateStrokeMeshTopology(
   }
 
   return { vertices, uvs, indices };
+}
+
+export interface ModelingTemplate {
+  template_version: number;
+  canvas: { width: number; height: number };
+  parameters: Project['parameters'];
+  parameter_groups: NonNullable<Project['parameter_groups']>;
+  deformers: Node[];
+  keyforms: KeyformBinding[];
+  physics: NonNullable<Project['physics']>;
+}
+
+/**
+ * Exports a project's rigging structure (parameters, deformers, keyforms, physics) as a reusable template (`CMD_EXPORT_AS_TEMPLATE`).
+ */
+export function exportModelingTemplate(project: Project): ModelingTemplate {
+  const deformers = project.nodes.filter(
+    (n) =>
+      n.kind.type === 'WarpDeformer' ||
+      n.kind.type === 'RotationDeformer' ||
+      n.kind.type === 'DeformPath'
+  );
+  const deformerIds = new Set(deformers.map((d) => d.id));
+  const keyforms = project.keyforms.filter((k) => deformerIds.has(k.target_node_id));
+  return {
+    template_version: 1,
+    canvas: { width: project.canvas.width, height: project.canvas.height },
+    parameters: JSON.parse(JSON.stringify(project.parameters)),
+    parameter_groups: JSON.parse(JSON.stringify(project.parameter_groups || [])),
+    deformers: JSON.parse(JSON.stringify(deformers)),
+    keyforms: JSON.parse(JSON.stringify(keyforms)),
+    physics: JSON.parse(JSON.stringify(project.physics || [])),
+  };
 }

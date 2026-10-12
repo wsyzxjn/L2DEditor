@@ -13,6 +13,9 @@ import {
   Layers,
   Route,
   Camera,
+  Eye,
+  FlipHorizontal,
+  Shuffle,
 } from 'lucide-react';
 import earcut from 'earcut';
 
@@ -22,6 +25,7 @@ export const ViewportPanel: React.FC = () => {
     frame,
     selectedNodeId,
     parameterValues,
+    setParameterValue,
     executeCommand,
     isMeshEditMode,
     setIsMeshEditMode,
@@ -54,6 +58,10 @@ export const ViewportPanel: React.FC = () => {
   // Temporary Snapshot Slots 0..3 (`CMD_SAVE_TEMP_SNAP_SHOT_0..3`, `CMD_SHOW_TEMP_SNAP_SHOT_0..3`)
   const [tempSnapshots, setTempSnapshots] = useState<(typeof frame)[]>([null, null, null, null]);
   const [activeSnapshotSlot, setActiveSnapshotSlot] = useState<number | null>(null);
+  // Solo Mode (`CMD_SOLO`), Screen Horizontal Flip (`CMD_CAMERA_FLIP_HORIZONTALLY_SCREEN`), and Edit Level (`CMD_EDIT_LEVEL_1..3`)
+  const [isSoloMode, setIsSoloMode] = useState(false);
+  const [isFlipScreenX, setIsFlipScreenX] = useState(false);
+  const [editLevel, setEditLevel] = useState<1 | 2 | 3>(2);
 
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId);
   const selectedWarp = selectedNode?.kind.type === 'WarpDeformer' ? selectedNode.kind : null;
@@ -92,7 +100,7 @@ export const ViewportPanel: React.FC = () => {
 
     // Center canvas origin + pan/zoom
     ctx.translate(w / 2 + pan.x, h / 2 + pan.y);
-    ctx.scale(zoom, zoom);
+    ctx.scale(isFlipScreenX ? -zoom : zoom, zoom);
     ctx.translate(-project.canvas.width / 2, -project.canvas.height / 2);
 
     // Draw canvas border
@@ -199,6 +207,19 @@ export const ViewportPanel: React.FC = () => {
     if (frame) {
       for (const mesh of frame.meshes) {
         if (mesh.opacity <= 0.01) continue;
+        if (isSoloMode && selectedNodeId && mesh.id !== selectedNodeId) {
+          // Check if mesh is a descendant of selectedNodeId
+          let isDescendant = false;
+          let cur = project.nodes.find((n) => n.id === mesh.id)?.parent_id || null;
+          while (cur) {
+            if (cur === selectedNodeId) {
+              isDescendant = true;
+              break;
+            }
+            cur = project.nodes.find((n) => n.id === cur)?.parent_id || null;
+          }
+          if (!isDescendant) continue;
+        }
 
         const isCurrentlyEdited = isMeshEditMode && selectedNodeId === mesh.id;
         const isArtPathMesh = mesh.texture_id === '__artpath_solid__';
@@ -404,6 +425,9 @@ export const ViewportPanel: React.FC = () => {
     isMotionPathEnabled,
     activeSnapshotSlot,
     tempSnapshots,
+    isSoloMode,
+    isFlipScreenX,
+    editLevel,
     selectedVertexIndex,
     draggingVertexIndex,
     draggingCpIndex,
@@ -765,6 +789,77 @@ export const ViewportPanel: React.FC = () => {
           <Route className="w-3 h-3 mr-1" />
           Motion Path
         </button>
+
+        {/* Solo Mode (`CMD_SOLO`, S) */}
+        <button
+          className={`flex items-center px-1.5 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
+            isSoloMode
+              ? 'bg-amber-500 text-black'
+              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
+          }`}
+          onClick={() => {
+            setIsSoloMode(!isSoloMode);
+            notify(`Solo View ${!isSoloMode ? 'ENABLED' : 'DISABLED'}`, 'info');
+          }}
+          title="Solo Selected Node/Branch (独显模式 S)"
+        >
+          <Eye className="w-3 h-3 mr-0.5" /> Solo
+        </button>
+
+        {/* Horizontal Screen Flip (`CMD_CAMERA_FLIP_HORIZONTALLY_SCREEN`, R) */}
+        <button
+          className={`flex items-center px-1.5 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
+            isFlipScreenX
+              ? 'bg-indigo-600 text-white'
+              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
+          }`}
+          onClick={() => {
+            setIsFlipScreenX(!isFlipScreenX);
+            notify(`Horizontal Screen Mirror ${!isFlipScreenX ? 'ON' : 'OFF'}`, 'info');
+          }}
+          title="Flip Viewport Horizontally (水平镜像检查 R)"
+        >
+          <FlipHorizontal className="w-3 h-3" />
+        </button>
+
+        {/* Random Pose (`CMD_PLAY_OR_STOP_RANDOM_POSE`) */}
+        <button
+          className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded transition-colors"
+          onClick={() => {
+            project.parameters.forEach((p, idx) => {
+              if (!p.locked) {
+                const t = ((Math.sin(Date.now() * 0.003 + idx * 1.7) + 1) * 0.5);
+                const val = Number((p.min + (p.max - p.min) * t).toFixed(2));
+                setParameterValue(p.id, val);
+              }
+            });
+            notify('Applied Random Pose across unlocked parameters', 'info');
+          }}
+          title="Random Pose Test (随机姿势测试)"
+        >
+          <Shuffle className="w-3 h-3" />
+        </button>
+
+        {/* Edit Levels 1/2/3 (`CMD_EDIT_LEVEL_1..3`) */}
+        <div className="flex items-center space-x-0.5 bg-zinc-900 px-1 py-0.5 rounded border border-dcc-border">
+          {([1, 2, 3] as const).map((lvl) => (
+            <button
+              key={lvl}
+              className={`px-1 text-[10px] font-mono rounded ${
+                editLevel === lvl ? 'bg-blue-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+              onClick={() => {
+                setEditLevel(lvl);
+                if (lvl === 1 && selectedMesh) setIsMeshEditMode(true);
+                else if (lvl !== 1 && isMeshEditMode) setIsMeshEditMode(false);
+                notify(`Switched to Edit Level ${lvl}`, 'info');
+              }}
+              title={`Edit Level ${lvl} (编辑级别 ${lvl})`}
+            >
+              L{lvl}
+            </button>
+          ))}
+        </div>
 
         <div className="h-3 w-px bg-dcc-border" />
 

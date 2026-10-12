@@ -128,6 +128,39 @@ pub fn lint_project(project: &Project) -> Vec<Diagnostic> {
                     }
                 }
             }
+
+            // Check if child vertices protrude outside parent WarpDeformer bounds (`CMD_VALIDATE_DEFORMER_DIALOG`)
+            if let Some((_, parent_node)) = node_map.get(parent_id.as_str()) {
+                if let NodeKind::WarpDeformer(parent_warp) = &parent_node.kind {
+                    let [bx, by, bw, bh] = parent_warp.bounds;
+                    let eps = 1e-2;
+                    let child_pts: Option<&[[f32; 2]]> = match &node.kind {
+                        NodeKind::ArtMesh(m) => Some(&m.vertices),
+                        NodeKind::WarpDeformer(w) => Some(&w.control_points),
+                        _ => None,
+                    };
+                    if let Some(pts) = child_pts {
+                        let outside_count = pts
+                            .iter()
+                            .filter(|&&[px, py]| {
+                                px < bx - eps || px > bx + bw + eps || py < by - eps || py > by + bh + eps
+                            })
+                            .count();
+                        if outside_count > 0 {
+                            diags.push(Diagnostic {
+                                code: "CHILD_OUTSIDE_WARP_BOUNDS".into(),
+                                severity: DiagnosticSeverity::Warning,
+                                message: format!(
+                                    "Node '{}' has {} point(s) protruding outside parent WarpDeformer '{}' bounds",
+                                    node.id, outside_count, parent_node.id
+                                ),
+                                target_id: Some(node.id.clone()),
+                                json_path: format!("/nodes/{}", idx),
+                            });
+                        }
+                    }
+                }
+            }
         }
 
         // Kind specific checks

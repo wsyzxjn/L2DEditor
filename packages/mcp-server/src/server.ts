@@ -7,12 +7,13 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 import { CommandBus, registerStandardCommands } from '@l2d/command';
-import { importPsdBuffer } from '@l2d/psd';
+import { importPsdBuffer, exportModelToPsdBuffer } from '@l2d/psd';
 import {
   renderFrameToCanvas,
   generateTextureAtlas,
   exportRuntimePackage,
   renderAnimationSequence,
+  applyCubismAiFaceRig,
 } from '@l2d/renderer';
 import type { Project } from '@l2d/schema';
 // Wasm node bindings
@@ -284,6 +285,30 @@ export function createMcpServer(): Server {
               animationId: { type: 'string' },
             },
             required: ['projectPath', 'animationId'],
+          },
+        },
+        {
+          name: 'l2d_export_psd',
+          description: 'Export an evaluated project back into a multi-layer .psd file (CMD_EXPORT_MODEL_AS_PSD).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string' },
+              outputPath: { type: 'string' },
+              parameters: { type: 'object', additionalProperties: { type: 'number' } },
+            },
+            required: ['projectPath', 'outputPath'],
+          },
+        },
+        {
+          name: 'l2d_ai_face_rig',
+          description: 'Run Cubism 5.3 AI ONNX Face Deformer motion generator (face_deformer_xy.onnx + face_deformer_4corner.onnx) on the project.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string' },
+            },
+            required: ['projectPath'],
           },
         },
       ],
@@ -687,6 +712,36 @@ export function createMcpServer(): Server {
               text: `Baked pendulum physics into animation '${animationId}'.`,
             },
           ],
+        };
+      }
+
+      if (name === 'l2d_export_psd') {
+        const projectPath = resolveProjectJsonPath(args?.projectPath as string);
+        const projectDir = path.dirname(projectPath);
+        const outPath = args?.outputPath as string;
+        const params = (args?.parameters as Record<string, number>) || {};
+        const project: Project = JSON.parse(fs.readFileSync(projectPath, 'utf-8'));
+        const textureResolver = (textureId: string): Buffer | null => {
+          const meta = project.textures.find((t) => t.id === textureId);
+          if (!meta) return null;
+          const fullPath = path.isAbsolute(meta.path) ? meta.path : path.join(projectDir, meta.path);
+          return fs.existsSync(fullPath) ? fs.readFileSync(fullPath) : null;
+        };
+        const psdBuf = exportModelToPsdBuffer(project, textureResolver, params);
+        fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
+        fs.writeFileSync(outPath, psdBuf);
+        return {
+          content: [{ type: 'text', text: `Exported layered PSD to ${outPath} (${psdBuf.length} bytes)` }],
+        };
+      }
+
+      if (name === 'l2d_ai_face_rig') {
+        const projectPath = resolveProjectJsonPath(args?.projectPath as string);
+        const project: Project = JSON.parse(fs.readFileSync(projectPath, 'utf-8'));
+        const updated = applyCubismAiFaceRig(project);
+        fs.writeFileSync(projectPath, JSON.stringify(updated, null, 2), 'utf-8');
+        return {
+          content: [{ type: 'text', text: `Generated ONNX AI 3x3 Face Deformer keyforms on ${projectPath}` }],
         };
       }
 

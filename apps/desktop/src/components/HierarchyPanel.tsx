@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { Node } from '@l2d/schema';
 import { useEditor } from '../context/EditorContext.js';
-import { Eye, EyeOff, Lock, Unlock, Grid, RotateCw, Image, Folder, Plus, PenTool, Sparkles } from 'lucide-react';
+import { Eye, EyeOff, Lock, Unlock, Grid, RotateCw, Image, Folder, Plus, PenTool, Sparkles, Search } from 'lucide-react';
 
 export const HierarchyPanel: React.FC = () => {
   const { project, selectedNodeId, setSelectedNodeId, executeCommand, notify } = useEditor();
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Group nodes by parent_id
   const childrenMap = new Map<string | null, Node[]>();
@@ -223,12 +224,26 @@ export const HierarchyPanel: React.FC = () => {
       </div>
 
       {/* Node list */}
+      <div className="px-2 py-1 border-b border-dcc-border bg-dcc-bg/40 flex items-center space-x-1.5">
+        <Search className="w-3 h-3 text-zinc-500 shrink-0" />
+        <input
+          type="text"
+          placeholder="Filter nodes (Ctrl+F)..."
+          className="w-full h-5 bg-transparent text-dcc-sm text-dcc-text outline-none placeholder:text-zinc-600"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+      </div>
       <div className="flex-1 overflow-y-auto py-1">
         {project.nodes.length === 0 ? (
           <div className="p-4 text-center text-dcc text-dcc-muted">
             <p>No nodes yet.</p>
             <p className="mt-1 text-dcc-sm text-zinc-500">Click + Warp above or Import PSD.</p>
           </div>
+        ) : searchQuery.trim() ? (
+          project.nodes
+            .filter((n) => `${n.name} ${n.id}`.toLowerCase().includes(searchQuery.toLowerCase()))
+            .map((n) => renderNode(n, 0))
         ) : (
           rootNodes.map((n) => renderNode(n, 0))
         )}

@@ -1,4 +1,4 @@
-import type { Project } from '@l2d/schema';
+import { evaluateAnimationAtFrameJs, type Project } from '@l2d/schema';
 import { renderFrameToCanvas, type TextureResolver } from './headless.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -9,7 +9,7 @@ const req = createRequire(import.meta.url);
 
 export interface RenderSequenceOptions {
   fps?: number;
-  format?: 'png' | 'mp4' | 'webm';
+  format?: 'png' | 'mp4' | 'webm' | 'gif';
   videoOutputPath?: string;
 }
 
@@ -37,23 +37,9 @@ export function renderAnimationSequence(
 
   // Render each frame
   for (let f = 0; f < durationFrames; f++) {
-    // 1. Evaluate tracks for frame f
-    for (const track of anim.tracks) {
-      if (track.keyframes.length === 0) continue;
-      if (track.keyframes.length === 1) {
-        model.setParameter(track.target_param_id, track.keyframes[0].value);
-        continue;
-      }
-      // Simple linear interpolate
-      const k0 = track.keyframes.slice().reverse().find((k) => k.frame <= f) || track.keyframes[0];
-      const k1 = track.keyframes.find((k) => k.frame >= f) || track.keyframes[track.keyframes.length - 1];
-
-      let val = k0.value;
-      if (k1.frame > k0.frame) {
-        const t = (f - k0.frame) / (k1.frame - k0.frame);
-        val = k0.value + t * (k1.value - k0.value);
-      }
-      model.setParameter(track.target_param_id, val);
+    const frameParams = evaluateAnimationAtFrameJs(anim, f);
+    for (const [paramId, val] of Object.entries(frameParams)) {
+      model.setParameter(paramId, val);
     }
 
     // 2. Evaluate mesh frame
@@ -74,27 +60,32 @@ export function renderAnimationSequence(
 
   let videoPath: string | undefined;
 
-  // 4. Encode to MP4 or WebM if requested and ffmpeg is available
-  if (options.format === 'mp4' || options.format === 'webm' || options.videoOutputPath) {
+  // 4. Encode to MP4, WebM, or Animated GIF if requested and ffmpeg is available
+  if (options.format === 'mp4' || options.format === 'webm' || options.format === 'gif' || options.videoOutputPath) {
     const finalVideo = options.videoOutputPath || path.join(outFramesDir, `output.${options.format || 'mp4'}`);
     const ffmpegBin = findFfmpegBinary();
 
     if (ffmpegBin) {
       const framePattern = path.join(outFramesDir, 'frame_%04d.png');
-      const codec = options.format === 'webm'
-        ? 'libvpx-vp9'
-        : ffmpegBin.includes('Live2D')
-        ? 'libopenh264'
-        : 'libx264';
-
-      const args = [
-        '-y',
-        '-r', String(fps),
-        '-i', framePattern,
-        '-c:v', codec,
-        '-pix_fmt', options.format === 'webm' ? 'yuva420p' : 'yuv420p',
-        finalVideo,
-      ];
+      const isGif = options.format === 'gif' || finalVideo.endsWith('.gif');
+      const args = isGif
+        ? ['-y', '-r', String(fps), '-i', framePattern, finalVideo]
+        : [
+            '-y',
+            '-r',
+            String(fps),
+            '-i',
+            framePattern,
+            '-c:v',
+            options.format === 'webm'
+              ? 'libvpx-vp9'
+              : ffmpegBin.includes('Live2D')
+              ? 'libopenh264'
+              : 'libx264',
+            '-pix_fmt',
+            options.format === 'webm' ? 'yuva420p' : 'yuv420p',
+            finalVideo,
+          ];
 
       try {
         execFileSync(ffmpegBin, args, { stdio: 'pipe' });

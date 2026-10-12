@@ -1,6 +1,7 @@
 import {
   evaluateAnimationAtFrameJs,
   generateStrokeMeshTopology,
+  type ModelingTemplate,
   PhysicsSimulatorJs,
   transformPointsByFreeQuad,
   type ArtPathPoint,
@@ -2140,6 +2141,62 @@ export function registerStandardCommands(bus: CommandBus): void {
         node.parent_id = 'FACE_ROT';
       } else if (/face|cheek|head|脸|顔/.test(label)) {
         node.parent_id = 'FACE';
+      }
+    }
+  });
+
+  // 14. Apply Modeling Template (`CMD_MODELING_TEMPLATE`)
+  bus.register<{
+    template: ModelingTemplate;
+  }>('template.apply', (draft, { template }) => {
+    const sx = draft.canvas.width / (template.canvas?.width || draft.canvas.width || 1);
+    const sy = draft.canvas.height / (template.canvas?.height || draft.canvas.height || 1);
+
+    for (const pg of template.parameter_groups || []) {
+      if (!draft.parameter_groups) draft.parameter_groups = [];
+      if (!draft.parameter_groups.some((g) => g.id === pg.id)) {
+        draft.parameter_groups.push(JSON.parse(JSON.stringify(pg)));
+      }
+    }
+    for (const p of template.parameters || []) {
+      if (!draft.parameters.some((ep) => ep.id === p.id)) {
+        draft.parameters.push(JSON.parse(JSON.stringify(p)));
+      }
+    }
+    for (const def of template.deformers || []) {
+      if (!draft.nodes.some((n) => n.id === def.id)) {
+        const clone: Node = JSON.parse(JSON.stringify(def));
+        if (clone.kind.type === 'WarpDeformer') {
+          clone.kind.bounds = [
+            clone.kind.bounds[0] * sx,
+            clone.kind.bounds[1] * sy,
+            clone.kind.bounds[2] * sx,
+            clone.kind.bounds[3] * sy,
+          ];
+          clone.kind.control_points = clone.kind.control_points.map(([x, y]) => [x * sx, y * sy]);
+        } else if (clone.kind.type === 'RotationDeformer') {
+          clone.kind.origin = [clone.kind.origin[0] * sx, clone.kind.origin[1] * sy];
+        }
+        draft.nodes.push(clone);
+      }
+    }
+    for (const kf of template.keyforms || []) {
+      const cloneKf: KeyformBinding = JSON.parse(JSON.stringify(kf));
+      for (const st of cloneKf.keyforms) {
+        if (st.payload.kind === 'Warp') {
+          st.payload.control_points = st.payload.control_points.map(([x, y]) => [x * sx, y * sy]);
+        } else if (st.payload.kind === 'Rotation') {
+          st.payload.origin = [st.payload.origin[0] * sx, st.payload.origin[1] * sy];
+        }
+      }
+      const idx = draft.keyforms.findIndex((k) => k.target_node_id === cloneKf.target_node_id);
+      if (idx >= 0) draft.keyforms[idx] = cloneKf;
+      else draft.keyforms.push(cloneKf);
+    }
+    for (const phys of template.physics || []) {
+      if (!draft.physics) draft.physics = [];
+      if (!draft.physics.some((p) => p.id === phys.id)) {
+        draft.physics.push(JSON.parse(JSON.stringify(phys)));
       }
     }
   });
