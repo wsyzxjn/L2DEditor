@@ -8,6 +8,7 @@ import {
   Sparkles,
   Zap,
   Smile,
+  Paintbrush,
 } from 'lucide-react';
 import earcut from 'earcut';
 
@@ -39,6 +40,8 @@ export const ViewportPanel: React.FC = () => {
   // Dragging states
   const [draggingCpIndex, setDraggingCpIndex] = useState<number | null>(null);
   const [draggingVertexIndex, setDraggingVertexIndex] = useState<number | null>(null);
+  const [isWarpBrushActive, setIsWarpBrushActive] = useState(false);
+  const [cursorWorldPos, setCursorWorldPos] = useState<[number, number]>([0, 0]);
 
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId);
   const selectedWarp = selectedNode?.kind.type === 'WarpDeformer' ? selectedNode.kind : null;
@@ -326,6 +329,7 @@ export const ViewportPanel: React.FC = () => {
     }
 
     const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+    setCursorWorldPos([wx, wy]);
 
     // Dragging mesh vertex
     if (isMeshEditMode && selectedNode && selectedMesh && draggingVertexIndex !== null) {
@@ -336,6 +340,25 @@ export const ViewportPanel: React.FC = () => {
           mesh_id: selectedNode.id,
           vertex_index: draggingVertexIndex,
           position: [wx, wy],
+        },
+      });
+      return;
+    }
+
+    // Brush deform on warp
+    if (isWarpBrushActive && selectedNode && selectedWarp && e.buttons === 1) {
+      const [prevWx, prevWy] = screenToWorld(lastMousePos.current.x, lastMousePos.current.y);
+      const deltaX = wx - prevWx;
+      const deltaY = wy - prevWy;
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+      executeCommand({
+        id: `cmd_${Date.now()}`,
+        name: 'warp.brush_deform',
+        params: {
+          node_id: selectedNode.id,
+          center: [wx, wy],
+          delta: [deltaX, deltaY],
+          radius: 120,
         },
       });
       return;
@@ -420,6 +443,21 @@ export const ViewportPanel: React.FC = () => {
         )}
 
         {/* Mesh Edit Toolset */}
+        {selectedWarp && !isMeshEditMode && (
+          <button
+            className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
+              isWarpBrushActive
+                ? 'bg-blue-600 text-white'
+                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+            }`}
+            onClick={() => setIsWarpBrushActive(!isWarpBrushActive)}
+            title="Soft Selection Deform Brush (变形画笔)"
+          >
+            <Paintbrush className="w-3 h-3 mr-1" />
+            Brush
+          </button>
+        )}
+
         {isMeshEditMode && selectedMesh && (
           <div className="flex items-center space-x-1 border-l border-dcc-border pl-1.5">
             <button

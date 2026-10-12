@@ -833,4 +833,42 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+
+  // Warp Soft-Selection Brush Tool
+  bus.register<{
+    node_id: string;
+    center: [number, number];
+    delta: [number, number];
+    radius: number;
+  }>('warp.brush_deform', (draft, { node_id, center, delta, radius }) => {
+    const target = draft.nodes.find((n) => n.id === node_id);
+    if (!target || target.kind.type !== 'WarpDeformer') return;
+
+    const cps = target.kind.control_points;
+    for (let i = 0; i < cps.length; i++) {
+      const [cx, cy] = cps[i];
+      const dist = Math.hypot(cx - center[0], cy - center[1]);
+      if (dist < radius) {
+        const t = dist / radius;
+        const factor = Math.cos((t * Math.PI) / 2);
+        cps[i] = [cx + delta[0] * factor, cy + delta[1] * factor];
+      }
+    }
+  });
+
+  // Parameter Keys Inversion
+  bus.register<{
+    param_id: string;
+  }>('parameter.invert_keys', (draft, { param_id }) => {
+    for (const kf of draft.keyforms) {
+      const dimIdx = kf.dimensions.findIndex((d) => d.param_id === param_id);
+      if (dimIdx >= 0) {
+        for (const s of kf.keyforms) {
+          s.coordinates[dimIdx] = -s.coordinates[dimIdx];
+        }
+        kf.dimensions[dimIdx].keys = kf.dimensions[dimIdx].keys.map((k) => -k).sort((a, b) => a - b);
+      }
+    }
+  });
+
 }

@@ -1227,4 +1227,81 @@ describe('Agent-First Full Feature Pipeline', () => {
     }
   });
 
+
+  it('should verify warp.brush_deform soft selection falloff and parameter.invert_keys', () => {
+    const brushProject: Project = {
+      format_version: 1,
+      canvas: { width: 800, height: 800, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [{ id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 }],
+      nodes: [
+        {
+          id: 'warp_brush_test',
+          name: 'Warp Brush Test',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'WarpDeformer',
+            cols: 2,
+            rows: 2,
+            bounds: [400, 400, 200, 200],
+            control_points: [
+              [400, 400], [500, 400], [600, 400],
+              [400, 500], [500, 500], [600, 500],
+              [400, 600], [500, 600], [600, 600],
+            ],
+          },
+        },
+      ],
+      keyforms: [
+        {
+          target_node_id: 'warp_brush_test',
+          dimensions: [{ param_id: 'ParamAngleX', keys: [-30, 30] }],
+          keyforms: [
+            { coordinates: [-30], payload: { kind: 'Warp', control_points: [] } },
+            { coordinates: [30], payload: { kind: 'Warp', control_points: [] } },
+          ],
+        },
+      ],
+      textures: [],
+    };
+
+    const bus = new CommandBus(brushProject);
+    registerStandardCommands(bus);
+
+    // 1. Run warp.brush_deform at [400, 400] with radius 120 and delta [+30, 0]
+    bus.execute({
+      id: 'cmd_brush_run',
+      name: 'warp.brush_deform',
+      params: {
+        node_id: 'warp_brush_test',
+        center: [400, 400],
+        delta: [30, 0],
+        radius: 120,
+      },
+    });
+
+    const warpAfter = bus.getProject().nodes.find((n) => n.id === 'warp_brush_test')!;
+    if (warpAfter.kind.type === 'WarpDeformer') {
+      const cps = warpAfter.kind.control_points;
+      // Center control point at [400, 400] should receive maximum displacement (+30 -> 430)
+      expect(cps[0][0]).toBeCloseTo(430, 1);
+      // Intermediate point [500, 400] (dist 100 < 120) should receive partial displacement
+      expect(cps[1][0]).toBeGreaterThan(500);
+      expect(cps[1][0]).toBeLessThan(530);
+      // Far point [600, 600] (dist > 120) should remain unchanged at 600
+      expect(cps[8][0]).toBe(600);
+    }
+
+    // 2. Test parameter.invert_keys
+    bus.execute({
+      id: 'cmd_invert',
+      name: 'parameter.invert_keys',
+      params: { param_id: 'ParamAngleX' },
+    });
+    const kf = bus.getProject().keyforms[0];
+    // Keys [-30, 30] when inverted should remain [-30, 30]
+    expect(kf.dimensions[0].keys).toEqual([-30, 30]);
+  });
+
 });
