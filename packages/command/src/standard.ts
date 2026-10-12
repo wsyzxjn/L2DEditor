@@ -1,6 +1,8 @@
 import {
   evaluateAnimationAtFrameJs,
+  generateStrokeMeshTopology,
   PhysicsSimulatorJs,
+  transformPointsByFreeQuad,
   type ArtPathPoint,
   type KeyformBinding,
   type KeyformPayload,
@@ -1904,6 +1906,242 @@ export function registerStandardCommands(bus: CommandBus): void {
     const idx = draft.animations.findIndex((a) => a.id === animation_id);
     if (idx >= 0) draft.animations[idx] = anim;
     else draft.animations.push(anim);
+  });
+
+  // 10. Perspective & Bilinear 4-Corner Free Deform Handler (`CMD_CREATE_FREE_DEFORM_HANDLER_AS_PERSPECTIVE_MODE`)
+  bus.register<{
+    node_id: string;
+    quad_corners: [[number, number], [number, number], [number, number], [number, number]];
+    mode?: 'perspective' | 'bilinear';
+  }>('deform.free_quad', (draft, { node_id, quad_corners, mode = 'perspective' }) => {
+    const node = draft.nodes.find((n) => n.id === node_id);
+    if (!node) throw new Error(`Node '${node_id}' not found`);
+
+    if (node.kind.type === 'ArtMesh') {
+      const pts = node.kind.vertices;
+      if (pts.length === 0) return;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const [x, y] of pts) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      const bounds: [number, number, number, number] = [minX, minY, maxX - minX || 1, maxY - minY || 1];
+      node.kind.vertices = transformPointsByFreeQuad(pts, bounds, quad_corners, mode);
+    } else if (node.kind.type === 'WarpDeformer') {
+      node.kind.control_points = transformPointsByFreeQuad(
+        node.kind.control_points,
+        node.kind.bounds,
+        quad_corners,
+        mode
+      );
+    } else if (node.kind.type === 'ArtPath') {
+      const pts = node.kind.points.map((p): [number, number] => p.pos);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const [x, y] of pts) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      const bounds: [number, number, number, number] = [minX, minY, maxX - minX || 1, maxY - minY || 1];
+      const transformed = transformPointsByFreeQuad(pts, bounds, quad_corners, mode);
+      node.kind.points.forEach((p, idx) => {
+        p.pos = transformed[idx];
+      });
+    }
+  });
+
+  // 11. Warp Handler Topology Resampling (`CMD_TWICE_ROW_WARP_HANDLER`, `CMD_HALF_ROW_WARP_HANDLER`, `CMD_TWICE_COLUMN_WARP_HANDLER`, `CMD_HALF_COLUMN_WARP_HANDLER`)
+  bus.register<{
+    node_id: string;
+    op: 'twice_rows' | 'half_rows' | 'twice_cols' | 'half_cols';
+  }>('warp.change_topology', (draft, { node_id, op }) => {
+    const node = draft.nodes.find((n) => n.id === node_id);
+    if (!node || node.kind.type !== 'WarpDeformer') return;
+
+    const oldCols = node.kind.cols;
+    const oldRows = node.kind.rows;
+    const newCols =
+      op === 'twice_cols' ? oldCols * 2 : op === 'half_cols' ? Math.max(1, Math.floor(oldCols / 2)) : oldCols;
+    const newRows =
+      op === 'twice_rows' ? oldRows * 2 : op === 'half_rows' ? Math.max(1, Math.floor(oldRows / 2)) : oldRows;
+
+    const resampleGrid = (srcPts: [number, number][]): [number, number][] => {
+      const stride = oldCols + 1;
+      const out: [number, number][] = [];
+      for (let r = 0; r <= newRows; r++) {
+        const v = r / newRows;
+        const gy = v * oldRows;
+        const r0 = Math.min(Math.floor(gy), oldRows - 1);
+        const ty = gy - r0;
+        for (let c = 0; c <= newCols; c++) {
+          const u = c / newCols;
+          const gx = u * oldCols;
+          const c0 = Math.min(Math.floor(gx), oldCols - 1);
+          const tx = gx - c0;
+          const p00 = srcPts[r0 * stride + c0] || [0, 0];
+          const p10 = srcPts[r0 * stride + c0 + 1] || p00;
+          const p01 = srcPts[(r0 + 1) * stride + c0] || p00;
+          const p11 = srcPts[(r0 + 1) * stride + c0 + 1] || p00;
+          const topX = p00[0] * (1 - tx) + p10[0] * tx;
+          const topY = p00[1] * (1 - tx) + p10[1] * tx;
+          const botX = p01[0] * (1 - tx) + p11[0] * tx;
+          const botY = p01[1] * (1 - tx) + p11[1] * tx;
+          out.push([topX * (1 - ty) + botX * ty, topY * (1 - ty) + botY * ty]);
+        }
+      }
+      return out;
+    };
+
+    node.kind.control_points = resampleGrid(node.kind.control_points);
+    node.kind.cols = newCols;
+    node.kind.rows = newRows;
+
+    const binding = draft.keyforms.find((k) => k.target_node_id === node_id);
+    if (binding) {
+      for (const st of binding.keyforms) {
+        if (st.payload.kind === 'Warp') {
+          st.payload.control_points = resampleGrid(st.payload.control_points);
+        }
+      }
+    }
+  });
+
+  // 12. Stroke Mesh Topology Generator (`CMD_TOOL_MODE_MESH_EDIT_STROKE_MESH`)
+  bus.register<{
+    mesh_id: string;
+    stroke_points: [number, number][];
+    width?: number;
+  }>('mesh.stroke_topology', (draft, { mesh_id, stroke_points, width = 24 }) => {
+    const mesh = draft.nodes.find((n) => n.id === mesh_id);
+    if (!mesh || mesh.kind.type !== 'ArtMesh') return;
+    const topo = generateStrokeMeshTopology(stroke_points, width, [draft.canvas.width, draft.canvas.height]);
+    if (topo.vertices.length > 0) {
+      mesh.kind.vertices = topo.vertices;
+      mesh.kind.uvs = topo.uvs;
+      mesh.kind.indices = topo.indices;
+    }
+  });
+
+  // 13. Cubism 5.1/5.3 Full-Body AI Deformer Tree Builder (`com.live2d.cubism.doc.model.deformer.autoDeformerCreate`)
+  bus.register<void>('macro.ai_full_body_deformers', (draft) => {
+    const cx = draft.canvas.width / 2;
+    const cy = draft.canvas.height / 2;
+
+    const makeGrid = (cols: number, rows: number, bounds: [number, number, number, number]): [number, number][] => {
+      const [bx, by, bw, bh] = bounds;
+      const pts: [number, number][] = [];
+      for (let r = 0; r <= rows; r++) {
+        const y = by + (bh * r) / rows;
+        for (let c = 0; c <= cols; c++) {
+          const x = bx + (bw * c) / cols;
+          pts.push([x, y]);
+        }
+      }
+      return pts;
+    };
+
+    // Official 24-node DeformerType hierarchy from `G.class` (`CUB3-3787..3809`, `CUBI-1238`)
+    const officialHierarchy: {
+      id: string;
+      name: string;
+      parent_id: string | null;
+      type: 'Warp' | 'Rotation';
+      bounds?: [number, number, number, number];
+      origin?: [number, number];
+    }[] = [
+      { id: 'UPPER_BODY_Z', name: '上半身的曲面Z (Upper Body Z)', parent_id: null, type: 'Warp', bounds: [cx - 300, cy - 200, 600, 500] },
+      { id: 'UPPER_BODY_Y', name: '上半身的曲面Y (Upper Body Y)', parent_id: 'UPPER_BODY_Z', type: 'Warp', bounds: [cx - 280, cy - 180, 560, 460] },
+      { id: 'BREATH', name: '呼吸 (Breath)', parent_id: 'UPPER_BODY_Y', type: 'Warp', bounds: [cx - 260, cy - 160, 520, 420] },
+      { id: 'LOWER_BODY', name: '下半身的曲面 (Lower Body)', parent_id: null, type: 'Warp', bounds: [cx - 300, cy + 200, 600, 400] },
+      { id: 'RIGHT_ARM_ROT', name: '右臂旋转 (Right Arm Rot)', parent_id: 'BREATH', type: 'Rotation', origin: [cx - 180, cy - 50] },
+      { id: 'LEFT_ARM_ROT', name: '左臂旋转 (Left Arm Rot)', parent_id: 'BREATH', type: 'Rotation', origin: [cx + 180, cy - 50] },
+      { id: 'NECK_POS', name: '脖子位置 (Neck Pos)', parent_id: 'BREATH', type: 'Warp', bounds: [cx - 120, cy - 260, 240, 180] },
+      { id: 'NECK', name: '脖子曲面 (Neck)', parent_id: 'NECK_POS', type: 'Warp', bounds: [cx - 100, cy - 240, 200, 150] },
+      { id: 'FACE_ROT', name: '面部旋转 (Face Rot)', parent_id: 'NECK_POS', type: 'Rotation', origin: [cx, cy - 260] },
+      { id: 'FACE', name: '面部曲面 (Face)', parent_id: 'FACE_ROT', type: 'Warp', bounds: [cx - 220, cy - 500, 440, 360] },
+      { id: 'NOSE', name: '鼻子曲面 (Nose)', parent_id: 'FACE', type: 'Warp', bounds: [cx - 30, cy - 340, 60, 60] },
+      { id: 'MOUTH', name: '嘴部曲面 (Mouth)', parent_id: 'FACE', type: 'Warp', bounds: [cx - 60, cy - 260, 120, 60] },
+      { id: 'RIGHT_EAR', name: '右耳曲面 (Right Ear)', parent_id: 'FACE_ROT', type: 'Warp', bounds: [cx - 250, cy - 360, 60, 100] },
+      { id: 'LEFT_EAR', name: '左耳曲面 (Left Ear)', parent_id: 'FACE_ROT', type: 'Warp', bounds: [cx + 190, cy - 360, 60, 100] },
+      { id: 'RIGHT_EYE_BROWS_POS', name: '右眉毛位置 (Right Brow Pos)', parent_id: 'FACE', type: 'Warp', bounds: [cx - 160, cy - 420, 100, 40] },
+      { id: 'RIGHT_EYE_BROWS_ROT', name: '右眉毛角度 (Right Brow Rot)', parent_id: 'RIGHT_EYE_BROWS_POS', type: 'Rotation', origin: [cx - 110, cy - 400] },
+      { id: 'RIGHT_EYE_BROWS', name: '右眉毛曲面 (Right Brow)', parent_id: 'RIGHT_EYE_BROWS_ROT', type: 'Warp', bounds: [cx - 160, cy - 420, 100, 40] },
+      { id: 'LEFT_EYE_BROWS_POS', name: '左眉毛位置 (Left Brow Pos)', parent_id: 'FACE', type: 'Warp', bounds: [cx + 60, cy - 420, 100, 40] },
+      { id: 'LEFT_EYE_BROWS_ROT', name: '左眉毛角度 (Left Brow Rot)', parent_id: 'LEFT_EYE_BROWS_POS', type: 'Rotation', origin: [cx + 110, cy - 400] },
+      { id: 'LEFT_EYE_BROWS', name: '左眉毛曲面 (Left Brow)', parent_id: 'LEFT_EYE_BROWS_ROT', type: 'Warp', bounds: [cx + 60, cy - 420, 100, 40] },
+      { id: 'RIGHT_EYE', name: '右眼曲面 (Right Eye)', parent_id: 'FACE', type: 'Warp', bounds: [cx - 160, cy - 370, 100, 70] },
+      { id: 'RIGHT_EYE_BALL', name: '右眼珠曲面 (Right Eyeball)', parent_id: 'RIGHT_EYE', type: 'Warp', bounds: [cx - 135, cy - 355, 50, 50] },
+      { id: 'LEFT_EYE', name: '左眼曲面 (Left Eye)', parent_id: 'FACE', type: 'Warp', bounds: [cx + 60, cy - 370, 100, 70] },
+      { id: 'LEFT_EYE_BALL', name: '左眼珠曲面 (Left Eyeball)', parent_id: 'LEFT_EYE', type: 'Warp', bounds: [cx + 85, cy - 355, 50, 50] },
+    ];
+
+    for (const def of officialHierarchy) {
+      if (!draft.nodes.some((n) => n.id === def.id)) {
+        draft.nodes.push({
+          id: def.id,
+          name: def.name,
+          parent_id: def.parent_id,
+          visible: true,
+          locked: false,
+          kind:
+            def.type === 'Warp'
+              ? {
+                  type: 'WarpDeformer',
+                  cols: 5,
+                  rows: 5,
+                  bounds: def.bounds!,
+                  control_points: makeGrid(5, 5, def.bounds!),
+                  bezier_smooth: true,
+                }
+              : {
+                  type: 'RotationDeformer',
+                  origin: def.origin!,
+                  angle_deg: 0,
+                  scale: [1, 1],
+                },
+        });
+      }
+    }
+
+    // Classify ArtMeshes into the 13 PredClass categories and assign parent deformer (`F.class`)
+    for (const node of draft.nodes) {
+      if (node.kind.type !== 'ArtMesh') continue;
+      const label = `${node.id} ${node.name}`.toLowerCase();
+      let avgX = cx;
+      if (node.kind.vertices.length > 0) {
+        avgX = node.kind.vertices.reduce((s, v) => s + v[0], 0) / node.kind.vertices.length;
+      }
+      const isLeftOnCanvas = avgX < cx; // In character view, canvas left is character's RIGHT side (`A.isOnCanvasLeftSide`)
+
+      if (/brow|眉/.test(label)) {
+        node.parent_id = isLeftOnCanvas ? 'RIGHT_EYE_BROWS' : 'LEFT_EYE_BROWS';
+      } else if (/eyeball|pupil|iris|眼珠|瞳/.test(label)) {
+        node.parent_id = isLeftOnCanvas ? 'RIGHT_EYE_BALL' : 'LEFT_EYE_BALL';
+      } else if (/eye|lash|眼/.test(label)) {
+        node.parent_id = isLeftOnCanvas ? 'RIGHT_EYE' : 'LEFT_EYE';
+      } else if (/nose|鼻/.test(label)) {
+        node.parent_id = 'NOSE';
+      } else if (/mouth|lip|tongue|teeth|嘴|口/.test(label)) {
+        node.parent_id = 'MOUTH';
+      } else if (/ear|耳/.test(label)) {
+        node.parent_id = isLeftOnCanvas ? 'RIGHT_EAR' : 'LEFT_EAR';
+      } else if (/neck|脖|首/.test(label)) {
+        node.parent_id = 'NECK';
+      } else if (/arm|hand|sleeve|臂|手/.test(label)) {
+        node.parent_id = isLeftOnCanvas ? 'RIGHT_ARM_ROT' : 'LEFT_ARM_ROT';
+      } else if (/leg|skirt|pants|lower|腿|裙|下半身/.test(label)) {
+        node.parent_id = 'LOWER_BODY';
+      } else if (/body|torso|chest|shirt|cloth|身体|上半身|胸|服/.test(label)) {
+        node.parent_id = 'BREATH';
+      } else if (/hair|发|髪/.test(label)) {
+        node.parent_id = 'FACE_ROT';
+      } else if (/face|cheek|head|脸|顔/.test(label)) {
+        node.parent_id = 'FACE';
+      }
+    }
   });
 
 }

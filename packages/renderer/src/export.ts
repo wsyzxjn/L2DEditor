@@ -1,6 +1,7 @@
 import type { Project } from '@l2d/schema';
 import { generateTextureAtlas } from './atlas.js';
 import type { TextureResolver } from './headless.js';
+import { serializeMoc3Container } from './cubism_bridge.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
@@ -16,7 +17,7 @@ export function exportRuntimePackage(
   textureResolver: TextureResolver,
   outDir: string,
   options: RuntimeExportOptions = {}
-): { model3JsonPath: string; numTextures: number; numMotions: number; zipPath?: string } {
+): { model3JsonPath: string; moc3Path: string; numTextures: number; numMotions: number; zipPath?: string } {
   const modelName = options.modelName || 'model';
   const atlasSize = options.atlasSize || 2048;
 
@@ -274,6 +275,9 @@ export function exportRuntimePackage(
   const model3Path = path.join(outDir, `${modelName}.model3.json`);
   fs.writeFileSync(model3Path, JSON.stringify(model3Json, null, 2), 'utf-8');
 
+  const moc3Path = path.join(outDir, `${modelName}.moc3`);
+  fs.writeFileSync(moc3Path, serializeMoc3Container(atlasResult.updatedProject));
+
   let zipPath: string | undefined;
   if (options.zipOutputPath) {
     try {
@@ -287,6 +291,7 @@ export function exportRuntimePackage(
 
   return {
     model3JsonPath: model3Path,
+    moc3Path,
     numTextures: textureFiles.length,
     numMotions,
     zipPath,

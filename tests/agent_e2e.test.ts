@@ -1,7 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { CommandBus, registerStandardCommands } from '../packages/command/dist/index.js';
 import { WasmModel, lintProjectJson, getProjectStats, importMtnMotion, bakePhysicsToAnimation } from '../packages/schema/wasm-node/l2d_wasm.js';
-import { renderFrameToCanvas, createCanvas, generateTextureAtlas, exportRuntimePackage, createSyntheticWavBuffer, analyzeWavForLipSync, renderAnimationSequence } from '../packages/renderer/dist/index.js';
+import {
+  renderFrameToCanvas,
+  createCanvas,
+  generateTextureAtlas,
+  exportRuntimePackage,
+  createSyntheticWavBuffer,
+  analyzeWavForLipSync,
+  renderAnimationSequence,
+  runCubismFaceDeformerXY,
+  runCubismFaceDeformer4Corner,
+  runCubismLayerClassifierOnnx,
+  serializeMoc3Container,
+  parseMoc3ToProject,
+} from '../packages/renderer/dist/index.js';
 import { startCubismWebSocketServer, WebSocket } from '../packages/mcp-server/dist/index.js';
 import { evaluateProjectJs, type Project } from '../packages/schema/dist/index.js';
 import * as fs from 'fs';
@@ -1817,6 +1830,163 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(lip.mouthFormKeyframes.length).toBe(lip.keyframes.length);
     expect(lip.waveformPeaks.length).toBe(lip.keyframes.length);
     expect(lip.vowelKeyframes.A.length).toBe(lip.keyframes.length);
+  });
+
+  it('should execute Cubism 5.3 local ONNX models (face_deformer_xy, face_deformer_4corner, classifier) and build 24-node Full-Body Deformer Tree', () => {
+    // 1. Direct ONNX inference on face_deformer_xy.onnx ([1, 17] -> [1, 1334])
+    const input17 = new Float32Array(17).fill(0.2);
+    const outXY = runCubismFaceDeformerXY(input17);
+    expect(outXY.length).toBe(1334);
+    expect(Math.abs(outXY[0])).toBeGreaterThan(1e-5);
+
+    // 2. Direct ONNX inference on face_deformer_4corner.onnx ([1, 1728] -> [1, 1728])
+    const input1728 = new Float32Array(1728).fill(0.05);
+    const out4C = runCubismFaceDeformer4Corner(input1728);
+    expect(out4C.length).toBe(1728);
+    expect(Math.abs(out4C[0])).toBeGreaterThan(1e-5);
+
+    // 3. Direct ONNX inference on classifier_for_auto_deformer.onnx ([1, 3, 224, 224] -> [1, 13])
+    const clsRes = runCubismLayerClassifierOnnx();
+    expect(clsRes.logits.length).toBe(13);
+
+    // 4. Full-body 24-deformer tree generation (`macro.ai_full_body_deformers`)
+    const bus = new CommandBus(initialProject);
+    registerStandardCommands(bus);
+    bus.execute({
+      id: 'm_eye',
+      name: 'node.add',
+      params: {
+        id: 'eye_left_mesh',
+        name: 'Left Eye',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'ArtMesh',
+          texture_id: 't1',
+          vertices: [[650, 350], [700, 350], [650, 400]],
+          uvs: [[0, 0], [1, 0], [0, 1]],
+          indices: [0, 1, 2],
+          blend_mode: 'normal',
+          opacity: 1,
+          draw_order: 1,
+          mask_ids: [],
+        },
+      },
+    });
+    bus.execute({
+      id: 'ai_full',
+      name: 'macro.ai_full_body_deformers',
+      params: {},
+    });
+    const nodes = bus.getProject().nodes;
+    expect(nodes.some((n) => n.id === 'UPPER_BODY_Z')).toBe(true);
+    expect(nodes.some((n) => n.id === 'BREATH')).toBe(true);
+    expect(nodes.some((n) => n.id === 'FACE_ROT')).toBe(true);
+    expect(nodes.some((n) => n.id === 'LEFT_EYE')).toBe(true);
+    const eyeMesh = nodes.find((n) => n.id === 'eye_left_mesh')!;
+    expect(eyeMesh.parent_id).toBe('LEFT_EYE');
+  });
+
+  it('should support Perspective Free Quad Homography, Warp Topology Resampling, Stroke Mesh Topology, and .moc3 Binary Round-Trip', () => {
+    const bus = new CommandBus(initialProject);
+    registerStandardCommands(bus);
+
+    bus.execute({
+      id: 'w_topo',
+      name: 'node.add',
+      params: {
+        id: 'warp_topo',
+        name: 'Topo Warp',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'WarpDeformer',
+          cols: 2,
+          rows: 2,
+          bounds: [0, 0, 100, 100],
+          control_points: [
+            [0, 0], [50, 0], [100, 0],
+            [0, 50], [50, 50], [100, 50],
+            [0, 100], [50, 100], [100, 100],
+          ],
+        },
+      },
+    });
+
+    // Double rows (2x2 -> 2x4 = 15 control points)
+    bus.execute({
+      id: 'double_r',
+      name: 'warp.change_topology',
+      params: { node_id: 'warp_topo', op: 'twice_rows' },
+    });
+    const warpAfter = bus.getProject().nodes.find((n) => n.id === 'warp_topo')!;
+    if (warpAfter.kind.type === 'WarpDeformer') {
+      expect(warpAfter.kind.rows).toBe(4);
+      expect(warpAfter.kind.control_points.length).toBe(15);
+    }
+
+    // Perspective 4-corner free deform handler (`deform.free_quad`)
+    bus.execute({
+      id: 'persp_1',
+      name: 'deform.free_quad',
+      params: {
+        node_id: 'warp_topo',
+        quad_corners: [[10, 5], [90, 5], [0, 100], [100, 100]],
+        mode: 'perspective',
+      },
+    });
+    const warpPersp = bus.getProject().nodes.find((n) => n.id === 'warp_topo')!;
+    if (warpPersp.kind.type === 'WarpDeformer') {
+      expect(warpPersp.kind.control_points[0][0]).toBeCloseTo(10, 2);
+      expect(warpPersp.kind.control_points[0][1]).toBeCloseTo(5, 2);
+    }
+
+    // Stroke Mesh Topology (`mesh.stroke_topology`)
+    bus.execute({
+      id: 'm_stroke',
+      name: 'node.add',
+      params: {
+        id: 'hair_strand',
+        name: 'Hair Strand',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'ArtMesh',
+          texture_id: 't1',
+          vertices: [],
+          uvs: [],
+          indices: [],
+          blend_mode: 'normal',
+          opacity: 1,
+          draw_order: 5,
+          mask_ids: [],
+        },
+      },
+    });
+    bus.execute({
+      id: 'do_stroke',
+      name: 'mesh.stroke_topology',
+      params: {
+        mesh_id: 'hair_strand',
+        stroke_points: [[100, 100], [100, 200], [110, 300], [130, 400]],
+        width: 20,
+      },
+    });
+    const strand = bus.getProject().nodes.find((n) => n.id === 'hair_strand')!;
+    if (strand.kind.type === 'ArtMesh') {
+      expect(strand.kind.vertices.length).toBe(12); // 4 cross-sections * 3 vertices
+      expect(strand.kind.indices.length).toBe(36);  // 3 segments * 4 triangles * 3 indices
+    }
+
+    // MOC3 Binary Serialization & Round-Trip Parsing
+    const moc3Buf = serializeMoc3Container(bus.getProject());
+    expect(moc3Buf.toString('ascii', 0, 4)).toBe('MOC3');
+    const parsedMoc = parseMoc3ToProject(moc3Buf);
+    expect(parsedMoc.mocVersion).toBe(5);
+    expect(parsedMoc.project.nodes.length).toBe(bus.getProject().nodes.length);
   });
 
 });

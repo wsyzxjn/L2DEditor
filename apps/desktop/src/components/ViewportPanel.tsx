@@ -12,6 +12,7 @@ import {
   Paintbrush,
   Layers,
   Route,
+  Camera,
 } from 'lucide-react';
 import earcut from 'earcut';
 
@@ -50,6 +51,9 @@ export const ViewportPanel: React.FC = () => {
   const [draggingVertexIndex, setDraggingVertexIndex] = useState<number | null>(null);
   const [isWarpBrushActive, setIsWarpBrushActive] = useState(false);
   const [cursorWorldPos, setCursorWorldPos] = useState<[number, number]>([0, 0]);
+  // Temporary Snapshot Slots 0..3 (`CMD_SAVE_TEMP_SNAP_SHOT_0..3`, `CMD_SHOW_TEMP_SNAP_SHOT_0..3`)
+  const [tempSnapshots, setTempSnapshots] = useState<(typeof frame)[]>([null, null, null, null]);
+  const [activeSnapshotSlot, setActiveSnapshotSlot] = useState<number | null>(null);
 
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId);
   const selectedWarp = selectedNode?.kind.type === 'WarpDeformer' ? selectedNode.kind : null;
@@ -129,6 +133,33 @@ export const ViewportPanel: React.FC = () => {
     ctx.lineTo(project.canvas.width, midY);
     ctx.stroke();
     ctx.restore();
+
+    // Draw Temporary Snapshot Comparison Slot if active (`CMD_SHOW_TEMP_SNAP_SHOT_0..3`)
+    if (activeSnapshotSlot !== null && tempSnapshots[activeSnapshotSlot]) {
+      const snapFrame = tempSnapshots[activeSnapshotSlot]!;
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = '#a855f7';
+      ctx.fillStyle = '#a855f722';
+      ctx.lineWidth = 1.2 / zoom;
+      for (const sm of snapFrame.meshes) {
+        const verts = sm.vertices;
+        const inds = sm.indices;
+        for (let i = 0; i < inds.length; i += 3) {
+          const i0 = inds[i] * 2;
+          const i1 = inds[i + 1] * 2;
+          const i2 = inds[i + 2] * 2;
+          ctx.beginPath();
+          ctx.moveTo(verts[i0], verts[i0 + 1]);
+          ctx.lineTo(verts[i1], verts[i1 + 1]);
+          ctx.lineTo(verts[i2], verts[i2 + 1]);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
 
     // Draw Onion Skin ghosts (previous/next parameter states) if enabled
     if (isOnionSkinEnabled && project.parameters.length > 0) {
@@ -371,6 +402,8 @@ export const ViewportPanel: React.FC = () => {
     isMeshEditMode,
     isOnionSkinEnabled,
     isMotionPathEnabled,
+    activeSnapshotSlot,
+    tempSnapshots,
     selectedVertexIndex,
     draggingVertexIndex,
     draggingCpIndex,
@@ -732,6 +765,45 @@ export const ViewportPanel: React.FC = () => {
           <Route className="w-3 h-3 mr-1" />
           Motion Path
         </button>
+
+        <div className="h-3 w-px bg-dcc-border" />
+
+        {/* Temporary Snapshot Slots 1..4 (`CMD_SAVE_TEMP_SNAP_SHOT_0..3`) */}
+        <div className="flex items-center space-x-1">
+          <Camera className="w-3 h-3 text-purple-400 mr-0.5" />
+          {[0, 1, 2, 3].map((slot) => {
+            const hasSnap = !!tempSnapshots[slot];
+            const isShowing = activeSnapshotSlot === slot;
+            return (
+              <button
+                key={slot}
+                className={`px-1.5 py-0.5 text-[10px] font-mono rounded transition-colors ${
+                  isShowing
+                    ? 'bg-purple-600 text-white'
+                    : hasSnap
+                    ? 'bg-purple-950/60 text-purple-300 border border-purple-500/40'
+                    : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'
+                }`}
+                onClick={(e) => {
+                  if (e.shiftKey || !hasSnap) {
+                    setTempSnapshots((prev) => {
+                      const next = [...prev];
+                      next[slot] = frame ? JSON.parse(JSON.stringify(frame)) : null;
+                      return next;
+                    });
+                    setActiveSnapshotSlot(slot);
+                    notify(`Saved Temporary Snapshot #${slot + 1} (Shift+Click to overwrite)`, 'success');
+                  } else {
+                    setActiveSnapshotSlot(isShowing ? null : slot);
+                  }
+                }}
+                title={`Snapshot Slot #${slot + 1}: Click to toggle comparison, Shift+Click to save current frame`}
+              >
+                S{slot + 1}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Bottom Status Bar Overlay */}

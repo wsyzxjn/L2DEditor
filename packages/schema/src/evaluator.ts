@@ -890,3 +890,121 @@ export function computeModelStatsJs(project: Project): ModelStats {
     estimated_texture_vram_bytes,
   };
 }
+
+/**
+ * Transforms points from an axis-aligned source bounding box `[minX, minY, width, height]`
+ * into an arbitrary 4-corner quadrilateral `[topLeft, topRight, bottomLeft, bottomRight]`.
+ * Supports both `'perspective'` (2D Projective Homography with foreshortening depth scaling,
+ * matching `onMoveSelectPoint_perspective` / `QuadWeight_v2` in Cubism 5.3) and `'bilinear'`.
+ */
+export function transformPointsByFreeQuad(
+  points: [number, number][],
+  bounds: [number, number, number, number],
+  quadCorners: [[number, number], [number, number], [number, number], [number, number]],
+  mode: 'perspective' | 'bilinear' = 'perspective'
+): [number, number][] {
+  const [minX, minY, w, h] = bounds;
+  if (Math.abs(w) < 1e-5 || Math.abs(h) < 1e-5) return points;
+  const [p00, p10, p01, p11] = quadCorners;
+
+  if (mode === 'perspective') {
+    // Compute projective homography mapping unit square (0,0),(1,0),(0,1),(1,1) -> p00,p10,p01,p11
+    const dx1 = p10[0] - p11[0];
+    const dy1 = p10[1] - p11[1];
+    const dx2 = p01[0] - p11[0];
+    const dy2 = p01[1] - p11[1];
+    const sx = p00[0] - p10[0] + p11[0] - p01[0];
+    const sy = p00[1] - p10[1] + p11[1] - p01[1];
+    const det = dx1 * dy2 - dx2 * dy1;
+    if (Math.abs(det) > 1e-6) {
+      const g = (sx * dy2 - sy * dx2) / det;
+      const hCoeff = (dx1 * sy - dy1 * sx) / det;
+      const a = p10[0] - p00[0] + g * p10[0];
+      const b = p01[0] - p00[0] + hCoeff * p01[0];
+      const c = p00[0];
+      const d = p10[1] - p00[1] + g * p10[1];
+      const e = p01[1] - p00[1] + hCoeff * p01[1];
+      const f = p00[1];
+
+      return points.map(([px, py]): [number, number] => {
+        const u = (px - minX) / w;
+        const v = (py - minY) / h;
+        const denom = g * u + hCoeff * v + 1.0;
+        if (Math.abs(denom) < 1e-5) return [px, py];
+        return [(a * u + b * v + c) / denom, (d * u + e * v + f) / denom];
+      });
+    }
+  }
+
+  // Bilinear quad interpolation
+  return points.map(([px, py]): [number, number] => {
+    const u = (px - minX) / w;
+    const v = (py - minY) / h;
+    const tx = p00[0] * (1 - u) + p10[0] * u;
+    const ty = p00[1] * (1 - u) + p10[1] * u;
+    const bx = p01[0] * (1 - u) + p11[0] * u;
+    const by = p01[1] * (1 - u) + p11[1] * u;
+    return [tx * (1 - v) + bx * v, ty * (1 - v) + by * v];
+  });
+}
+
+/**
+ * Generates a triangulated strip mesh along a user/agent stroke polyline (`CMD_TOOL_MODE_MESH_EDIT_STROKE_MESH`).
+ */
+export function generateStrokeMeshTopology(
+  strokePoints: [number, number][],
+  width: number = 24,
+  canvasSize: [number, number] = [1920, 1080]
+): { vertices: [number, number][]; uvs: [number, number][]; indices: number[] } {
+  const n = strokePoints.length;
+  if (n < 2) {
+    return { vertices: [], uvs: [], indices: [] };
+  }
+  const vertices: [number, number][] = [];
+  const uvs: [number, number][] = [];
+  const indices: number[] = [];
+  const [cw, ch] = canvasSize;
+
+  for (let i = 0; i < n; i++) {
+    const pCurr = strokePoints[i];
+    const pPrev = i > 0 ? strokePoints[i - 1] : pCurr;
+    const pNext = i + 1 < n ? strokePoints[i + 1] : pCurr;
+    let tx = pNext[0] - pPrev[0];
+    let ty = pNext[1] - pPrev[1];
+    const len = Math.hypot(tx, ty);
+    if (len > 1e-5) {
+      tx /= len;
+      ty /= len;
+    } else {
+      tx = 1;
+      ty = 0;
+    }
+    const nx = -ty;
+    const ny = tx;
+    const halfW = Math.max(1, width * 0.5);
+
+    const leftPt: [number, number] = [pCurr[0] + nx * halfW, pCurr[1] + ny * halfW];
+    const centerPt: [number, number] = [pCurr[0], pCurr[1]];
+    const rightPt: [number, number] = [pCurr[0] - nx * halfW, pCurr[1] - ny * halfW];
+
+    vertices.push(leftPt, centerPt, rightPt);
+    for (const pt of [leftPt, centerPt, rightPt]) {
+      uvs.push([
+        Math.max(0, Math.min(1, pt[0] / (cw || 1))),
+        Math.max(0, Math.min(1, pt[1] / (ch || 1))),
+      ]);
+    }
+  }
+
+  // 3 vertices per cross-section -> 4 triangles per segment
+  for (let i = 0; i < n - 1; i++) {
+    const b0 = i * 3;
+    const b1 = (i + 1) * 3;
+    // Left band
+    indices.push(b0, b0 + 1, b1, b1, b0 + 1, b1 + 1);
+    // Right band
+    indices.push(b0 + 1, b0 + 2, b1 + 1, b1 + 1, b0 + 2, b1 + 2);
+  }
+
+  return { vertices, uvs, indices };
+}

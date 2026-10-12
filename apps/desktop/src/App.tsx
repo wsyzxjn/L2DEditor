@@ -615,6 +615,13 @@ export function App() {
               } else {
                 notify('Select a node with 2D keyforms first', 'error');
               }
+            } else if (action === 'ai_full_body_deformers') {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'macro.ai_full_body_deformers',
+                params: {},
+              });
+              notify('Generated Official Cubism 5.3 Full-Body 24-Deformer Tree', 'success');
             } else if (action === 'macro_turn_xy') {
               if (selectedNodeId) {
                 executeCommand({

@@ -104,6 +104,13 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               </Command.Item>
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
+                onSelect={() => { onAction('ai_full_body_deformers'); onOpenChange(false); }}
+              >
+                <Sparkles className="w-3.5 h-3.5 mr-2 text-sky-400" />
+                <span>Run AI Macro: Generate Full-Body 24-Deformer Tree (全身デフォーマ自動作成)</span>
+              </Command.Item>
+              <Command.Item
+                className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('synthesize_corners'); onOpenChange(false); }}
               >
                 <Sparkles className="w-3.5 h-3.5 mr-2 text-purple-400" />

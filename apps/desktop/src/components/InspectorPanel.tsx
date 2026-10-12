@@ -268,6 +268,32 @@ export const InspectorPanel: React.FC = () => {
             </div>
           </div>
 
+          <div className="grid grid-cols-4 gap-1 pt-1">
+            {(
+              [
+                ['twice_rows', '2x Row'],
+                ['half_rows', '½ Row'],
+                ['twice_cols', '2x Col'],
+                ['half_cols', '½ Col'],
+              ] as const
+            ).map(([op, label]) => (
+              <button
+                key={op}
+                className="py-0.5 text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border"
+                onClick={() => {
+                  executeCommand({
+                    id: `cmd_${Date.now()}`,
+                    name: 'warp.change_topology',
+                    params: { node_id: selectedNode.id, op },
+                  });
+                  notify(`Resampled Warp Grid Topology: ${label}`, 'info');
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <button
             className="w-full mt-2 flex items-center justify-center px-2 py-1.5 text-dcc bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded font-medium transition-colors"
             onClick={() => {
