@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 import { importPsdBuffer } from '@l2d/psd';
+import { generateTextureAtlas } from '@l2d/renderer';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -138,6 +139,34 @@ ipcMain.handle('l2d:import-psd-dialog', async () => {
     return { outputPath: projPath, projectContent };
   } catch (err) {
     console.error('Failed to import PSD:', err);
+    return null;
+  }
+});
+
+ipcMain.handle('l2d:generate-atlas', async (_, project: any, atlasSize: number, padding: number) => {
+  try {
+    const textureResolver = (textureId: string): Buffer | null => {
+      const meta = project.textures?.find((t: any) => t.id === textureId);
+      if (!meta) return null;
+      if (fs.existsSync(meta.path)) {
+        return fs.readFileSync(meta.path);
+      }
+      return null;
+    };
+
+    const res = generateTextureAtlas(project, textureResolver, atlasSize, padding);
+    const atlasList = res.atlasPngBuffers.map((b) => ({
+      id: b.id,
+      filename: b.filename,
+      base64: b.buffer.toString('base64'),
+    }));
+
+    return {
+      updatedProject: res.updatedProject,
+      atlasList,
+    };
+  } catch (err) {
+    console.error('Failed to generate texture atlas:', err);
     return null;
   }
 });

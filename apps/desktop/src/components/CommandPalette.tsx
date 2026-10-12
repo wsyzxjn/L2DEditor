@@ -66,6 +66,13 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             <Command.Group heading="Project & File" className="text-dcc-sm text-dcc-muted px-2 py-1 font-semibold uppercase">
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
+                onSelect={() => { onAction('atlas'); onOpenChange(false); }}
+              >
+                <Sparkles className="w-3.5 h-3.5 mr-2 text-pink-400" />
+                <span>Edit Texture Atlas (编辑纹理集)...</span>
+              </Command.Item>
+              <Command.Item
+                className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('import_psd'); onOpenChange(false); }}
               >
                 <FileUp className="w-3.5 h-3.5 mr-2 text-blue-400" />

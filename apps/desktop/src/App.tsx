@@ -11,6 +11,8 @@ import { ParametersPanel } from './components/ParametersPanel.js';
 import { InspectorPanel } from './components/InspectorPanel.js';
 import { ViewportPanel } from './components/ViewportPanel.js';
 import { TimelinePanel } from './components/TimelinePanel.js';
+import { PhysicsPanel } from './components/PhysicsPanel.js';
+import { AtlasModal } from './components/AtlasModal.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import {
   FilePlus,
@@ -22,6 +24,7 @@ import {
   Command as CommandIcon,
   Check,
   AlertCircle,
+  Layers,
 } from 'lucide-react';
 
 const defaultInitialProject: Project = {
@@ -57,6 +60,7 @@ const dockviewComponents = {
   parameters: ParametersPanel,
   inspector: InspectorPanel,
   timeline: TimelinePanel,
+  physics: PhysicsPanel,
 };
 
 export function App() {
@@ -65,6 +69,7 @@ export function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [parameterValues, setParameterValues] = useState<Record<string, number>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [atlasModalOpen, setAtlasModalOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -331,6 +336,14 @@ export function App() {
       initialWidth: 320,
     });
 
+    // Add Physics panel tabbed next to parameters
+    event.api.addPanel({
+      id: 'physics_panel',
+      component: 'physics',
+      title: 'Physics',
+      position: { referencePanel: rightTop, direction: 'within' },
+    });
+
     event.api.addPanel({
       id: 'inspector_panel',
       component: 'inspector',
@@ -423,6 +436,13 @@ export function App() {
               >
                 <FileUp className="w-3.5 h-3.5 mr-1" /> Import PSD
               </button>
+            <button
+              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
+              onClick={() => setAtlasModalOpen(true)}
+              title="Edit Texture Atlas"
+            >
+              <Layers className="w-3.5 h-3.5 mr-1 text-pink-400" /> Atlas
+            </button>
             </div>
 
             <div className="h-4 w-px bg-dcc-border" />
@@ -502,6 +522,7 @@ export function App() {
             else if (action === 'save_as') handleSaveAs();
             else if (action === 'open') handleOpen();
             else if (action === 'import_psd') handleImportPsd();
+          else if (action === 'atlas') setAtlasModalOpen(true);
             else if (action === 'undo') handleUndo();
             else if (action === 'redo') handleRedo();
             else if (action === 'lint') {
@@ -520,6 +541,9 @@ export function App() {
             }
           }}
         />
+
+      {/* Texture Atlas Layout Modal */}
+      <AtlasModal open={atlasModalOpen} onOpenChange={setAtlasModalOpen} />
 
         {/* Hidden Web Fallback File Input */}
         <input
