@@ -10,8 +10,9 @@ import {
   Film,
   TrendingUp,
   List,
+  Mic,
 } from 'lucide-react';
-import type { Animation } from '@l2d/schema';
+import { type Animation, analyzeWavForLipSync } from '@l2d/schema';
 
 export const TimelinePanel: React.FC = () => {
   const {
@@ -28,6 +29,7 @@ export const TimelinePanel: React.FC = () => {
   } = useEditor();
 
   const rulerRef = useRef<HTMLDivElement | null>(null);
+  const wavInputRef = useRef<HTMLInputElement | null>(null);
   const [viewMode, setViewMode] = useState<'dopesheet' | 'graph'>('dopesheet');
   const [selectedTrackParamId, setSelectedTrackParamId] = useState<string>(
     project.parameters[0]?.id || 'ParamAngleX'
@@ -212,6 +214,49 @@ export const TimelinePanel: React.FC = () => {
           >
             <Plus className="w-3 h-3 mr-1" /> New Motion
           </button>
+
+          <button
+            className="flex items-center px-2 py-0.5 text-dcc-sm bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded font-medium transition-colors"
+            onClick={() => wavInputRef.current?.click()}
+            title="Import speech WAV audio for automatic mouth opening lipsync"
+          >
+            <Mic className="w-3 h-3 mr-1" /> LipSync Audio
+          </button>
+
+          <input
+            type="file"
+            ref={wavInputRef}
+            accept=".wav"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              try {
+                const arr = await file.arrayBuffer();
+                const res = analyzeWavForLipSync(new Uint8Array(arr), 30);
+                const targetParam = project.parameters.find((p) => p.id === 'ParamMouthOpen')?.id || 'ParamMouthOpen';
+
+                const updatedTracks = [...activeAnim.tracks.filter((t) => t.target_param_id !== targetParam)];
+                updatedTracks.push({
+                  target_param_id: targetParam,
+                  keyframes: res.keyframes,
+                });
+
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'animation.add',
+                  params: {
+                    ...activeAnim,
+                    duration_frames: Math.max(activeAnim.duration_frames, res.durationFrames),
+                    tracks: updatedTracks,
+                  },
+                });
+                notify(`Generated ${res.keyframes.length} LipSync keyframes from ${file.name}`, 'success');
+              } catch (err: any) {
+                notify(`LipSync error: ${err?.message || err}`, 'error');
+              }
+            }}
+          />
         </div>
       </div>
 
