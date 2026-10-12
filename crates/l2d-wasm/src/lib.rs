@@ -68,7 +68,17 @@ impl WasmModel {
 
     #[wasm_bindgen(js_name = setParameter)]
     pub fn set_parameter(&mut self, param_id: &str, value: f32) {
-        self.parameters.insert(param_id.to_string(), value);
+        let val = if let Some(p) = self.project.parameters.iter().find(|param| param.id == param_id) {
+            if p.repeats && (p.max - p.min).abs() > 1e-5 {
+                let span = p.max - p.min;
+                p.min + (value - p.min).rem_euclid(span)
+            } else {
+                value.clamp(p.min, p.max)
+            }
+        } else {
+            value
+        };
+        self.parameters.insert(param_id.to_string(), val);
     }
 
     #[wasm_bindgen(js_name = getParameter)]

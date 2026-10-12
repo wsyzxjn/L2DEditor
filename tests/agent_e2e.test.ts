@@ -525,4 +525,56 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(fs.existsSync(outVideoPath)).toBe(true);
   });
 
+
+  it('should verify parameter repeats wrap-around modulo and degenerate triangle linter', () => {
+    const loopProject: Project = {
+      format_version: 1,
+      canvas: { width: 400, height: 400, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [
+        { id: 'ParamSpin', name: 'Spin Looping', min: 0, max: 360, default: 0, repeats: true },
+        { id: 'ParamClamped', name: 'Clamped', min: -10, max: 10, default: 0, repeats: false },
+      ],
+      nodes: [
+        {
+          id: 'bad_mesh',
+          name: 'Degenerate Mesh',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_1',
+            vertices: [[0, 0], [10, 10], [20, 20]], // collinear -> area = 0
+            uvs: [[0, 0], [0.5, 0.5], [1, 1]],
+            indices: [0, 1, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 1,
+            mask_ids: [],
+          },
+        },
+      ],
+      keyforms: [],
+      textures: [{ id: 'tex_1', path: 'textures/t1.png', width: 100, height: 100 }],
+    };
+
+    // 1. Verify WasmModel parameter wrap-around (repeats: true)
+    const model = new WasmModel(JSON.stringify(loopProject));
+    model.setParameter('ParamSpin', 370); // 370 should wrap to 10!
+    expect(model.getParameter('ParamSpin')).toBeCloseTo(10, 2);
+
+    model.setParameter('ParamSpin', -30); // -30 should wrap to 330!
+    expect(model.getParameter('ParamSpin')).toBeCloseTo(330, 2);
+
+    // Clamped parameter without repeats should clamp
+    model.setParameter('ParamClamped', 50);
+    expect(model.getParameter('ParamClamped')).toBe(10);
+    model.setParameter('ParamClamped', -50);
+    expect(model.getParameter('ParamClamped')).toBe(-10);
+
+    // 2. Verify Linter catches degenerate triangle
+    const diags = lintProjectJson(JSON.stringify(loopProject)) as any[];
+    expect(diags.some((d) => d.code === 'DEGENERATE_TRIANGLE')).toBe(true);
+  });
+
 });

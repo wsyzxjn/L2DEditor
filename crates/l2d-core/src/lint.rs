@@ -173,8 +173,10 @@ pub fn lint_project(project: &Project) -> Vec<Diagnostic> {
                     });
                 }
                 let num_v = mesh.vertices.len();
+                let mut has_oob = false;
                 for &index in &mesh.indices {
                     if index as usize >= num_v {
+                        has_oob = true;
                         diags.push(Diagnostic {
                             code: "INDEX_OUT_OF_BOUNDS".into(),
                             severity: DiagnosticSeverity::Error,
@@ -186,6 +188,31 @@ pub fn lint_project(project: &Project) -> Vec<Diagnostic> {
                             json_path: format!("/nodes/{}/indices", idx),
                         });
                         break;
+                    }
+                }
+
+                if !has_oob && mesh.indices.len() % 3 == 0 {
+                    // Check base triangle areas & degeneracy
+                    for tri_idx in 0..(mesh.indices.len() / 3) {
+                        let i0 = mesh.indices[tri_idx * 3] as usize;
+                        let i1 = mesh.indices[tri_idx * 3 + 1] as usize;
+                        let i2 = mesh.indices[tri_idx * 3 + 2] as usize;
+                        let p0 = mesh.vertices[i0];
+                        let p1 = mesh.vertices[i1];
+                        let p2 = mesh.vertices[i2];
+                        let area = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p1[1] - p0[1]) * (p2[0] - p0[0]);
+                        if area.abs() < 1e-6 {
+                            diags.push(Diagnostic {
+                                code: "DEGENERATE_TRIANGLE".into(),
+                                severity: DiagnosticSeverity::Warning,
+                                message: format!(
+                                    "ArtMesh '{}' triangle #{} has near-zero area ({:.6})",
+                                    node.id, tri_idx, area
+                                ),
+                                target_id: Some(node.id.clone()),
+                                json_path: format!("/nodes/{}/indices/{}", idx, tri_idx * 3),
+                            });
+                        }
                     }
                 }
             }
