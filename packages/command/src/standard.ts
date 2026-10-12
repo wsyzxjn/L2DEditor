@@ -311,6 +311,71 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  bus.register<{
+    glue_id: string;
+    threshold?: number;
+  }>('glue.auto_bind_pairs', (draft, { glue_id, threshold = 15 }) => {
+    const glue = draft.glues?.find((g) => g.id === glue_id);
+    if (!glue) return;
+
+    const nodeA = draft.nodes.find((n) => n.id === glue.mesh_a_id);
+    const nodeB = draft.nodes.find((n) => n.id === glue.mesh_b_id);
+    if (!nodeA || !nodeB || nodeA.kind.type !== 'ArtMesh' || nodeB.kind.type !== 'ArtMesh') return;
+
+    const vertsA = nodeA.kind.vertices;
+    const vertsB = nodeB.kind.vertices;
+    const pairs: any[] = [];
+
+    for (let i = 0; i < vertsA.length; i++) {
+      const pa = vertsA[i];
+      let bestJ = -1;
+      let bestDist = threshold;
+
+      for (let j = 0; j < vertsB.length; j++) {
+        const pb = vertsB[j];
+        const dist = Math.hypot(pa[0] - pb[0], pa[1] - pb[1]);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestJ = j;
+        }
+      }
+
+      if (bestJ >= 0) {
+        pairs.push({
+          index_a: i,
+          index_b: bestJ,
+          weight_a: 0.5,
+          weight_b: 0.5,
+        });
+      }
+    }
+
+    glue.vertex_pairs = pairs;
+  });
+
+  // Morph Targets / BlendShapes
+  bus.register<{
+    mesh_id: string;
+    morph: any;
+  }>('mesh.add_morph_target', (draft, { mesh_id, morph }) => {
+    const target = draft.nodes.find((n) => n.id === mesh_id);
+    if (target && target.kind.type === 'ArtMesh') {
+      if (!target.kind.morph_targets) target.kind.morph_targets = [];
+      target.kind.morph_targets = target.kind.morph_targets.filter((m) => m.id !== morph.id);
+      target.kind.morph_targets.push(morph);
+    }
+  });
+
+  bus.register<{
+    mesh_id: string;
+    morph_id: string;
+  }>('mesh.remove_morph_target', (draft, { mesh_id, morph_id }) => {
+    const target = draft.nodes.find((n) => n.id === mesh_id);
+    if (target && target.kind.type === 'ArtMesh' && target.kind.morph_targets) {
+      target.kind.morph_targets = target.kind.morph_targets.filter((m) => m.id !== morph_id);
+    }
+  });
+
   // Physics
   bus.register<any>('physics.add_group', (draft, group) => {
     if (!draft.physics) draft.physics = [];

@@ -1130,4 +1130,101 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(paramsAfter[2].id).toBe('Param_B');
   });
 
+
+  it('should verify glue.auto_bind_pairs nearest-vertex seam pairing and mesh.add_morph_target', () => {
+    const glueProject: Project = {
+      format_version: 1,
+      canvas: { width: 500, height: 500, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [{ id: 'ParamSmile', name: 'Smile', min: 0, max: 1, default: 0 }],
+      nodes: [
+        {
+          id: 'mesh_neck',
+          name: 'Neck Mesh',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_1',
+            vertices: [[100, 200], [150, 200]],
+            uvs: [[0, 0], [1, 0]],
+            indices: [0, 1, 0],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 10,
+            mask_ids: [],
+          },
+        },
+        {
+          id: 'mesh_collar',
+          name: 'Collar Mesh',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_1',
+            vertices: [[103, 202], [148, 201]], // very close to neck (< 5px)
+            uvs: [[0, 0], [1, 0]],
+            indices: [0, 1, 0],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 11,
+            mask_ids: [],
+          },
+        },
+      ],
+      keyforms: [],
+      textures: [{ id: 'tex_1', path: 'textures/t1.png', width: 100, height: 100 }],
+      glues: [
+        {
+          id: 'glue_neck_collar',
+          name: 'Neck Collar Glue',
+          mesh_a_id: 'mesh_neck',
+          mesh_b_id: 'mesh_collar',
+          vertex_pairs: [],
+        },
+      ],
+    };
+
+    const bus = new CommandBus(glueProject);
+    registerStandardCommands(bus);
+
+    // 1. Run glue.auto_bind_pairs
+    bus.execute({
+      id: 'cmd_auto_glue',
+      name: 'glue.auto_bind_pairs',
+      params: { glue_id: 'glue_neck_collar', threshold: 10 },
+    });
+
+    const gluedProject = bus.getProject();
+    const glueBinding = gluedProject.glues!.find((g) => g.id === 'glue_neck_collar')!;
+    expect(glueBinding.vertex_pairs.length).toBe(2);
+    expect(glueBinding.vertex_pairs[0].index_a).toBe(0);
+    expect(glueBinding.vertex_pairs[0].index_b).toBe(0);
+    expect(glueBinding.vertex_pairs[1].index_a).toBe(1);
+    expect(glueBinding.vertex_pairs[1].index_b).toBe(1);
+
+    // 2. Add MorphTarget to Collar
+    bus.execute({
+      id: 'cmd_morph',
+      name: 'mesh.add_morph_target',
+      params: {
+        mesh_id: 'mesh_collar',
+        morph: {
+          id: 'morph_ruffle',
+          name: 'Ruffle Shape',
+          param_id: 'ParamSmile',
+          vertex_offsets: [[0, 5], [0, 5]],
+        },
+      },
+    });
+
+    const morphNode = bus.getProject().nodes.find((n) => n.id === 'mesh_collar')!;
+    if (morphNode.kind.type === 'ArtMesh') {
+      expect(morphNode.kind.morph_targets?.length).toBe(1);
+      expect(morphNode.kind.morph_targets![0].id).toBe('morph_ruffle');
+    }
+  });
+
 });

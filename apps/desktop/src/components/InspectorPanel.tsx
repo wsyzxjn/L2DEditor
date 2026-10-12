@@ -127,6 +127,33 @@ export const InspectorPanel: React.FC = () => {
         </div>
       </div>
 
+      
+      {/* Part Properties */}
+      {kind.type === 'Part' && (
+        <div className="space-y-2 pt-2 border-t border-dcc-border">
+          <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">Part Folder</span>
+          <div>
+            <label className="text-dcc-sm text-dcc-muted">Folder Opacity (Cascading)</label>
+            <ScrubInput
+              value={kind.opacity ?? 1.0}
+              onChange={(v) =>
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'node.update',
+                  params: {
+                    id: selectedNode.id,
+                    changes: { kind: { ...kind, opacity: v } },
+                  },
+                })
+              }
+              step={0.05}
+              min={0}
+              max={1}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Warp Deformer Properties */}
       {kind.type === 'WarpDeformer' && (
         <div className="space-y-2 pt-2 border-t border-dcc-border">
@@ -273,7 +300,93 @@ export const InspectorPanel: React.FC = () => {
               max={1}
             />
           </div>
-        </div>
+        
+          {/* Hit Area & User Data */}
+          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-dcc-border/60">
+            <div>
+              <label className="text-dcc-sm text-dcc-muted">Hit Area Tag</label>
+              <input
+                type="text"
+                placeholder="e.g. Head"
+                className="w-full h-6 px-1.5 text-dcc-sm bg-dcc-bg border border-dcc-border rounded text-dcc-text outline-none"
+                value={kind.hit_area_name || ''}
+                onChange={(e) =>
+                  executeCommand({
+                    id: `cmd_${Date.now()}`,
+                    name: 'mesh.set_hit_area',
+                    params: { mesh_id: selectedNode.id, hit_area_name: e.target.value },
+                  })
+                }
+              />
+            </div>
+            <div>
+              <label className="text-dcc-sm text-dcc-muted">User Data</label>
+              <input
+                type="text"
+                placeholder="Custom metadata"
+                className="w-full h-6 px-1.5 text-dcc-sm bg-dcc-bg border border-dcc-border rounded text-dcc-text outline-none"
+                value={kind.user_data || ''}
+                onChange={(e) =>
+                  executeCommand({
+                    id: `cmd_${Date.now()}`,
+                    name: 'mesh.set_user_data',
+                    params: { mesh_id: selectedNode.id, user_data: e.target.value },
+                  })
+                }
+              />
+            </div>
+          </div>
+
+          {/* Morph Targets (BlendShapes) */}
+          <div className="pt-2 border-t border-dcc-border/60 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">Morph Targets (BlendShapes)</span>
+              <button
+                className="text-dcc-sm px-1.5 py-0.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded"
+                onClick={() => {
+                  const param = project.parameters[0]?.id || 'ParamEyeLOpen';
+                  const morphId = `morph_${Date.now()}`;
+                  executeCommand({
+                    id: `cmd_${Date.now()}`,
+                    name: 'mesh.add_morph_target',
+                    params: {
+                      mesh_id: selectedNode.id,
+                      morph: {
+                        id: morphId,
+                        name: 'Smile Shape',
+                        param_id: param,
+                        vertex_offsets: kind.vertices.map(() => [0, -5]),
+                      },
+                    },
+                  });
+                  notify('Added Morph Target (BlendShape)', 'success');
+                }}
+              >
+                + Morph
+              </button>
+            </div>
+            {(kind.morph_targets || []).map((m: any) => (
+              <div key={m.id} className="flex items-center justify-between h-6 px-1.5 bg-dcc-bg/60 rounded border border-dcc-border/40 text-dcc-sm">
+                <span className="truncate text-dcc-text">{m.name}</span>
+                <span className="font-mono text-[10px] text-zinc-500">{m.param_id}</span>
+              </div>
+            ))}
+          </div>
+
+          <button
+            className="w-full mt-2 py-1 text-dcc-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border"
+            onClick={() => {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'mesh.reverse_winding',
+                params: { mesh_id: selectedNode.id },
+              });
+              notify('Reversed triangle normal winding', 'info');
+            }}
+          >
+            Reverse Triangle Winding
+          </button>
+</div>
       )}
     </div>
   );
