@@ -8,7 +8,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CommandBus, registerStandardCommands } from '@l2d/command';
 import { importPsdBuffer } from '@l2d/psd';
-import { renderFrameToCanvas, generateTextureAtlas, exportRuntimePackage } from '@l2d/renderer';
+import {
+  renderFrameToCanvas,
+  generateTextureAtlas,
+  exportRuntimePackage,
+  renderAnimationSequence,
+} from '@l2d/renderer';
 import type { Project } from '@l2d/schema';
 // Wasm node bindings
 import { WasmModel, lintProjectJson } from '@l2d/schema/wasm-node';
@@ -162,6 +167,28 @@ export function createMcpServer(): Server {
               },
             },
             required: ['projectPath', 'outputPath'],
+          },
+        },
+        {
+          name: 'l2d_render_video',
+          description: 'Render animation timeline and encode into MP4 or WebM video using ffmpeg.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: {
+                type: 'string',
+                description: 'Path to .l2dproj directory or project.json',
+              },
+              animationId: {
+                type: 'string',
+                description: 'ID of animation to render',
+              },
+              outputVideoPath: {
+                type: 'string',
+                description: 'Path to target video file (e.g. /tmp/preview.mp4)',
+              },
+            },
+            required: ['projectPath', 'animationId', 'outputVideoPath'],
           },
         },
       ],
@@ -389,6 +416,43 @@ export function createMcpServer(): Server {
             {
               type: 'text',
               text: `Exported runtime model to ${outDir} (${res.numTextures} textures, ${res.numMotions} motions). Manifest: ${res.model3JsonPath}`,
+            },
+          ],
+        };
+      }
+
+      if (name === 'l2d_render_video') {
+        const projectPath = resolveProjectJsonPath(args?.projectPath as string);
+        const projectDir = path.dirname(projectPath);
+        const raw = fs.readFileSync(projectPath, 'utf-8');
+        const project: Project = JSON.parse(raw);
+        const animId = args?.animationId as string;
+        const outVideo = args?.outputVideoPath as string;
+
+        const textureResolver = (textureId: string): Buffer | null => {
+          const meta = project.textures.find((t) => t.id === textureId);
+          if (!meta) return null;
+          const fullPath = path.isAbsolute(meta.path)
+            ? meta.path
+            : path.join(projectDir, meta.path);
+          if (fs.existsSync(fullPath)) {
+            return fs.readFileSync(fullPath);
+          }
+          return null;
+        };
+
+        const tempFrames = path.join('/tmp', `l2d_mcp_anim_${Date.now()}`);
+        const format = outVideo.endsWith('.webm') ? 'webm' : 'mp4';
+        const res = renderAnimationSequence(project, animId, textureResolver, tempFrames, {
+          format,
+          videoOutputPath: outVideo,
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Rendered ${res.totalFrames} frames to video: ${res.videoPath || outVideo}`,
             },
           ],
         };

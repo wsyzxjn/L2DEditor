@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CommandBus, registerStandardCommands } from '../packages/command/dist/index.js';
 import { WasmModel, lintProjectJson } from '../packages/schema/wasm-node/l2d_wasm.js';
-import { renderFrameToCanvas, createCanvas, generateTextureAtlas, exportRuntimePackage, createSyntheticWavBuffer, analyzeWavForLipSync } from '../packages/renderer/dist/index.js';
+import { renderFrameToCanvas, createCanvas, generateTextureAtlas, exportRuntimePackage, createSyntheticWavBuffer, analyzeWavForLipSync, renderAnimationSequence } from '../packages/renderer/dist/index.js';
 import type { Project } from '../packages/schema/dist/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -454,6 +454,75 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(model3Json.FileReferences.Pose).toBe('full_spec_model.pose3.json');
     expect(model3Json.FileReferences.Expressions[0].Name).toBe('Happy Smile');
     expect(model3Json.FileReferences.MotionSync).toBe('full_spec_model.motionsync3.json');
+  });
+
+
+  it('should render animation sequence of frames and encode to MP4 video', () => {
+    const animProject: Project = {
+      format_version: 1,
+      canvas: { width: 400, height: 400, origin_x: 0.5, origin_y: 0.5, background_color: '#18181b' },
+      parameters: [{ id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 }],
+      nodes: [
+        {
+          id: 'test_mesh',
+          name: 'Test Mesh',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_1',
+            vertices: [[50, 50], [150, 50], [50, 150]],
+            uvs: [[0, 0], [1, 0], [0, 1]],
+            indices: [0, 1, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 1,
+            mask_ids: [],
+          },
+        },
+      ],
+      keyforms: [],
+      textures: [{ id: 'tex_1', path: 'textures/t1.png', width: 100, height: 100 }],
+      animations: [
+        {
+          id: 'turn_motion',
+          name: 'Head Turn Motion',
+          duration_frames: 6,
+          fps: 30,
+          loop_playback: true,
+          tracks: [
+            {
+              target_param_id: 'ParamAngleX',
+              keyframes: [
+                { frame: 0, value: -30, curve: 'linear' },
+                { frame: 6, value: 30, curve: 'linear' },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const dummyC = createCanvas(100, 100);
+    const ctx = dummyC.getContext('2d');
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(0, 0, 100, 100);
+    const texBuf = dummyC.toBuffer('image/png');
+
+    const outFramesDir = path.join('/tmp', `l2d_frames_${Date.now()}`);
+    const outVideoPath = path.join(outFramesDir, 'test_turn.mp4');
+
+    const seqRes = renderAnimationSequence(animProject, 'turn_motion', () => texBuf, outFramesDir, {
+      fps: 30,
+      format: 'mp4',
+      videoOutputPath: outVideoPath,
+    });
+
+    expect(seqRes.totalFrames).toBe(6);
+    expect(fs.existsSync(path.join(outFramesDir, 'frame_0000.png'))).toBe(true);
+    expect(fs.existsSync(path.join(outFramesDir, 'frame_0005.png'))).toBe(true);
+    expect(fs.existsSync(outVideoPath)).toBe(true);
   });
 
 });

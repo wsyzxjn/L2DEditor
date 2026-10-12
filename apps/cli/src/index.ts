@@ -4,7 +4,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CommandBus, registerStandardCommands } from '@l2d/command';
 import { importPsdBuffer } from '@l2d/psd';
-import { renderFrameToCanvas, generateTextureAtlas, exportRuntimePackage, analyzeWavForLipSync } from '@l2d/renderer';
+import {
+  renderFrameToCanvas,
+  generateTextureAtlas,
+  exportRuntimePackage,
+  analyzeWavForLipSync,
+  renderAnimationSequence,
+} from '@l2d/renderer';
 import type { Project } from '@l2d/schema';
 import { WasmModel, lintProjectJson } from '@l2d/schema/wasm-node';
 
@@ -332,6 +338,40 @@ program
     track.keyframes = result.keyframes;
     fs.writeFileSync(file, JSON.stringify(project, null, 2), 'utf-8');
     console.log(`Generated ${result.keyframes.length} lip-sync keyframes for ${opts.param} over ${result.durationFrames} frames.`);
+  });
+
+program
+  .command('render-video <project> <animation_id>')
+  .description('Render full animation frames and encode into MP4 or WebM video (using bundled/system ffmpeg)')
+  .requiredOption('-o, --out <out_file>', 'Output video path (.mp4 or .webm)')
+  .option('-r, --fps <fps>', 'Target playback framerate', '30')
+  .action((projectInput, animationId, opts) => {
+    const file = resolveProjectPath(projectInput);
+    const projectDir = path.dirname(file);
+    const raw = fs.readFileSync(file, 'utf-8');
+    const project: Project = JSON.parse(raw);
+
+    const textureResolver = (textureId: string): Buffer | null => {
+      const meta = project.textures.find((t) => t.id === textureId);
+      if (!meta) return null;
+      const fullPath = path.isAbsolute(meta.path)
+        ? meta.path
+        : path.join(projectDir, meta.path);
+      if (fs.existsSync(fullPath)) {
+        return fs.readFileSync(fullPath);
+      }
+      return null;
+    };
+
+    const tempFramesDir = path.join('/tmp', `l2d_anim_${Date.now()}`);
+    const format = opts.out.endsWith('.webm') ? 'webm' : 'mp4';
+    const res = renderAnimationSequence(project, animationId, textureResolver, tempFramesDir, {
+      fps: Number(opts.fps),
+      format,
+      videoOutputPath: opts.out,
+    });
+
+    console.log(`Successfully rendered ${res.totalFrames} frames to video: ${res.videoPath || opts.out}`);
   });
 
 program.parse();
