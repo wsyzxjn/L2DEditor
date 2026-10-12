@@ -223,6 +223,24 @@ export function createMcpServer(): Server {
             required: ['projectPath'],
           },
         },
+        {
+          name: 'l2d_diff_models',
+          description: 'Compare two L2DEditor projects and return a structured diff of parameters, nodes, deformers, and keyforms.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPathA: {
+                type: 'string',
+                description: 'Path to first .l2dproj directory or project.json',
+              },
+              projectPathB: {
+                type: 'string',
+                description: 'Path to second .l2dproj directory or project.json',
+              },
+            },
+            required: ['projectPathA', 'projectPathB'],
+          },
+        },
       ],
     };
   });
@@ -550,6 +568,31 @@ export function createMcpServer(): Server {
             content: [{ type: 'text', text: `Auto-rig failed: ${res.error}` }],
           };
         }
+      }
+
+      if (name === 'l2d_diff_models') {
+        const fileA = resolveProjectJsonPath(args?.projectPathA as string);
+        const fileB = resolveProjectJsonPath(args?.projectPathB as string);
+        const a: Project = JSON.parse(fs.readFileSync(fileA, 'utf-8'));
+        const b: Project = JSON.parse(fs.readFileSync(fileB, 'utf-8'));
+
+        const paramsA = new Set(a.parameters.map((p) => p.id));
+        const paramsB = new Set(b.parameters.map((p) => p.id));
+        const nodesA = new Set(a.nodes.map((n) => n.id));
+        const nodesB = new Set(b.nodes.map((n) => n.id));
+
+        const diffReport = {
+          canvasChanged: a.canvas.width !== b.canvas.width || a.canvas.height !== b.canvas.height,
+          addedParameters: [...paramsB].filter((id) => !paramsA.has(id)),
+          removedParameters: [...paramsA].filter((id) => !paramsB.has(id)),
+          addedNodes: [...nodesB].filter((id) => !nodesA.has(id)),
+          removedNodes: [...nodesA].filter((id) => !nodesB.has(id)),
+          keyformCountDelta: b.keyforms.length - a.keyforms.length,
+        };
+
+        return {
+          content: [{ type: 'text', text: JSON.stringify(diffReport, null, 2) }],
+        };
       }
 
       throw new Error(`Tool not found: ${name}`);

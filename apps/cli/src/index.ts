@@ -424,4 +424,35 @@ program
     console.log(`Successfully auto-rigged project: created hierarchical deformers and turn XY spaces.`);
   });
 
+program
+  .command('diff <project_a> <project_b>')
+  .description('Compare two L2DEditor models and report topological and parameter differences')
+  .action((projAInput, projBInput) => {
+    const fileA = resolveProjectPath(projAInput);
+    const fileB = resolveProjectPath(projBInput);
+    const a: Project = JSON.parse(fs.readFileSync(fileA, 'utf-8'));
+    const b: Project = JSON.parse(fs.readFileSync(fileB, 'utf-8'));
+
+    const paramsA = new Set(a.parameters.map((p) => p.id));
+    const paramsB = new Set(b.parameters.map((p) => p.id));
+    const addedParams = [...paramsB].filter((id) => !paramsA.has(id));
+    const removedParams = [...paramsA].filter((id) => !paramsB.has(id));
+
+    const nodesA = new Set(a.nodes.map((n) => n.id));
+    const nodesB = new Set(b.nodes.map((n) => n.id));
+    const addedNodes = [...nodesB].filter((id) => !nodesA.has(id));
+    const removedNodes = [...nodesA].filter((id) => !nodesB.has(id));
+
+    console.log(`=== L2DEditor Model Diff ===`);
+    console.log(`Canvas A: ${a.canvas.width}x${a.canvas.height} | Canvas B: ${b.canvas.width}x${b.canvas.height}`);
+    console.log(`Parameters: ${a.parameters.length} -> ${b.parameters.length} (+${addedParams.length}, -${removedParams.length})`);
+    if (addedParams.length > 0) console.log(`  + Added parameters:`, addedParams.join(', '));
+    if (removedParams.length > 0) console.log(`  - Removed parameters:`, removedParams.join(', '));
+
+    console.log(`Nodes: ${a.nodes.length} -> ${b.nodes.length} (+${addedNodes.length}, -${removedNodes.length})`);
+    if (addedNodes.length > 0) console.log(`  + Added nodes:`, addedNodes.join(', '));
+    if (removedNodes.length > 0) console.log(`  - Removed nodes:`, removedNodes.join(', '));
+    console.log(`Keyforms: ${a.keyforms.length} -> ${b.keyforms.length}`);
+  });
+
 program.parse();
