@@ -1,6 +1,7 @@
 use l2d_core::{
-    bake_physics_to_animation, evaluate_project, export_project_schema, lint_project, Animation,
-    Diagnostic, DiagnosticSeverity, Project,
+    bake_physics_to_animation, classify_artmesh_pure_rust, evaluate_mlp_forward, evaluate_project,
+    export_moc3_binary, export_project_schema, import_moc3_binary, lint_project, Animation,
+    Diagnostic, DiagnosticSeverity, Node, Project,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -237,4 +238,48 @@ pub fn import_mtn_motion_wasm(
         .map_err(|e| JsValue::from_str(&e))?;
     serde_wasm_bindgen::to_value(&anim)
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+}
+
+#[wasm_bindgen(js_name = exportMoc3Binary)]
+pub fn export_moc3_binary_wasm(project_json: &str, version: u8) -> Result<Vec<u8>, JsValue> {
+    let project: Project = serde_json::from_str(project_json)
+        .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+    export_moc3_binary(&project, version).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+#[wasm_bindgen(js_name = importMoc3Binary)]
+pub fn import_moc3_binary_wasm(bytes: &[u8]) -> Result<JsValue, JsValue> {
+    let project = import_moc3_binary(bytes).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    serde_wasm_bindgen::to_value(&project)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+}
+
+#[wasm_bindgen(js_name = evaluateMlpForward)]
+pub fn evaluate_mlp_forward_wasm(
+    onnx_bytes: Option<Vec<u8>>,
+    input: &[f32],
+    expected_output_len: usize,
+) -> Vec<f32> {
+    evaluate_mlp_forward(onnx_bytes.as_deref(), input, expected_output_len)
+}
+
+#[wasm_bindgen(js_name = classifyArtMeshPureRust)]
+pub fn classify_artmesh_pure_rust_wasm(
+    node_json: &str,
+    canvas_w: f32,
+    canvas_h: f32,
+) -> Result<JsValue, JsValue> {
+    let node: Node = serde_json::from_str(node_json)
+        .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+    let (logits, predicted_class) = classify_artmesh_pure_rust(&node, canvas_w, canvas_h);
+    #[derive(Serialize)]
+    struct ClsResult<'a> {
+        logits: [f32; 13],
+        predicted_class: &'a str,
+    }
+    serde_wasm_bindgen::to_value(&ClsResult {
+        logits,
+        predicted_class,
+    })
+    .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
 }

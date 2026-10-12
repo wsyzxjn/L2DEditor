@@ -1723,19 +1723,22 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(bus.getProject().physics?.length).toBe(1);
     expect(bus.getProject().physics?.[0].pendulums.length).toBe(3);
 
-    // Import real Cubism 5.3 Epsilon_m_01.mtn with $fadein/$fadeout and IdConverter
-    const epsPath = '/Volumes/AmatsukaM/Applications/Live2D Cubism 5.3/data/template/mtn/epsilon/Epsilon_m_01.mtn';
-    if (fs.existsSync(epsPath)) {
-      const mtnRaw = fs.readFileSync(epsPath, 'utf-8');
-      const anim = importMtnMotion('eps_01', 'Epsilon Motion 01', mtnRaw, true);
-      expect(anim.tracks.some((t: any) => t.target_param_id === 'ParamAngleY')).toBe(true);
-      expect(anim.tracks.some((t: any) => t.target_param_id.startsWith('$fade'))).toBe(false);
-      const eyeTrack = anim.tracks.find((t: any) => t.target_param_id === 'ParamEyeLOpen');
-      expect(eyeTrack?.fade_in_ms).toBe(200);
-      bus.execute({ id: 'add_eps', name: 'animation.add', params: anim });
-    } else {
-      bus.execute({ id: 'auto_face', name: 'macro.auto_face_motion', params: { animation_id: 'eps_01', duration_frames: 30 } });
-    }
+    // Import .mtn stream with $fadein/$fadeout and IdConverter
+    const mtnRaw = [
+      '# Live2D Animator Motion Data',
+      '$fps=30',
+      '$fadein:PARAM_EYE_L_OPEN=200',
+      '$fadeout:PARAM_EYE_L_OPEN=200',
+      'PARAM_ANGLE_X=0,2,5,10,15,20,15,10,5,0,-5,-10,-15,-10,-5,0',
+      'PARAM_ANGLE_Y=0,1,4,8,12,16,20,15,10,5,0,-5,-10,-5,0,0',
+      'PARAM_EYE_L_OPEN=1,1,1,0.74,0.26,0,0,0.26,0.74,1,1,1,1,1,1,1',
+    ].join('\n');
+    const anim = importMtnMotion('eps_01', 'Motion 01', mtnRaw, true);
+    expect(anim.tracks.some((t: any) => t.target_param_id === 'ParamAngleY')).toBe(true);
+    expect(anim.tracks.some((t: any) => t.target_param_id.startsWith('$fade'))).toBe(false);
+    const eyeTrack = anim.tracks.find((t: any) => t.target_param_id === 'ParamEyeLOpen');
+    expect(eyeTrack?.fade_in_ms).toBe(200);
+    bus.execute({ id: 'add_eps', name: 'animation.add', params: anim });
 
     // Bake physics into animation tracks
     bus.execute({

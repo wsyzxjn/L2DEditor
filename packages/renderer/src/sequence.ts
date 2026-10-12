@@ -106,13 +106,17 @@ export function renderAnimationSequence(
 }
 
 function findFfmpegBinary(): string | null {
-  const cubismFfmpeg = '/Volumes/AmatsukaM/Applications/Live2D Cubism 5.3/tools/ffmpeg/ffmpeg';
-  if (fs.existsSync(cubismFfmpeg)) {
-    return cubismFfmpeg;
-  }
   const brewFfmpeg = '/opt/homebrew/bin/ffmpeg';
   if (fs.existsSync(brewFfmpeg)) {
     return brewFfmpeg;
+  }
+  try {
+    const pathFfmpeg = execFileSync('which', ['ffmpeg'], { encoding: 'utf-8' }).trim();
+    if (pathFfmpeg && fs.existsSync(pathFfmpeg)) {
+      return pathFfmpeg;
+    }
+  } catch {
+    // Ignore
   }
   return null;
 }

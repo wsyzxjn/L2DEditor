@@ -381,19 +381,13 @@ mod mtn_tests {
 }
 
     #[test]
-    fn test_parse_real_haru_idle_file() {
-        let path = "/Volumes/AmatsukaM/Applications/Live2D Cubism 5.3/data/template/mtn/idle/haru_idle_01.mtn";
-        if std::path::Path::new(path).exists() {
-            let content = std::fs::read_to_string(path).expect("Failed to read haru_idle_01.mtn");
-            let anim = Animation::from_mtn_str("haru_idle_01", "Haru Idle 01", &content).unwrap();
-            assert_eq!(anim.fps, 30.0);
-            assert!(anim.duration_frames > 100.0);
-            assert!(anim.tracks.len() >= 15);
-
-            // Verify evaluating at frame 10 produces expected continuous motion
-            let f10 = anim.evaluate_at_frame(10.0);
-            assert!(f10.contains_key("PARAM_ANGLE_X"));
-            assert!(f10.contains_key("PARAM_EYE_L_OPEN"));
-            assert_eq!(f10.get("PARAM_EYE_L_OPEN").copied().unwrap(), 1.0);
-        }
+    fn test_parse_complex_idle_mtn_stream() {
+        let content = "# Live2D Animator Motion Data\n$fps=30\nPARAM_ANGLE_X=0,1.5,3.2,5.0,8.4,10.0,12.5,14.0,12.0,8.0,4.0,0.0\nPARAM_ANGLE_Y=0,-1.0,-2.5,-4.0,-6.0,-8.0,-6.0,-4.0,-2.0,0.0,0.0,0.0\nPARAM_EYE_L_OPEN=1,1,1,1,0.5,0,0,0.5,1,1,1,1\nPARAM_EYE_R_OPEN=1,1,1,1,0.5,0,0,0.5,1,1,1,1\n";
+        let anim = Animation::from_mtn_str("idle_01", "Idle 01", content).unwrap();
+        assert_eq!(anim.fps, 30.0);
+        assert_eq!(anim.duration_frames, 11.0);
+        assert_eq!(anim.tracks.len(), 4);
+        let f5 = anim.evaluate_at_frame(5.0);
+        assert_eq!(f5.get("PARAM_ANGLE_X").copied().unwrap(), 10.0);
+        assert_eq!(f5.get("PARAM_EYE_L_OPEN").copied().unwrap(), 0.0);
     }

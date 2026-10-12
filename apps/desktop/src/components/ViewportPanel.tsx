@@ -16,6 +16,7 @@ import {
   Eye,
   FlipHorizontal,
   Shuffle,
+  Maximize2,
 } from 'lucide-react';
 import earcut from 'earcut';
 
@@ -62,6 +63,10 @@ export const ViewportPanel: React.FC = () => {
   const [isSoloMode, setIsSoloMode] = useState(false);
   const [isFlipScreenX, setIsFlipScreenX] = useState(false);
   const [editLevel, setEditLevel] = useState<1 | 2 | 3>(2);
+  // Free Quad Perspective Gizmo (`CMD_CREATE_FREE_DEFORM_HANDLER_AS_PERSPECTIVE_MODE`)
+  const [isFreeQuadActive, setIsFreeQuadActive] = useState(false);
+  const [quadCorners, setQuadCorners] = useState<[[number, number], [number, number], [number, number], [number, number]] | null>(null);
+  const [draggingQuadCornerIdx, setDraggingQuadCornerIdx] = useState<number | null>(null);
 
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId);
   const selectedWarp = selectedNode?.kind.type === 'WarpDeformer' ? selectedNode.kind : null;
@@ -409,6 +414,28 @@ export const ViewportPanel: React.FC = () => {
       ctx.restore();
     }
 
+    // Draw 4-Point Perspective Free Quad Gizmo if active
+    if (isFreeQuadActive && quadCorners) {
+      const [tl, tr, bl, br] = quadCorners;
+      ctx.save();
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 2 / zoom;
+      ctx.setLineDash([5 / zoom, 3 / zoom]);
+      ctx.beginPath();
+      ctx.moveTo(tl[0], tl[1]);
+      ctx.lineTo(tr[0], tr[1]);
+      ctx.lineTo(br[0], br[1]);
+      ctx.lineTo(bl[0], bl[1]);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      [tl, tr, bl, br].forEach(([qx, qy], qIdx) => {
+        ctx.fillStyle = draggingQuadCornerIdx === qIdx ? '#fbbf24' : '#f43f5e';
+        ctx.fillRect(qx - 5 / zoom, qy - 5 / zoom, 10 / zoom, 10 / zoom);
+      });
+      ctx.restore();
+    }
+
     ctx.restore();
   }, [
     frame,
@@ -428,6 +455,9 @@ export const ViewportPanel: React.FC = () => {
     isSoloMode,
     isFlipScreenX,
     editLevel,
+    isFreeQuadActive,
+    quadCorners,
+    draggingQuadCornerIdx,
     selectedVertexIndex,
     draggingVertexIndex,
     draggingCpIndex,
@@ -452,7 +482,7 @@ export const ViewportPanel: React.FC = () => {
     setZoom((z) => Math.max(0.1, Math.min(5.0, z * factor)));
   };
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       isPanning.current = true;
       lastMousePos.current = { x: e.clientX, y: e.clientY };
@@ -460,6 +490,19 @@ export const ViewportPanel: React.FC = () => {
     }
 
     const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+    lastMousePos.current = { x: e.clientX, y: e.clientY };
+
+    // Free Quad Corner Handle interaction
+    if (isFreeQuadActive && quadCorners) {
+      const hitRadius = 10 / zoom;
+      for (let i = 0; i < 4; i++) {
+        const [qx, qy] = quadCorners[i];
+        if (Math.hypot(qx - wx, qy - wy) <= hitRadius) {
+          setDraggingQuadCornerIdx(i);
+          return;
+        }
+      }
+    }
 
     // Mesh Edit Mode interaction
     if (isMeshEditMode && selectedNode && selectedMesh) {
@@ -527,7 +570,7 @@ export const ViewportPanel: React.FC = () => {
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (isPanning.current) {
       const dx = e.clientX - lastMousePos.current.x;
       const dy = e.clientY - lastMousePos.current.y;
@@ -538,6 +581,28 @@ export const ViewportPanel: React.FC = () => {
 
     const [wx, wy] = screenToWorld(e.clientX, e.clientY);
     setCursorWorldPos([wx, wy]);
+
+    // Dragging Free Quad Perspective Handle
+    if (isFreeQuadActive && selectedNode && quadCorners && draggingQuadCornerIdx !== null) {
+      const nextCorners = quadCorners.map((c) => [...c] as [number, number]) as [
+        [number, number],
+        [number, number],
+        [number, number],
+        [number, number],
+      ];
+      nextCorners[draggingQuadCornerIdx] = [wx, wy];
+      setQuadCorners(nextCorners);
+      executeCommand({
+        id: `cmd_${Date.now()}`,
+        name: 'deform.free_quad',
+        params: {
+          node_id: selectedNode.id,
+          quad_corners: nextCorners,
+          mode: 'perspective',
+        },
+      });
+      return;
+    }
 
     // Dragging mesh vertex
     if (isMeshEditMode && selectedNode && selectedMesh && draggingVertexIndex !== null) {
@@ -553,11 +618,12 @@ export const ViewportPanel: React.FC = () => {
       return;
     }
 
-    // Brush deform on warp
+    // Brush deform on warp (with W3C PointerEvent pressure sensitivity for stylus/pen tablets)
     if (isWarpBrushActive && selectedNode && selectedWarp && e.buttons === 1) {
+      const pressure = e.pressure > 0 ? e.pressure : 0.5;
       const [prevWx, prevWy] = screenToWorld(lastMousePos.current.x, lastMousePos.current.y);
-      const deltaX = wx - prevWx;
-      const deltaY = wy - prevWy;
+      const deltaX = (wx - prevWx) * (0.5 + pressure);
+      const deltaY = (wy - prevWy) * (0.5 + pressure);
       lastMousePos.current = { x: e.clientX, y: e.clientY };
       executeCommand({
         id: `cmd_${Date.now()}`,
@@ -566,7 +632,7 @@ export const ViewportPanel: React.FC = () => {
           node_id: selectedNode.id,
           center: [wx, wy],
           delta: [deltaX, deltaY],
-          radius: 120,
+          radius: Math.round(60 + pressure * 120),
         },
       });
       return;
@@ -592,10 +658,11 @@ export const ViewportPanel: React.FC = () => {
     }
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = () => {
     isPanning.current = false;
     setDraggingCpIndex(null);
     setDraggingVertexIndex(null);
+    setDraggingQuadCornerIdx(null);
   };
 
   // Re-triangulate current edited mesh using earcut
@@ -628,9 +695,9 @@ export const ViewportPanel: React.FC = () => {
         ref={canvasRef}
         className="w-full h-full cursor-crosshair"
         onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
       />
 
       {/* Top Floating Viewport Toolbar (Mesh Edit & Physics) */}
@@ -665,6 +732,49 @@ export const ViewportPanel: React.FC = () => {
           </button>
         )}
 
+        {(selectedWarp || selectedMesh) && !isMeshEditMode && (
+          <button
+            className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
+              isFreeQuadActive
+                ? 'bg-rose-600 text-white'
+                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+            }`}
+            onClick={() => {
+              const nextState = !isFreeQuadActive;
+              setIsFreeQuadActive(nextState);
+              if (nextState) {
+                if (selectedWarp) {
+                  const [bx, by, bw, bh] = selectedWarp.bounds;
+                  setQuadCorners([
+                    [bx, by],
+                    [bx + bw, by],
+                    [bx, by + bh],
+                    [bx + bw, by + bh],
+                  ]);
+                } else if (selectedMesh && selectedMesh.vertices.length > 0) {
+                  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                  for (const [vx, vy] of selectedMesh.vertices) {
+                    if (vx < minX) minX = vx;
+                    if (vx > maxX) maxX = vx;
+                    if (vy < minY) minY = vy;
+                    if (vy > maxY) maxY = vy;
+                  }
+                  setQuadCorners([
+                    [minX, minY],
+                    [maxX, minY],
+                    [minX, maxY],
+                    [maxX, maxY],
+                  ]);
+                }
+              }
+              notify(`4-Point Perspective Free Quad ${nextState ? 'ENABLED' : 'DISABLED'}`, 'info');
+            }}
+            title="4-Point Perspective Free Deform Handler (四点透视变形外框)"
+          >
+            <Maximize2 className="w-3 h-3 mr-1" />
+            Free Quad
+          </button>
+        )}
         {isMeshEditMode && selectedMesh && (
           <div className="flex items-center space-x-1 border-l border-dcc-border pl-1.5">
             <button
