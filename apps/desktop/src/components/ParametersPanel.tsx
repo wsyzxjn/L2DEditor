@@ -156,6 +156,20 @@ export const ParametersPanel: React.FC = () => {
             <FolderPlus className="w-3 h-3 mr-0.5" /> Group
           </button>
           <button
+            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded border border-blue-500/30 transition-colors"
+            onClick={() => {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'parameter.apply_standard_template',
+                params: {},
+              });
+              notify('Applied Live2D Standard Parameter Template', 'success');
+            }}
+            title="Apply Live2D Standard Parameter Dictionary (加载官方标准参数预设)"
+          >
+            + Preset
+          </button>
+          <button
             className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
             onClick={handleAddParam}
             title="Add New Parameter"

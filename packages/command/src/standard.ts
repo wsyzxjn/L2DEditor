@@ -43,6 +43,54 @@ export function registerStandardCommands(bus: CommandBus): void {
     draft.parameter_groups.push(group);
   });
 
+  // Standard Parameter Dictionary Template
+  bus.register<void>('parameter.apply_standard_template', (draft) => {
+    const standardGroups = [
+      { id: 'group_angle', name: 'Angle / 头部朝向' },
+      { id: 'group_eye', name: 'Eye / 眼睛' },
+      { id: 'group_brow', name: 'Eyebrow / 眉毛' },
+      { id: 'group_mouth', name: 'Mouth / 嘴部' },
+      { id: 'group_body', name: 'Body / 身体' },
+      { id: 'group_hair', name: 'Hair / 发丝物理' },
+    ];
+
+    if (!draft.parameter_groups) draft.parameter_groups = [];
+    for (const g of standardGroups) {
+      if (!draft.parameter_groups.some((p) => p.id === g.id)) {
+        draft.parameter_groups.push({ ...g, collapsed: false });
+      }
+    }
+
+    const standardParams = [
+      { id: 'ParamAngleX', name: 'Angle X (头部 左右)', min: -30, max: 30, default: 0, group_id: 'group_angle' },
+      { id: 'ParamAngleY', name: 'Angle Y (头部 上下)', min: -30, max: 30, default: 0, group_id: 'group_angle' },
+      { id: 'ParamAngleZ', name: 'Angle Z (头部 倾斜)', min: -30, max: 30, default: 0, group_id: 'group_angle' },
+      { id: 'ParamEyeLOpen', name: 'Eye L Open (左眼 开闭)', min: 0, max: 1, default: 1, group_id: 'group_eye' },
+      { id: 'ParamEyeLSmile', name: 'Eye L Smile (左眼 微笑)', min: 0, max: 1, default: 0, group_id: 'group_eye' },
+      { id: 'ParamEyeROpen', name: 'Eye R Open (右眼 开闭)', min: 0, max: 1, default: 1, group_id: 'group_eye' },
+      { id: 'ParamEyeRSmile', name: 'Eye R Smile (右眼 微笑)', min: 0, max: 1, default: 0, group_id: 'group_eye' },
+      { id: 'ParamEyeBallX', name: 'EyeBall X (眼珠 左右)', min: -1, max: 1, default: 0, group_id: 'group_eye' },
+      { id: 'ParamEyeBallY', name: 'EyeBall Y (眼珠 上下)', min: -1, max: 1, default: 0, group_id: 'group_eye' },
+      { id: 'ParamBrowLY', name: 'Brow L Y (左眉 上下)', min: -1, max: 1, default: 0, group_id: 'group_brow' },
+      { id: 'ParamBrowRY', name: 'Brow R Y (右眉 上下)', min: -1, max: 1, default: 0, group_id: 'group_brow' },
+      { id: 'ParamMouthForm', name: 'Mouth Form (嘴型 变形)', min: -1, max: 1, default: 0, group_id: 'group_mouth' },
+      { id: 'ParamMouthOpen', name: 'Mouth Open (张嘴 开闭)', min: 0, max: 1, default: 0, group_id: 'group_mouth' },
+      { id: 'ParamBodyAngleX', name: 'Body X (身体 左右)', min: -10, max: 10, default: 0, group_id: 'group_body' },
+      { id: 'ParamBodyAngleY', name: 'Body Y (身体 上下)', min: -10, max: 10, default: 0, group_id: 'group_body' },
+      { id: 'ParamBodyAngleZ', name: 'Body Z (身体 倾斜)', min: -10, max: 10, default: 0, group_id: 'group_body' },
+      { id: 'ParamBreath', name: 'Breath (呼吸)', min: 0, max: 1, default: 0, group_id: 'group_body' },
+      { id: 'ParamHairFront', name: 'Hair Front (前发 摇动)', min: -1, max: 1, default: 0, group_id: 'group_hair' },
+      { id: 'ParamHairSide', name: 'Hair Side (侧发 摇动)', min: -1, max: 1, default: 0, group_id: 'group_hair' },
+      { id: 'ParamHairBack', name: 'Hair Back (后发 摇动)', min: -1, max: 1, default: 0, group_id: 'group_hair' },
+    ];
+
+    for (const p of standardParams) {
+      if (!draft.parameters.some((param) => param.id === p.id)) {
+        draft.parameters.push({ ...p, repeats: false, locked: false });
+      }
+    }
+  });
+
   bus.register<{ id: string }>('parameter_group.delete', (draft, { id }) => {
     if (draft.parameter_groups) {
       draft.parameter_groups = draft.parameter_groups.filter((g) => g.id !== id);
@@ -134,8 +182,21 @@ export function registerStandardCommands(bus: CommandBus): void {
     if (!target) {
       throw new Error(`Node '${id}' not found`);
     }
-    if (parent_id === id) {
-      throw new Error('A node cannot be parented to itself');
+    if (parent_id) {
+      if (parent_id === id) {
+        throw new Error('A node cannot be parented to itself');
+      }
+      let curr: string | null | undefined = parent_id;
+      const visited = new Set<string>();
+      while (curr) {
+        if (curr === id) {
+          throw new Error(`Hierarchy cycle detected: node '${parent_id}' is a descendant of '${id}'`);
+        }
+        if (visited.has(curr)) break;
+        visited.add(curr);
+        const pNode = draft.nodes.find((n) => n.id === curr);
+        curr = pNode ? pNode.parent_id : null;
+      }
     }
     target.parent_id = parent_id;
   });

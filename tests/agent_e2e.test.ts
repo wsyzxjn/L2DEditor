@@ -1386,4 +1386,59 @@ describe('Agent-First Full Feature Pipeline', () => {
     }
   });
 
+
+  it('should verify parameter.apply_standard_template dictionary and node.reparent cycle prevention', () => {
+    const freshProject: Project = {
+      format_version: 1,
+      canvas: { width: 1000, height: 1000, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [],
+      nodes: [
+        {
+          id: 'node_parent',
+          name: 'Parent Node',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: { type: 'Part', opacity: 1.0, collapsed: false },
+        },
+        {
+          id: 'node_child',
+          name: 'Child Node',
+          parent_id: 'node_parent',
+          visible: true,
+          locked: false,
+          kind: { type: 'Part', opacity: 1.0, collapsed: false },
+        },
+      ],
+      keyforms: [],
+      textures: [],
+    };
+
+    const bus = new CommandBus(freshProject);
+    registerStandardCommands(bus);
+
+    // 1. Apply Live2D official standard parameter template
+    bus.execute({
+      id: 'cmd_apply_template',
+      name: 'parameter.apply_standard_template',
+      params: {},
+    });
+
+    const projectAfter = bus.getProject();
+    expect(projectAfter.parameter_groups?.length).toBe(6);
+    expect(projectAfter.parameters.length).toBe(20);
+    expect(projectAfter.parameters.some((p) => p.id === 'ParamAngleX')).toBe(true);
+    expect(projectAfter.parameters.some((p) => p.id === 'ParamEyeLOpen')).toBe(true);
+    expect(projectAfter.parameters.some((p) => p.id === 'ParamHairFront')).toBe(true);
+
+    // 2. Test cycle prevention in node.reparent (parenting node_parent -> node_child)
+    const cycleRes = bus.execute({
+      id: 'cmd_bad_reparent',
+      name: 'node.reparent',
+      params: { id: 'node_parent', parent_id: 'node_child' },
+    });
+    expect(cycleRes.success).toBe(false);
+    expect(cycleRes.error).toContain('Hierarchy cycle detected');
+  });
+
 });
