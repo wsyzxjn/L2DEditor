@@ -198,6 +198,66 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+
+  // Keyform Quick Setup Points (2-point or 3-point keyform generation)
+  bus.register<{
+    target_node_id: string;
+    param_id: string;
+    point_count: 2 | 3;
+  }>('keyform.setup_points', (draft, { target_node_id, param_id, point_count }) => {
+    const param = draft.parameters.find((p) => p.id === param_id);
+    if (!param) throw new Error(`Parameter '${param_id}' not found`);
+
+    const node = draft.nodes.find((n) => n.id === target_node_id);
+    if (!node) throw new Error(`Node '${target_node_id}' not found`);
+
+    const keys = point_count === 2
+      ? [param.min, param.max]
+      : [param.min, param.default, param.max];
+
+    let basePayload: any;
+    if (node.kind.type === 'WarpDeformer') {
+      basePayload = { kind: 'Warp', control_points: node.kind.control_points };
+    } else if (node.kind.type === 'RotationDeformer') {
+      basePayload = { kind: 'Rotation', origin: node.kind.origin, angle_deg: node.kind.angle_deg, scale: node.kind.scale };
+    } else if (node.kind.type === 'ArtMesh') {
+      basePayload = { kind: 'ArtMesh', vertex_offsets: node.kind.vertices.map(() => [0, 0]), opacity: node.kind.opacity };
+    } else if (node.kind.type === 'DeformPath') {
+      basePayload = { kind: 'DeformPath', control_points: node.kind.control_points };
+    }
+
+    const keyforms = keys.map((k) => ({
+      coordinates: [k],
+      payload: JSON.parse(JSON.stringify(basePayload)),
+    }));
+
+    const binding = {
+      target_node_id,
+      dimensions: [{ param_id, keys }],
+      keyforms,
+    };
+
+    const existingIdx = draft.keyforms.findIndex((k) => k.target_node_id === target_node_id);
+    if (existingIdx >= 0) {
+      draft.keyforms[existingIdx] = binding;
+    } else {
+      draft.keyforms.push(binding);
+    }
+  });
+
+  // Reverse Mesh Triangle Winding
+  bus.register<{ mesh_id: string }>('mesh.reverse_winding', (draft, { mesh_id }) => {
+    const target = draft.nodes.find((n) => n.id === mesh_id);
+    if (target && target.kind.type === 'ArtMesh') {
+      const indices = target.kind.indices;
+      for (let i = 0; i < indices.length; i += 3) {
+        const tmp = indices[i + 1];
+        indices[i + 1] = indices[i + 2];
+        indices[i + 2] = tmp;
+      }
+    }
+  });
+
   // Textures
   bus.register<TextureMeta>('texture.add', (draft, texture) => {
     if (!draft.textures.some((t) => t.id === texture.id)) {

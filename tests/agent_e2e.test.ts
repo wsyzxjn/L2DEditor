@@ -1001,4 +1001,75 @@ describe('Agent-First Full Feature Pipeline', () => {
     }
   });
 
+
+  it('should verify keyform.setup_points (2-key and 3-key generation) and mesh.reverse_winding', () => {
+    const setupProject: Project = {
+      format_version: 1,
+      canvas: { width: 500, height: 500, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [
+        { id: 'ParamEyeLOpen', name: 'Eye Open', min: 0, max: 1, default: 1 },
+        { id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 },
+      ],
+      nodes: [
+        {
+          id: 'test_mesh',
+          name: 'Test Mesh',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_1',
+            vertices: [[0, 0], [100, 0], [0, 100]],
+            uvs: [[0, 0], [1, 0], [0, 1]],
+            indices: [0, 1, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 1,
+            mask_ids: [],
+          },
+        },
+      ],
+      keyforms: [],
+      textures: [{ id: 'tex_1', path: 'textures/t1.png', width: 100, height: 100 }],
+    };
+
+    const bus = new CommandBus(setupProject);
+    registerStandardCommands(bus);
+
+    // 1. Generate 2-point keyforms (0, 1) on Eye Open
+    bus.execute({
+      id: 'cmd_k2',
+      name: 'keyform.setup_points',
+      params: { target_node_id: 'test_mesh', param_id: 'ParamEyeLOpen', point_count: 2 },
+    });
+
+    const kf2 = bus.getProject().keyforms.find((k) => k.target_node_id === 'test_mesh')!;
+    expect(kf2.dimensions[0].keys).toEqual([0, 1]);
+    expect(kf2.keyforms.length).toBe(2);
+
+    // 2. Generate 3-point keyforms (-30, 0, 30) on Angle X
+    bus.execute({
+      id: 'cmd_k3',
+      name: 'keyform.setup_points',
+      params: { target_node_id: 'test_mesh', param_id: 'ParamAngleX', point_count: 3 },
+    });
+
+    const kf3 = bus.getProject().keyforms.find((k) => k.target_node_id === 'test_mesh')!;
+    expect(kf3.dimensions[0].keys).toEqual([-30, 0, 30]);
+    expect(kf3.keyforms.length).toBe(3);
+
+    // 3. Test mesh.reverse_winding: [0, 1, 2] -> [0, 2, 1]
+    bus.execute({
+      id: 'cmd_rev',
+      name: 'mesh.reverse_winding',
+      params: { mesh_id: 'test_mesh' },
+    });
+
+    const reversedNode = bus.getProject().nodes.find((n) => n.id === 'test_mesh')!;
+    if (reversedNode.kind.type === 'ArtMesh') {
+      expect(reversedNode.kind.indices).toEqual([0, 2, 1]);
+    }
+  });
+
 });

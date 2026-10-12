@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { ScrubInput } from './ScrubInput.js';
-import { Plus, SlidersHorizontal, Folder, ChevronDown, ChevronRight, FolderPlus } from 'lucide-react';
+import { Plus, SlidersHorizontal, Folder, ChevronDown, ChevronRight, FolderPlus, RotateCcw } from 'lucide-react';
 import type { Parameter } from '@l2d/schema';
 
 export const ParametersPanel: React.FC = () => {
@@ -118,6 +118,18 @@ export const ParametersPanel: React.FC = () => {
           <span>Parameters</span>
         </div>
         <div className="flex items-center space-x-1">
+          <button
+            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
+            onClick={() => {
+              for (const p of project.parameters) {
+                setParameterValue(p.id, p.default);
+              }
+              notify('Reset all parameters to default values', 'info');
+            }}
+            title="Reset All Parameters to Default (重置全部参数)"
+          >
+            <RotateCcw className="w-3 h-3 mr-0.5" /> Reset
+          </button>
           <button
             className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
             onClick={handleAddGroup}

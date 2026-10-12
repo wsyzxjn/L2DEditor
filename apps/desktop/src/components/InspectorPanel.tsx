@@ -1,7 +1,7 @@
 import React from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { ScrubInput } from './ScrubInput.js';
-import { Info, Sparkles, Layers } from 'lucide-react';
+import { Info, Sparkles, Layers, Key } from 'lucide-react';
 
 export const InspectorPanel: React.FC = () => {
   const { project, selectedNodeId, executeCommand, notify } = useEditor();
@@ -85,6 +85,45 @@ export const InspectorPanel: React.FC = () => {
               })
             }
           />
+        </div>
+      </div>
+
+      {/* Quick Keyform Generation */}
+      <div className="pt-2 border-t border-dcc-border space-y-1.5">
+        <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">Keyform Quick Setup</span>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-dcc-bg hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border transition-colors"
+            onClick={() => {
+              const firstParam = project.parameters[0];
+              if (firstParam) {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'keyform.setup_points',
+                  params: { target_node_id: selectedNode.id, param_id: firstParam.id, point_count: 2 },
+                });
+                notify(`Generated 2-point keys on ${firstParam.id}`, 'success');
+              }
+            }}
+          >
+            <Key className="w-3 h-3 mr-1 text-emerald-400" /> + 2 Keys (0, 1)
+          </button>
+          <button
+            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-dcc-bg hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border transition-colors"
+            onClick={() => {
+              const firstParam = project.parameters[0];
+              if (firstParam) {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'keyform.setup_points',
+                  params: { target_node_id: selectedNode.id, param_id: firstParam.id, point_count: 3 },
+                });
+                notify(`Generated 3-point keys on ${firstParam.id}`, 'success');
+              }
+            }}
+          >
+            <Key className="w-3 h-3 mr-1 text-amber-400" /> + 3 Keys (-30, 0, 30)
+          </button>
         </div>
       </div>
 
