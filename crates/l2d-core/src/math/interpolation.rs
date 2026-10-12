@@ -51,6 +51,18 @@ pub fn compute_multidim_weights(
     query_coords: &[f32],
     keyform_coords: &[Vec<f32>],
 ) -> Vec<f32> {
+    let exts = vec![None; dimension_keys.len()];
+    compute_multidim_weights_ext(dimension_keys, &exts, query_coords, keyform_coords)
+}
+
+/// Computes weights for multi-dimensional coordinates across keyform states,
+/// honoring per-dimension ExtendedInterpolationType (Linear, Circle, Bezier).
+pub fn compute_multidim_weights_ext(
+    dimension_keys: &[Vec<f32>],
+    dimension_exts: &[Option<ExtendedInterpolationType>],
+    query_coords: &[f32],
+    keyform_coords: &[Vec<f32>],
+) -> Vec<f32> {
     let num_dims = dimension_keys.len();
     if num_dims == 0 || keyform_coords.is_empty() {
         return vec![0.0; keyform_coords.len()];
@@ -60,7 +72,8 @@ pub fn compute_multidim_weights(
     let dim_weights: Vec<HashMap<usize, f32>> = (0..num_dims)
         .map(|d| {
             let val = query_coords.get(d).copied().unwrap_or(0.0);
-            let w1d = compute_1d_weights(&dimension_keys[d], val);
+            let ext = dimension_exts.get(d).copied().flatten();
+            let w1d = compute_1d_weights_ext(&dimension_keys[d], val, ext);
             w1d.into_iter().collect()
         })
         .collect();

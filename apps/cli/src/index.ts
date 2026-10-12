@@ -12,7 +12,7 @@ import {
   renderAnimationSequence,
 } from '@l2d/renderer';
 import type { Project } from '@l2d/schema';
-import { WasmModel, lintProjectJson, getProjectStats } from '@l2d/schema/wasm-node';
+import { WasmModel, lintProjectJson, getProjectStats, importMtnMotion, bakePhysicsToAnimation } from '@l2d/schema/wasm-node';
 
 const program = new Command();
 
@@ -272,6 +272,7 @@ program
   .requiredOption('-o, --out <out_dir>', 'Target distribution directory')
   .option('-n, --name <name>', 'Model name', 'model')
   .option('-s, --size <size>', 'Atlas size in pixels', '2048')
+  .option('-z, --zip <zip_file>', 'Optionally package output directory into a distribution ZIP archive')
   .action((projectInput, opts) => {
     const file = resolveProjectPath(projectInput);
     const projectDir = path.dirname(file);
@@ -293,12 +294,14 @@ program
     const res = exportRuntimePackage(project, textureResolver, opts.out, {
       modelName: opts.name,
       atlasSize: Number(opts.size),
+      zipOutputPath: opts.zip,
     });
 
     console.log(`Successfully exported runtime package to '${opts.out}':`);
     console.log(`  - Manifest: ${res.model3JsonPath}`);
     console.log(`  - Textures: ${res.numTextures} atlas sheet(s)`);
     console.log(`  - Motions: ${res.numMotions} motion file(s)`);
+    if (res.zipPath) console.log(`  - Archive: ${res.zipPath}`);
   });
 
 program
@@ -336,8 +339,46 @@ program
     }
 
     track.keyframes = result.keyframes;
+    if (project.parameters.some((p) => p.id === 'ParamMouthForm')) {
+      let formTrack = anim.tracks.find((t) => t.target_param_id === 'ParamMouthForm');
+      if (!formTrack) {
+        formTrack = { target_param_id: 'ParamMouthForm', keyframes: [] };
+        anim.tracks.push(formTrack);
+      }
+      formTrack.keyframes = result.mouthFormKeyframes;
+    }
     fs.writeFileSync(file, JSON.stringify(project, null, 2), 'utf-8');
     console.log(`Generated ${result.keyframes.length} lip-sync keyframes for ${opts.param} over ${result.durationFrames} frames.`);
+  });
+
+program
+  .command('import-mtn <project> <mtn_file>')
+  .description('Import an official Live2D .mtn motion template into the project (supports IdConverter and $fadein/$fadeout)')
+  .option('-i, --id <anim_id>', 'Target animation ID', 'mtn_imported')
+  .option('-n, --name <anim_name>', 'Target animation name', 'Imported MTN Motion')
+  .option('--no-normalize', 'Keep legacy PARAM_ANGLE_X IDs instead of converting to ParamAngleX')
+  .action((projectInput, mtnFile, opts) => {
+    const file = resolveProjectPath(projectInput);
+    const project: Project = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    const mtnContent = fs.readFileSync(mtnFile, 'utf-8');
+    const anim = importMtnMotion(opts.id, opts.name, mtnContent, opts.normalize !== false);
+    if (!project.animations) project.animations = [];
+    const idx = project.animations.findIndex((a) => a.id === anim.id);
+    if (idx >= 0) project.animations[idx] = anim;
+    else project.animations.push(anim);
+    fs.writeFileSync(file, JSON.stringify(project, null, 2), 'utf-8');
+    console.log(`Imported .mtn motion '${anim.name}' (${anim.tracks.length} tracks, ${anim.duration_frames} frames @ ${anim.fps}fps)`);
+  });
+
+program
+  .command('bake-physics <project> <animation_id>')
+  .description('Simulate PhysicsGroup pendulums across an animation and bake resulting curves into tracks (CMD_BAKE_PHYSICS)')
+  .action((projectInput, animationId) => {
+    const file = resolveProjectPath(projectInput);
+    const raw = fs.readFileSync(file, 'utf-8');
+    const updatedJson = bakePhysicsToAnimation(raw, animationId);
+    fs.writeFileSync(file, updatedJson, 'utf-8');
+    console.log(`Successfully baked pendulum physics into animation '${animationId}'.`);
   });
 
 program

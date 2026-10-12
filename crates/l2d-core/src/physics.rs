@@ -1,3 +1,4 @@
+use crate::animation::{AnimationTrack, CurveType, TimelineKeyframe};
 use crate::model::Project;
 use std::collections::HashMap;
 
@@ -118,9 +119,101 @@ impl PhysicsSimulator {
     }
 }
 
+/// Simulates all `PhysicsGroup` pendulums across an animation's timeline and bakes the resulting
+/// output parameter values directly into `AnimationTrack` keyframes (`CMD_BAKE_PHYSICS`).
+/// Returns the number of output parameter tracks baked.
+pub fn bake_physics_to_animation(
+    project: &mut Project,
+    animation_id: &str,
+) -> Result<usize, String> {
+    if project.physics.is_empty() {
+        return Ok(0);
+    }
+    let anim_idx = project
+        .animations
+        .iter()
+        .position(|a| a.id == animation_id)
+        .ok_or_else(|| format!("Animation '{}' not found", animation_id))?;
+
+    let fps = project.animations[anim_idx].fps.max(1.0);
+    let duration = project.animations[anim_idx].duration_frames.max(1.0);
+    let total_frames = duration.ceil() as usize;
+    let dt = 1.0 / fps;
+
+    // Collect all output parameter IDs driven by physics
+    let mut output_param_ids: Vec<String> = Vec::new();
+    for group in &project.physics {
+        for out in &group.outputs {
+            if !output_param_ids.contains(&out.param_id) {
+                output_param_ids.push(out.param_id.clone());
+            }
+        }
+    }
+
+    if output_param_ids.is_empty() {
+        return Ok(0);
+    }
+
+    // Exclude frozen tracks
+    let frozen_ids: Vec<String> = project.animations[anim_idx]
+        .tracks
+        .iter()
+        .filter(|t| t.frozen)
+        .map(|t| t.target_param_id.clone())
+        .collect();
+    output_param_ids.retain(|id| !frozen_ids.contains(id));
+
+    let mut sim = PhysicsSimulator::new();
+    let mut baked_tracks: HashMap<String, Vec<TimelineKeyframe>> = HashMap::new();
+    for pid in &output_param_ids {
+        baked_tracks.insert(pid.clone(), Vec::with_capacity(total_frames + 1));
+    }
+
+    for f in 0..=total_frames {
+        let frame_f = (f as f32).min(duration);
+        let mut current_params = project.animations[anim_idx].evaluate_at_frame(frame_f);
+        // Fill defaults for parameters not on tracks
+        for p in &project.parameters {
+            current_params.entry(p.id.clone()).or_insert(p.default);
+        }
+        let phys_out = sim.update(project, &current_params, dt);
+        for pid in &output_param_ids {
+            let val = phys_out.get(pid).copied().unwrap_or(0.0);
+            if let Some(kfs) = baked_tracks.get_mut(pid) {
+                kfs.push(TimelineKeyframe {
+                    frame: frame_f,
+                    value: (val * 1000.0).round() / 1000.0,
+                    curve: CurveType::Linear,
+                    bezier_handles: None,
+                });
+            }
+        }
+    }
+
+    let anim = &mut project.animations[anim_idx];
+    let mut baked_count = 0;
+    for (pid, keyframes) in baked_tracks {
+        if let Some(existing) = anim.tracks.iter_mut().find(|t| t.target_param_id == pid) {
+            existing.keyframes = keyframes;
+        } else {
+            anim.tracks.push(AnimationTrack {
+                target_param_id: pid,
+                keyframes,
+                fade_in_ms: None,
+                fade_out_ms: None,
+                frozen: false,
+            });
+        }
+        baked_count += 1;
+    }
+
+    Ok(baked_count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::animation::Animation;
     use crate::model::*;
 
     #[test]
@@ -162,5 +255,95 @@ mod tests {
         let hair_val = out2.get("ParamHairFront").copied().unwrap_or(0.0);
         // Should produce non-zero hair sway
         assert!(hair_val.abs() > 0.01);
+    }
+
+    #[test]
+    fn test_bake_physics_to_animation() {
+        let mut project = Project::default();
+        project.parameters.push(Parameter {
+            id: "ParamAngleX".into(),
+            name: "Angle X".into(),
+            min: -30.0,
+            max: 30.0,
+            default: 0.0,
+            repeats: false,
+            group_id: None,
+            locked: false,
+        });
+        project.parameters.push(Parameter {
+            id: "ParamHairFront".into(),
+            name: "Hair Front".into(),
+            min: -1.0,
+            max: 1.0,
+            default: 0.0,
+            repeats: false,
+            group_id: None,
+            locked: false,
+        });
+        project.physics.push(PhysicsGroup {
+            id: "hair_front".into(),
+            name: "Hair Front Physics".into(),
+            inputs: vec![PhysicsInput {
+                param_id: "ParamAngleX".into(),
+                weight: 1.0,
+                reflect: false,
+            }],
+            outputs: vec![PhysicsOutput {
+                param_id: "ParamHairFront".into(),
+                pendulum_index: 0,
+                angle_scale: 0.1,
+                weight: 1.0,
+            }],
+            pendulums: vec![PhysicsPendulum {
+                length: 40.0,
+                damping: 0.85,
+                mass: 1.0,
+            }],
+        });
+        project.animations.push(Animation {
+            id: "idle".into(),
+            name: "Idle".into(),
+            duration_frames: 10.0,
+            fps: 30.0,
+            loop_playback: true,
+            tracks: vec![AnimationTrack {
+                target_param_id: "ParamAngleX".into(),
+                keyframes: vec![
+                    TimelineKeyframe {
+                        frame: 0.0,
+                        value: 0.0,
+                        curve: CurveType::Linear,
+                        bezier_handles: None,
+                    },
+                    TimelineKeyframe {
+                        frame: 5.0,
+                        value: 30.0,
+                        curve: CurveType::Linear,
+                        bezier_handles: None,
+                    },
+                    TimelineKeyframe {
+                        frame: 10.0,
+                        value: 0.0,
+                        curve: CurveType::Linear,
+                        bezier_handles: None,
+                    },
+                ],
+                fade_in_ms: None,
+                fade_out_ms: None,
+                frozen: false,
+            }],
+            markers: vec![],
+            form_tracks: vec![],
+        });
+
+        let baked = bake_physics_to_animation(&mut project, "idle").unwrap();
+        assert_eq!(baked, 1);
+        let hair_track = project.animations[0]
+            .tracks
+            .iter()
+            .find(|t| t.target_param_id == "ParamHairFront")
+            .expect("Expected baked ParamHairFront track");
+        assert_eq!(hair_track.keyframes.len(), 11);
+        assert!(hair_track.keyframes.iter().any(|k| k.value.abs() > 0.001));
     }
 }

@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
+import { evaluateProjectJs } from '@l2d/schema';
 import {
   MousePointer,
   Plus,
@@ -9,6 +10,8 @@ import {
   Zap,
   Smile,
   Paintbrush,
+  Layers,
+  Route,
 } from 'lucide-react';
 import earcut from 'earcut';
 
@@ -17,6 +20,7 @@ export const ViewportPanel: React.FC = () => {
     project,
     frame,
     selectedNodeId,
+    parameterValues,
     executeCommand,
     isMeshEditMode,
     setIsMeshEditMode,
@@ -28,6 +32,10 @@ export const ViewportPanel: React.FC = () => {
     setIsPhysicsEnabled,
     isAutoIdleEnabled,
     setIsAutoIdleEnabled,
+    isOnionSkinEnabled,
+    setIsOnionSkinEnabled,
+    isMotionPathEnabled,
+    setIsMotionPathEnabled,
     notify,
   } = useEditor();
 
@@ -47,6 +55,7 @@ export const ViewportPanel: React.FC = () => {
   const selectedWarp = selectedNode?.kind.type === 'WarpDeformer' ? selectedNode.kind : null;
   const selectedMesh = selectedNode?.kind.type === 'ArtMesh' ? selectedNode.kind : null;
   const selectedPath = selectedNode?.kind.type === 'DeformPath' ? selectedNode.kind : null;
+  const selectedArtPath = selectedNode?.kind.type === 'ArtPath' ? selectedNode.kind : null;
 
   // Convert mouse screen coordinates to canvas world coordinates
   const screenToWorld = (clientX: number, clientY: number): [number, number] => {
@@ -121,17 +130,58 @@ export const ViewportPanel: React.FC = () => {
     ctx.stroke();
     ctx.restore();
 
+    // Draw Onion Skin ghosts (previous/next parameter states) if enabled
+    if (isOnionSkinEnabled && project.parameters.length > 0) {
+      const primaryParam = project.parameters[0];
+      const ghostOffsets = [primaryParam.min, primaryParam.max];
+      ghostOffsets.forEach((ghostVal, gIdx) => {
+        const ghostFrame = evaluateProjectJs(project, {
+          ...parameterValues,
+          [primaryParam.id]: ghostVal,
+        });
+        ctx.save();
+        ctx.globalAlpha = 0.22;
+        ctx.strokeStyle = gIdx === 0 ? '#38bdf8' : '#f43f5e';
+        ctx.fillStyle = gIdx === 0 ? '#38bdf818' : '#f43f5e18';
+        ctx.lineWidth = 1 / zoom;
+        for (const gm of ghostFrame.meshes) {
+          const verts = gm.vertices;
+          const inds = gm.indices;
+          for (let i = 0; i < inds.length; i += 3) {
+            const i0 = inds[i] * 2;
+            const i1 = inds[i + 1] * 2;
+            const i2 = inds[i + 2] * 2;
+            ctx.beginPath();
+            ctx.moveTo(verts[i0], verts[i0 + 1]);
+            ctx.lineTo(verts[i1], verts[i1 + 1]);
+            ctx.lineTo(verts[i2], verts[i2 + 1]);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      });
+    }
+
     // Draw evaluated meshes (wireframe or solid preview)
     if (frame) {
       for (const mesh of frame.meshes) {
         if (mesh.opacity <= 0.01) continue;
 
         const isCurrentlyEdited = isMeshEditMode && selectedNodeId === mesh.id;
+        const isArtPathMesh = mesh.texture_id === '__artpath_solid__';
 
         ctx.save();
         ctx.globalAlpha = mesh.opacity;
-        ctx.fillStyle = isCurrentlyEdited ? '#f43f5e22' : '#fbcfe8';
-        ctx.strokeStyle = isCurrentlyEdited ? '#f43f5e' : '#ec4899';
+        if (isArtPathMesh) {
+          const mc = mesh.multiply_color || [0.15, 0.15, 0.18, 1];
+          ctx.fillStyle = `rgba(${Math.round(mc[0] * 255)}, ${Math.round(mc[1] * 255)}, ${Math.round(mc[2] * 255)}, ${mc[3] ?? 1})`;
+          ctx.strokeStyle = '#38bdf8';
+        } else {
+          ctx.fillStyle = isCurrentlyEdited ? '#f43f5e22' : '#fbcfe8';
+          ctx.strokeStyle = isCurrentlyEdited ? '#f43f5e' : '#ec4899';
+        }
         ctx.lineWidth = 1 / zoom;
 
         const verts = mesh.vertices;
@@ -150,6 +200,47 @@ export const ViewportPanel: React.FC = () => {
           ctx.fill();
           ctx.stroke();
         }
+        ctx.restore();
+      }
+    }
+
+    // Draw Motion Path trajectory if enabled
+    if (isMotionPathEnabled && project.parameters.length > 0 && frame && frame.meshes.length > 0) {
+      const primaryParam = project.parameters[0];
+      const targetMeshId = selectedNodeId || frame.meshes[0].id;
+      const sampleCount = 9;
+      const trajectory: [number, number][] = [];
+      for (let s = 0; s <= sampleCount; s++) {
+        const v = primaryParam.min + ((primaryParam.max - primaryParam.min) * s) / sampleCount;
+        const sf = evaluateProjectJs(project, { ...parameterValues, [primaryParam.id]: v });
+        const m = sf.meshes.find((mm) => mm.id === targetMeshId) || sf.meshes[0];
+        if (m && m.vertices.length >= 2) {
+          let cx = 0, cy = 0;
+          const nPts = m.vertices.length / 2;
+          for (let i = 0; i < m.vertices.length; i += 2) {
+            cx += m.vertices[i];
+            cy += m.vertices[i + 1];
+          }
+          trajectory.push([cx / nPts, cy / nPts]);
+        }
+      }
+      if (trajectory.length >= 2) {
+        ctx.save();
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 2 / zoom;
+        ctx.setLineDash([4 / zoom, 3 / zoom]);
+        ctx.beginPath();
+        trajectory.forEach(([tx, ty], idx) => {
+          if (idx === 0) ctx.moveTo(tx, ty);
+          else ctx.lineTo(tx, ty);
+        });
+        ctx.stroke();
+        trajectory.forEach(([tx, ty]) => {
+          ctx.fillStyle = '#10b981';
+          ctx.beginPath();
+          ctx.arc(tx, ty, 3 / zoom, 0, Math.PI * 2);
+          ctx.fill();
+        });
         ctx.restore();
       }
     }
@@ -244,16 +335,42 @@ export const ViewportPanel: React.FC = () => {
       ctx.restore();
     }
 
+    // Draw ArtPath control points if selected
+    if (selectedArtPath) {
+      const pts = selectedArtPath.points;
+      ctx.save();
+      ctx.strokeStyle = '#a855f7';
+      ctx.lineWidth = 2 / zoom;
+      ctx.beginPath();
+      pts.forEach((p, idx) => {
+        if (idx === 0) ctx.moveTo(p.pos[0], p.pos[1]);
+        else ctx.lineTo(p.pos[0], p.pos[1]);
+      });
+      if (selectedArtPath.closed && pts.length > 2) ctx.closePath();
+      ctx.stroke();
+      pts.forEach((p) => {
+        ctx.fillStyle = '#c084fc';
+        ctx.beginPath();
+        ctx.arc(p.pos[0], p.pos[1], Math.max(4, p.width * 0.5) / zoom, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+
     ctx.restore();
   }, [
     frame,
     pan,
     zoom,
-    project.canvas,
+    project,
+    parameterValues,
     selectedWarp,
     selectedMesh,
     selectedPath,
+    selectedArtPath,
     isMeshEditMode,
+    isOnionSkinEnabled,
+    isMotionPathEnabled,
     selectedVertexIndex,
     draggingVertexIndex,
     draggingCpIndex,
@@ -398,20 +515,19 @@ export const ViewportPanel: React.FC = () => {
       return;
     }
 
-    // Dragging warp control point
+    // Dragging warp control point (updates active keyform if bound, or base warp if unbound)
     if (selectedNode && selectedWarp && draggingCpIndex !== null) {
       const nextCps = [...selectedWarp.control_points];
       nextCps[draggingCpIndex] = [wx, wy];
       executeCommand({
         id: `cmd_${Date.now()}`,
-        name: 'node.update',
+        name: 'keyform.update_at_params',
         params: {
-          id: selectedNode.id,
-          changes: {
-            kind: {
-              ...selectedWarp,
-              control_points: nextCps,
-            },
+          target_node_id: selectedNode.id,
+          params: parameterValues,
+          payload: {
+            kind: 'Warp',
+            control_points: nextCps,
           },
         },
       });
@@ -581,6 +697,40 @@ export const ViewportPanel: React.FC = () => {
         >
           <Smile className="w-3 h-3 mr-1" />
           Auto Idle
+        </button>
+
+        {/* Onion Skin Toggle (CMD_PREVIEW_ONIONSKIN_MODELER) */}
+        <button
+          className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
+            isOnionSkinEnabled
+              ? 'bg-sky-600/30 text-sky-300 border border-sky-500/50'
+              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
+          }`}
+          onClick={() => {
+            setIsOnionSkinEnabled(!isOnionSkinEnabled);
+            notify(`Onion Skin ${!isOnionSkinEnabled ? 'ENABLED' : 'DISABLED'}`, 'info');
+          }}
+          title="Toggle Onion Skin Ghosting (洋葱皮前后关键帧重影)"
+        >
+          <Layers className="w-3 h-3 mr-1" />
+          Onion Skin
+        </button>
+
+        {/* Motion Path Toggle (CMD_PREVIEW_MOTIONPATH_ANIMATION) */}
+        <button
+          className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
+            isMotionPathEnabled
+              ? 'bg-teal-600/30 text-teal-300 border border-teal-500/50'
+              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
+          }`}
+          onClick={() => {
+            setIsMotionPathEnabled(!isMotionPathEnabled);
+            notify(`Motion Path ${!isMotionPathEnabled ? 'ENABLED' : 'DISABLED'}`, 'info');
+          }}
+          title="Toggle Motion Path Trajectory (运动轨迹预览)"
+        >
+          <Route className="w-3 h-3 mr-1" />
+          Motion Path
         </button>
       </div>
 

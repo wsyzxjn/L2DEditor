@@ -3,10 +3,12 @@ import { generateTextureAtlas } from './atlas.js';
 import type { TextureResolver } from './headless.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 export interface RuntimeExportOptions {
   modelName?: string;
   atlasSize?: number;
+  zipOutputPath?: string;
 }
 
 export function exportRuntimePackage(
@@ -14,7 +16,7 @@ export function exportRuntimePackage(
   textureResolver: TextureResolver,
   outDir: string,
   options: RuntimeExportOptions = {}
-): { model3JsonPath: string; numTextures: number; numMotions: number } {
+): { model3JsonPath: string; numTextures: number; numMotions: number; zipPath?: string } {
   const modelName = options.modelName || 'model';
   const atlasSize = options.atlasSize || 2048;
 
@@ -272,9 +274,21 @@ export function exportRuntimePackage(
   const model3Path = path.join(outDir, `${modelName}.model3.json`);
   fs.writeFileSync(model3Path, JSON.stringify(model3Json, null, 2), 'utf-8');
 
+  let zipPath: string | undefined;
+  if (options.zipOutputPath) {
+    try {
+      fs.mkdirSync(path.dirname(options.zipOutputPath), { recursive: true });
+      execFileSync('zip', ['-r', path.resolve(options.zipOutputPath), '.'], { cwd: outDir });
+      zipPath = options.zipOutputPath;
+    } catch (e: any) {
+      console.warn('Zip archive generation failed:', e);
+    }
+  }
+
   return {
     model3JsonPath: model3Path,
     numTextures: textureFiles.length,
     numMotions,
+    zipPath,
   };
 }

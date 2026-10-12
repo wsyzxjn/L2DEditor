@@ -1,7 +1,7 @@
 import React from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { ScrubInput } from './ScrubInput.js';
-import { Info, Sparkles, Layers, Key, Copy, FlipHorizontal } from 'lucide-react';
+import { Info, Sparkles, Layers, Key, Copy, FlipHorizontal, Grid, RotateCcw, Wind, Trash2, PenTool } from 'lucide-react';
 
 export const InspectorPanel: React.FC = () => {
   const { project, selectedNodeId, executeCommand, notify } = useEditor();
@@ -126,6 +126,39 @@ export const InspectorPanel: React.FC = () => {
             <Key className="w-3 h-3 mr-1 text-amber-400" /> + 3 Keys (-30, 0, 30)
           </button>
         </div>
+        <div className="grid grid-cols-2 gap-1.5 pt-1">
+          <button
+            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded border border-purple-500/30 transition-colors"
+            onClick={() => {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'keyform.synthesize_corners',
+                params: { target_node_id: selectedNode.id },
+              });
+              notify('Synthesized 4-Corner Keyforms (Ctrl+4)', 'success');
+            }}
+            title="Synthesize 4 Corners from axial keyforms (四角自动合成 Ctrl+4)"
+          >
+            <Grid className="w-3 h-3 mr-1" /> 4-Corner Blend
+          </button>
+          <button
+            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-dcc-bg hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border transition-colors"
+            onClick={() => {
+              const binding = project.keyforms.find((k) => k.target_node_id === selectedNode.id);
+              if (binding && binding.keyforms.length > 0) {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'keyform.restore_original_shape',
+                  params: { target_node_id: selectedNode.id, coordinates: binding.keyforms[0].coordinates },
+                });
+                notify('Restored original rest shape on keyform', 'info');
+              }
+            }}
+            title="Restore Original Shape (还原原始形状)"
+          >
+            <RotateCcw className="w-3 h-3 mr-1" /> Restore Shape
+          </button>
+        </div>
       </div>
 
       {/* Shape Copy & Paste */}
@@ -247,6 +280,34 @@ export const InspectorPanel: React.FC = () => {
             }}
           >
             <Sparkles className="w-3.5 h-3.5 mr-1" /> Auto Setup Turn XY (3x3)
+          </button>
+
+          <button
+            className="w-full mt-1.5 flex items-center justify-center px-2 py-1.5 text-dcc bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded font-medium transition-colors"
+            onClick={() => {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'macro.auto_sway',
+                params: { target_node_id: selectedNode.id },
+              });
+              notify(`Generated Auto Sway & Physics on ${selectedNode.name || selectedNode.id}`, 'success');
+            }}
+          >
+            <Wind className="w-3.5 h-3.5 mr-1" /> Auto Sway (AI 揺れ生成)
+          </button>
+
+          <button
+            className="w-full mt-1.5 flex items-center justify-center px-2 py-1 text-dcc-sm bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 rounded transition-colors"
+            onClick={() => {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'deformer.delete_and_bake_to_children',
+                params: { deformer_id: selectedNode.id },
+              });
+              notify('Deleted deformer and baked deformation into children', 'info');
+            }}
+          >
+            <Trash2 className="w-3 h-3 mr-1" /> Delete & Bake to Children
           </button>
         </div>
       )}
@@ -442,7 +503,59 @@ export const InspectorPanel: React.FC = () => {
           >
             Create Enclosing Warp Deformer
           </button>
+
+          <button
+            className="w-full mt-1.5 flex items-center justify-center py-1 text-dcc-sm bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded border border-purple-500/30 font-medium"
+            onClick={() => {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'art_path.fit_mesh_contour',
+                params: { mesh_id: selectedNode.id },
+              });
+              notify(`Generated contour ArtPath for ${selectedNode.name || selectedNode.id}`, 'success');
+            }}
+          >
+            <PenTool className="w-3 h-3 mr-1" /> Fit Contour ArtPath
+          </button>
 </div>
+      )}
+
+      {/* ArtPath Properties */}
+      {kind.type === 'ArtPath' && (
+        <div className="space-y-2 pt-2 border-t border-dcc-border">
+          <span className="text-dcc font-semibold text-dcc-muted uppercase">ArtPath Stroke</span>
+          <div className="text-dcc-sm text-zinc-400 font-mono">
+            Control Points: {kind.points.length} ({kind.closed ? 'Closed' : 'Open'})
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              className="px-2 py-1 text-dcc-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded border border-dcc-border"
+              onClick={() => {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'art_path.adjust_width',
+                  params: { node_id: selectedNode.id, delta: 1.5 },
+                });
+                notify('Increased ArtPath stroke width', 'info');
+              }}
+            >
+              + Thicken Stroke
+            </button>
+            <button
+              className="px-2 py-1 text-dcc-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded border border-dcc-border"
+              onClick={() => {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'art_path.adjust_width',
+                  params: { node_id: selectedNode.id, delta: -1.5 },
+                });
+                notify('Reduced ArtPath stroke width', 'info');
+              }}
+            >
+              - Thin Stroke
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

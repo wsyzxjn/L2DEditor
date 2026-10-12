@@ -31,8 +31,9 @@ export function renderFrameToCanvas(
     for (const mesh of frame.meshes) {
       if (mesh.opacity <= 0.001) continue;
 
+      const isSolidArtPath = mesh.texture_id === '__artpath_solid__';
       let img = imgCache.get(mesh.texture_id);
-      if (!img) {
+      if (!img && !isSolidArtPath) {
         const buf = textureResolver(mesh.texture_id);
         if (buf) {
           const image = new Image();
@@ -42,7 +43,7 @@ export function renderFrameToCanvas(
         }
       }
 
-      if (!img) continue;
+      if (!img && !isSolidArtPath) continue;
 
       ctx.save();
       ctx.globalAlpha = Math.max(0, Math.min(1, mesh.opacity));
@@ -89,7 +90,11 @@ export function renderFrameToCanvas(
         }
       }
 
-      drawTexturedMesh(ctx, mesh, img);
+      if (isSolidArtPath || !img) {
+        drawSolidMesh(ctx, mesh);
+      } else {
+        drawTexturedMesh(ctx, mesh, img);
+      }
       ctx.restore();
     }
 
@@ -114,6 +119,24 @@ function releaseCanvas(canvas: { width: number; height: number }): void {
     canvas.height = 0;
   } catch {
     // Keep rendering compatible with canvas implementations with read-only sizes.
+  }
+}
+
+function drawSolidMesh(ctx: SKRSContext2D, mesh: EvaluatedMeshJs) {
+  const mc = mesh.multiply_color || [0.15, 0.15, 0.18, 1.0];
+  ctx.fillStyle = `rgba(${Math.round(mc[0] * 255)}, ${Math.round(mc[1] * 255)}, ${Math.round(mc[2] * 255)}, ${mc[3] ?? 1})`;
+  const verts = mesh.vertices;
+  const inds = mesh.indices;
+  for (let i = 0; i < inds.length; i += 3) {
+    const i0 = inds[i] * 2;
+    const i1 = inds[i + 1] * 2;
+    const i2 = inds[i + 2] * 2;
+    ctx.beginPath();
+    ctx.moveTo(verts[i0], verts[i0 + 1]);
+    ctx.lineTo(verts[i1], verts[i1 + 1]);
+    ctx.lineTo(verts[i2], verts[i2 + 1]);
+    ctx.closePath();
+    ctx.fill();
   }
 }
 

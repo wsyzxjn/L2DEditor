@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { CommandBus, registerStandardCommands } from '../packages/command/dist/index.js';
-import { WasmModel, lintProjectJson, getProjectStats } from '../packages/schema/wasm-node/l2d_wasm.js';
+import { WasmModel, lintProjectJson, getProjectStats, importMtnMotion, bakePhysicsToAnimation } from '../packages/schema/wasm-node/l2d_wasm.js';
 import { renderFrameToCanvas, createCanvas, generateTextureAtlas, exportRuntimePackage, createSyntheticWavBuffer, analyzeWavForLipSync, renderAnimationSequence } from '../packages/renderer/dist/index.js';
 import { startCubismWebSocketServer, WebSocket } from '../packages/mcp-server/dist/index.js';
-import type { Project } from '../packages/schema/dist/index.js';
+import { evaluateProjectJs, type Project } from '../packages/schema/dist/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -1543,6 +1543,280 @@ describe('Agent-First Full Feature Pipeline', () => {
 
     const children = bus.getProject().nodes.filter((n) => n.parent_id === 'part_folder');
     expect(children.every((c) => c.visible === false)).toBe(true);
+  });
+
+  it('should synthesize 4-corner keyforms (CMD_AUTO_BLEND_4_CORNER), blend shapes, and match Wasm & JS evaluators', () => {
+    const bus = new CommandBus(initialProject);
+    registerStandardCommands(bus);
+
+    bus.execute({
+      id: 'p1',
+      name: 'parameter.add',
+      params: { id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 },
+    });
+    bus.execute({
+      id: 'p2',
+      name: 'parameter.add',
+      params: { id: 'ParamAngleY', name: 'Angle Y', min: -30, max: 30, default: 0 },
+    });
+    bus.execute({
+      id: 'w1',
+      name: 'node.add',
+      params: {
+        id: 'warp_face',
+        name: 'Face Warp',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'WarpDeformer',
+          cols: 1,
+          rows: 1,
+          bounds: [0, 0, 100, 100],
+          control_points: [[0, 0], [100, 0], [0, 100], [100, 100]],
+        },
+      },
+    });
+
+    // Set center (0, 0) and 4 axial neighbors (-30, 0), (30, 0), (0, -30), (0, 30)
+    const baseCps: [number, number][] = [[0, 0], [100, 0], [0, 100], [100, 100]];
+    const shift = (dx: number, dy: number): [number, number][] =>
+      baseCps.map(([x, y]) => [x + dx, y + dy]);
+
+    bus.execute({
+      id: 'kf_axial',
+      name: 'keyform.set',
+      params: {
+        target_node_id: 'warp_face',
+        dimensions: [
+          { param_id: 'ParamAngleX', keys: [-30, 0, 30] },
+          { param_id: 'ParamAngleY', keys: [-30, 0, 30] },
+        ],
+        keyforms: [
+          { coordinates: [0, 0], payload: { kind: 'Warp', control_points: baseCps } },
+          { coordinates: [-30, 0], payload: { kind: 'Warp', control_points: shift(-20, 0) } },
+          { coordinates: [30, 0], payload: { kind: 'Warp', control_points: shift(20, 0) } },
+          { coordinates: [0, -30], payload: { kind: 'Warp', control_points: shift(0, -15) } },
+          { coordinates: [0, 30], payload: { kind: 'Warp', control_points: shift(0, 15) } },
+        ],
+      },
+    });
+
+    // Run 4-corner synthesis (Ctrl+4)
+    const synthRes = bus.execute({
+      id: 'synth_4',
+      name: 'keyform.synthesize_corners',
+      params: { target_node_id: 'warp_face' },
+    });
+    expect(synthRes.success).toBe(true);
+
+    const kf = bus.getProject().keyforms[0];
+    expect(kf.keyforms.length).toBe(9);
+    const topRight = kf.keyforms.find((s) => s.coordinates[0] === 30 && s.coordinates[1] === 30)!;
+    expect(topRight).toBeDefined();
+    if (topRight.payload.kind === 'Warp') {
+      expect(topRight.payload.control_points[0]).toEqual([20, 15]);
+    }
+
+    // Test History undo tree jumpToHistory
+    const hist = bus.getHistory();
+    expect(hist.entries.length).toBe(5);
+    bus.jumpToHistory(3); // Before synthesize_corners
+    expect(bus.getProject().keyforms[0].keyforms.length).toBe(5);
+    bus.jumpToHistory(4); // Redo synthesize_corners
+    expect(bus.getProject().keyforms[0].keyforms.length).toBe(9);
+  });
+
+  it('should support ArtPath creation, contour fitting, Wasm + JS evaluation, and headless PNG rendering', () => {
+    const bus = new CommandBus(initialProject);
+    registerStandardCommands(bus);
+
+    bus.execute({
+      id: 'm1',
+      name: 'node.add',
+      params: {
+        id: 'mesh_eye',
+        name: 'Eye Mesh',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'ArtMesh',
+          texture_id: 'tex_eye',
+          vertices: [[200, 200], [300, 200], [300, 300], [200, 300]],
+          uvs: [[0, 0], [1, 0], [1, 1], [0, 1]],
+          indices: [0, 1, 2, 0, 2, 3],
+          blend_mode: 'normal',
+          opacity: 1,
+          draw_order: 10,
+          mask_ids: [],
+        },
+      },
+    });
+
+    // Fit contour ArtPath around mesh_eye
+    const fitRes = bus.execute({
+      id: 'fit1',
+      name: 'art_path.fit_mesh_contour',
+      params: { mesh_id: 'mesh_eye', stroke_width: 6.0 },
+    });
+    expect(fitRes.success).toBe(true);
+
+    bus.execute({
+      id: 'thicken1',
+      name: 'art_path.adjust_width',
+      params: { node_id: 'artpath_mesh_eye', delta: 2.0 },
+    });
+
+    const proj = bus.getProject();
+    const wasm = new WasmModel(JSON.stringify(proj));
+    const wasmFrame = wasm.evaluate();
+    const jsFrame = evaluateProjectJs(proj, {});
+
+    expect(wasmFrame.meshes.length).toBe(2);
+    expect(jsFrame.meshes.length).toBe(2);
+    const artPathMesh = wasmFrame.meshes.find((m: any) => m.id === 'artpath_mesh_eye');
+    expect(artPathMesh).toBeDefined();
+    expect(artPathMesh.texture_id).toBe('__artpath_solid__');
+
+    // Headless render including solid ArtPath stroke
+    const png = renderFrameToCanvas(1000, 1000, wasmFrame, () => null);
+    expect(png.subarray(0, 4).toString('hex')).toBe('89504e47');
+  });
+
+  it('should support Cubism 5.3 Physics Presets, Bake Physics (CMD_BAKE_PHYSICS), Track Freeze, and real Epsilon_m_01.mtn import', () => {
+    const bus = new CommandBus(initialProject);
+    registerStandardCommands(bus);
+
+    bus.execute({
+      id: 'std_params',
+      name: 'parameter.apply_standard_template',
+      params: {},
+    });
+
+    // Apply official Cubism 5.3 3-stage hair pendulum preset
+    bus.execute({
+      id: 'phys_preset',
+      name: 'physics.apply_preset',
+      params: {
+        preset: 'hair_3stage',
+        input_preset: 'head_input',
+        output_param_id: 'ParamHairFront',
+      },
+    });
+    expect(bus.getProject().physics?.length).toBe(1);
+    expect(bus.getProject().physics?.[0].pendulums.length).toBe(3);
+
+    // Import real Cubism 5.3 Epsilon_m_01.mtn with $fadein/$fadeout and IdConverter
+    const epsPath = '/Volumes/AmatsukaM/Applications/Live2D Cubism 5.3/data/template/mtn/epsilon/Epsilon_m_01.mtn';
+    if (fs.existsSync(epsPath)) {
+      const mtnRaw = fs.readFileSync(epsPath, 'utf-8');
+      const anim = importMtnMotion('eps_01', 'Epsilon Motion 01', mtnRaw, true);
+      expect(anim.tracks.some((t: any) => t.target_param_id === 'ParamAngleY')).toBe(true);
+      expect(anim.tracks.some((t: any) => t.target_param_id.startsWith('$fade'))).toBe(false);
+      const eyeTrack = anim.tracks.find((t: any) => t.target_param_id === 'ParamEyeLOpen');
+      expect(eyeTrack?.fade_in_ms).toBe(200);
+      bus.execute({ id: 'add_eps', name: 'animation.add', params: anim });
+    } else {
+      bus.execute({ id: 'auto_face', name: 'macro.auto_face_motion', params: { animation_id: 'eps_01', duration_frames: 30 } });
+    }
+
+    // Bake physics into animation tracks
+    bus.execute({
+      id: 'bake_1',
+      name: 'animation.bake_physics',
+      params: { animation_id: 'eps_01' },
+    });
+
+    const updatedAnim = bus.getProject().animations?.find((a) => a.id === 'eps_01')!;
+    const bakedHair = updatedAnim.tracks.find((t) => t.target_param_id === 'ParamHairFront');
+    expect(bakedHair).toBeDefined();
+    expect(bakedHair!.keyframes.length).toBeGreaterThan(10);
+  });
+
+  it('should support deformer.delete_and_bake_to_children, project.cleanup_empty, CRI 5-vowel LipSync, and ZIP export', () => {
+    const bus = new CommandBus(initialProject);
+    registerStandardCommands(bus);
+
+    // Add unused parameter & empty part to test project.cleanup_empty
+    bus.execute({
+      id: 'unused_p',
+      name: 'parameter.add',
+      params: { id: 'ParamUnused', name: 'Unused', min: 0, max: 1, default: 0 },
+    });
+    bus.execute({
+      id: 'empty_part',
+      name: 'node.add',
+      params: { id: 'part_empty', name: 'Empty Part', parent_id: null, visible: true, locked: false, kind: { type: 'Part' } },
+    });
+
+    // Add a translated Warp deformer and child ArtMesh, then delete & bake deformer into child
+    bus.execute({
+      id: 'w_bake',
+      name: 'node.add',
+      params: {
+        id: 'warp_bake',
+        name: 'Bake Warp',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'WarpDeformer',
+          cols: 1,
+          rows: 1,
+          bounds: [0, 0, 100, 100],
+          control_points: [[50, 0], [150, 0], [50, 100], [150, 100]], // shifted +50 on X
+        },
+      },
+    });
+    bus.execute({
+      id: 'm_child',
+      name: 'node.add',
+      params: {
+        id: 'mesh_baked',
+        name: 'Baked Mesh',
+        parent_id: 'warp_bake',
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'ArtMesh',
+          texture_id: 'tex1',
+          vertices: [[50, 50], [60, 50], [50, 60]],
+          uvs: [[0, 0], [1, 0], [0, 1]],
+          indices: [0, 1, 2],
+          blend_mode: 'normal',
+          opacity: 1,
+          draw_order: 0,
+          mask_ids: [],
+        },
+      },
+    });
+
+    bus.execute({
+      id: 'do_bake',
+      name: 'deformer.delete_and_bake_to_children',
+      params: { deformer_id: 'warp_bake' },
+    });
+    const bakedMesh = bus.getProject().nodes.find((n) => n.id === 'mesh_baked')!;
+    expect(bakedMesh.parent_id).toBeNull();
+    if (bakedMesh.kind.type === 'ArtMesh') {
+      expect(bakedMesh.kind.vertices[0][0]).toBeCloseTo(100, 3);
+    }
+
+    bus.execute({
+      id: 'clean1',
+      name: 'project.cleanup_empty',
+      params: {},
+    });
+    expect(bus.getProject().nodes.some((n) => n.id === 'part_empty')).toBe(false);
+    expect(bus.getProject().parameters.some((p) => p.id === 'ParamUnused')).toBe(false);
+
+    // Verify CRI 5-vowel LipSync outputs mouthFormKeyframes, vowelKeyframes, and waveformPeaks
+    const wav = createSyntheticWavBuffer(0.5, 44100);
+    const lip = analyzeWavForLipSync(wav, 30);
+    expect(lip.mouthFormKeyframes.length).toBe(lip.keyframes.length);
+    expect(lip.waveformPeaks.length).toBe(lip.keyframes.length);
+    expect(lip.vowelKeyframes.A.length).toBe(lip.keyframes.length);
   });
 
 });

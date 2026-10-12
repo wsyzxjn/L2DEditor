@@ -1,6 +1,6 @@
 use l2d_core::{
-    evaluate_project, export_project_schema, lint_project, Diagnostic, DiagnosticSeverity,
-    Project,
+    bake_physics_to_animation, evaluate_project, export_project_schema, lint_project, Animation,
+    Diagnostic, DiagnosticSeverity, Project,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -210,5 +210,31 @@ pub fn get_project_stats(project_json: &str) -> Result<JsValue, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
     let stats = project.compute_stats();
     serde_wasm_bindgen::to_value(&stats)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+}
+
+#[wasm_bindgen(js_name = bakePhysicsToAnimation)]
+pub fn bake_physics_to_animation_wasm(
+    project_json: &str,
+    animation_id: &str,
+) -> Result<String, JsValue> {
+    let mut project: Project = serde_json::from_str(project_json)
+        .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+    bake_physics_to_animation(&mut project, animation_id)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string_pretty(&project)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+}
+
+#[wasm_bindgen(js_name = importMtnMotion)]
+pub fn import_mtn_motion_wasm(
+    id: &str,
+    name: &str,
+    content: &str,
+    normalize_ids: bool,
+) -> Result<JsValue, JsValue> {
+    let anim = Animation::from_mtn_str_with_options(id, name, content, normalize_ids)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_wasm_bindgen::to_value(&anim)
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
 }

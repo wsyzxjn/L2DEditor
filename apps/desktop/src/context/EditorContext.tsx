@@ -12,6 +12,7 @@ export interface EditorContextValue {
   setSelectedNodeId: (id: string | null) => void;
   setParameterValue: (id: string, val: number) => void;
   executeCommand: (cmd: any) => void;
+  jumpToHistory: (targetIndex: number) => void;
   notify: (text: string, type?: 'info' | 'success' | 'error') => void;
   // Mesh Editing Mode
   isMeshEditMode: boolean;
@@ -26,6 +27,11 @@ export interface EditorContextValue {
   // Auto Idle / Natural Breathing Mode
   isAutoIdleEnabled: boolean;
   setIsAutoIdleEnabled: (val: boolean) => void;
+  // Onion Skin & Motion Path
+  isOnionSkinEnabled: boolean;
+  setIsOnionSkinEnabled: (val: boolean) => void;
+  isMotionPathEnabled: boolean;
+  setIsMotionPathEnabled: (val: boolean) => void;
   // Animation / Timeline Mode
   isPlayingAnimation: boolean;
   setIsPlayingAnimation: (val: boolean) => void;
@@ -33,6 +39,8 @@ export interface EditorContextValue {
   setCurrentPlayheadFrame: (frame: number) => void;
   activeAnimationId: string | null;
   setActiveAnimationId: (id: string | null) => void;
+  waveformPeaks: number[];
+  setWaveformPeaks: (peaks: number[]) => void;
 }
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

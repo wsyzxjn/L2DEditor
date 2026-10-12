@@ -31,6 +31,34 @@ pub struct TimelineKeyframe {
 pub struct AnimationTrack {
     pub target_param_id: String,
     pub keyframes: Vec<TimelineKeyframe>,
+    #[serde(default)]
+    pub fade_in_ms: Option<f32>,
+    #[serde(default)]
+    pub fade_out_ms: Option<f32>,
+    #[serde(default)]
+    pub frozen: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct TimelineMarker {
+    pub frame: f32,
+    pub label: String,
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct FormAnimationKeyframe {
+    pub frame: f32,
+    pub offsets: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub curve: CurveType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct FormAnimationTrack {
+    pub target_node_id: String,
+    pub keyframes: Vec<FormAnimationKeyframe>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -43,6 +71,10 @@ pub struct Animation {
     #[serde(default)]
     pub loop_playback: bool,
     pub tracks: Vec<AnimationTrack>,
+    #[serde(default)]
+    pub markers: Vec<TimelineMarker>,
+    #[serde(default)]
+    pub form_tracks: Vec<FormAnimationTrack>,
 }
 
 fn default_fps() -> f32 {
@@ -155,7 +187,12 @@ mod tests {
                         bezier_handles: None,
                     },
                 ],
+                fade_in_ms: None,
+                fade_out_ms: None,
+                frozen: false,
             }],
+            markers: vec![],
+            form_tracks: vec![],
         };
 
         // At frame 0 -> -30
@@ -173,11 +210,46 @@ mod tests {
 }
 
 impl Animation {
+    /// Converts legacy Cubism 2.1 parameter IDs (`PARAM_ANGLE_X`) to Cubism 3/4/5 standard IDs (`ParamAngleX`).
+    /// Matches `com/live2d/cubism/doc/model/io/IdConverter`.
+    pub fn convert_legacy_param_id(legacy_id: &str) -> String {
+        let trimmed = legacy_id.trim();
+        if !trimmed.starts_with("PARAM_") {
+            return trimmed.to_string();
+        }
+        let mut out = String::from("Param");
+        for part in trimmed["PARAM_".len()..].split('_') {
+            if part.is_empty() {
+                continue;
+            }
+            let mut chars = part.chars();
+            if let Some(first) = chars.next() {
+                out.push(first.to_ascii_uppercase());
+                for c in chars {
+                    out.push(c.to_ascii_lowercase());
+                }
+            }
+        }
+        out
+    }
+
     /// Parses a legacy Live2D Animator .mtn file into an Animation.
     pub fn from_mtn_str(id: &str, name: &str, content: &str) -> Result<Self, String> {
+        Self::from_mtn_str_with_options(id, name, content, false)
+    }
+
+    /// Parses a .mtn file with optional legacy parameter ID conversion (`PARAM_ANGLE_X` -> `ParamAngleX`).
+    pub fn from_mtn_str_with_options(
+        id: &str,
+        name: &str,
+        content: &str,
+        normalize_ids: bool,
+    ) -> Result<Self, String> {
         let mut fps = 30.0;
         let mut tracks = Vec::new();
         let mut max_frames = 0.0f32;
+        let mut fade_in_map: HashMap<String, f32> = HashMap::new();
+        let mut fade_out_map: HashMap<String, f32> = HashMap::new();
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -192,8 +264,45 @@ impl Animation {
                 continue;
             }
 
+            if let Some(rest) = trimmed.strip_prefix("$fadein:") {
+                if let Some((param, val_str)) = rest.split_once('=') {
+                    if let Ok(ms) = val_str.trim().parse::<f32>() {
+                        let pid = if normalize_ids {
+                            Self::convert_legacy_param_id(param)
+                        } else {
+                            param.trim().to_string()
+                        };
+                        fade_in_map.insert(pid, ms);
+                    }
+                }
+                continue;
+            }
+
+            if let Some(rest) = trimmed.strip_prefix("$fadeout:") {
+                if let Some((param, val_str)) = rest.split_once('=') {
+                    if let Ok(ms) = val_str.trim().parse::<f32>() {
+                        let pid = if normalize_ids {
+                            Self::convert_legacy_param_id(param)
+                        } else {
+                            param.trim().to_string()
+                        };
+                        fade_out_map.insert(pid, ms);
+                    }
+                }
+                continue;
+            }
+
+            // Skip any other metadata directives starting with '$'
+            if trimmed.starts_with('$') {
+                continue;
+            }
+
             if let Some((target, values_str)) = trimmed.split_once('=') {
-                let target_param = target.trim();
+                let target_param = if normalize_ids {
+                    Self::convert_legacy_param_id(target)
+                } else {
+                    target.trim().to_string()
+                };
                 let mut keyframes = Vec::new();
 
                 for (frame_idx, val_str) in values_str.split(',').enumerate() {
@@ -214,8 +323,11 @@ impl Animation {
 
                 if !keyframes.is_empty() {
                     tracks.push(AnimationTrack {
-                        target_param_id: target_param.to_string(),
+                        fade_in_ms: fade_in_map.get(&target_param).copied(),
+                        fade_out_ms: fade_out_map.get(&target_param).copied(),
+                        target_param_id: target_param,
                         keyframes,
+                        frozen: false,
                     });
                 }
             }
@@ -228,6 +340,8 @@ impl Animation {
             fps,
             loop_playback: true,
             tracks,
+            markers: Vec::new(),
+            form_tracks: Vec::new(),
         })
     }
 }
@@ -247,6 +361,22 @@ mod mtn_tests {
         let frame1 = anim.evaluate_at_frame(1.0);
         assert!((frame1.get("PARAM_ANGLE_X").unwrap() - 5.0).abs() < 1e-4);
         assert!((frame1.get("PARAM_ANGLE_Y").unwrap() - -2.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_parse_mtn_fadein_fadeout_and_id_converter() {
+        let mtn = "$fps=30\n$fadein:PARAM_EYE_L_OPEN=200\n$fadeout:PARAM_EYE_L_OPEN=250\nPARAM_EYE_L_OPEN=1.0,0.5,0.0\nPARAM_MOUTH_OPEN_Y=0.0,1.0\n";
+        let anim = Animation::from_mtn_str_with_options("eps1", "Epsilon", mtn, true).unwrap();
+        // Must not create bogus tracks for $fadein / $fadeout
+        assert_eq!(anim.tracks.len(), 2);
+        let eye_track = anim
+            .tracks
+            .iter()
+            .find(|t| t.target_param_id == "ParamEyeLOpen")
+            .expect("Expected converted ParamEyeLOpen track");
+        assert_eq!(eye_track.fade_in_ms, Some(200.0));
+        assert_eq!(eye_track.fade_out_ms, Some(250.0));
+        assert!(anim.tracks.iter().any(|t| t.target_param_id == "ParamMouthOpenY"));
     }
 }
 

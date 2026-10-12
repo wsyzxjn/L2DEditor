@@ -3,7 +3,14 @@ import {
   DockviewReact,
   type DockviewReadyEvent,
 } from 'dockview-react';
-import type { Project, EvaluatedFrameJs } from '@l2d/schema';
+import {
+  evaluateAnimationAtFrameJs,
+  evaluateProjectJs,
+  lintProjectJs,
+  PhysicsSimulatorJs,
+  type EvaluatedFrameJs,
+  type Project,
+} from '@l2d/schema';
 import { CommandBus, registerStandardCommands } from '@l2d/command';
 import { EditorContext } from './context/EditorContext.js';
 import { HierarchyPanel } from './components/HierarchyPanel.js';
@@ -12,6 +19,7 @@ import { InspectorPanel } from './components/InspectorPanel.js';
 import { ViewportPanel } from './components/ViewportPanel.js';
 import { TimelinePanel } from './components/TimelinePanel.js';
 import { PhysicsPanel } from './components/PhysicsPanel.js';
+import { HistoryPanel } from './components/HistoryPanel.js';
 import { AtlasModal } from './components/AtlasModal.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import {
@@ -61,6 +69,7 @@ const dockviewComponents = {
   inspector: InspectorPanel,
   timeline: TimelinePanel,
   physics: PhysicsPanel,
+  history: HistoryPanel,
 };
 
 export function App() {
@@ -81,11 +90,15 @@ export function App() {
   // Physics state
   const [isPhysicsEnabled, setIsPhysicsEnabled] = useState(false);
   const [isAutoIdleEnabled, setIsAutoIdleEnabled] = useState(false);
+  const [isOnionSkinEnabled, setIsOnionSkinEnabled] = useState(false);
+  const [isMotionPathEnabled, setIsMotionPathEnabled] = useState(false);
 
   // Animation timeline state
   const [isPlayingAnimation, setIsPlayingAnimation] = useState(false);
   const [currentPlayheadFrame, setCurrentPlayheadFrame] = useState(0);
   const [activeAnimationId, setActiveAnimationId] = useState<string | null>(null);
+  const [waveformPeaks, setWaveformPeaks] = useState<number[]>([]);
+  const physicsSimRef = useRef<PhysicsSimulatorJs>(new PhysicsSimulatorJs());
 
   const notify = (text: string, type: 'info' | 'success' | 'error' = 'info') => {
     setStatusMessage({ text, type });
@@ -104,33 +117,14 @@ export function App() {
   // Evaluated frame representation
   const [frame, setFrame] = useState<EvaluatedFrameJs | null>(null);
 
-  // Update evaluator when project or parameters change
+  // Update evaluator when project, parameters, or active animation frame change
   useEffect(() => {
-    const meshes: any[] = [];
-    for (const node of project.nodes) {
-      if (!node.visible) continue;
-      if (node.kind.type === 'ArtMesh') {
-        meshes.push({
-          id: node.id,
-          texture_id: node.kind.texture_id,
-          vertices: node.kind.vertices.flat(),
-          uvs: node.kind.uvs.flat(),
-          indices: node.kind.indices,
-          blend_mode: node.kind.blend_mode,
-          opacity: node.kind.opacity,
-          multiply_color: node.kind.multiply_color || [1, 1, 1, 1],
-          screen_color: node.kind.screen_color || [0, 0, 0, 0],
-          draw_order: node.kind.draw_order,
-          mask_ids: node.kind.mask_ids,
-        });
-      }
-    }
-    setFrame({
-      meshes,
-      total_vertices: meshes.reduce((acc, m) => acc + m.vertices.length / 2, 0),
-      total_indices: meshes.reduce((acc, m) => acc + m.indices.length, 0),
+    const evaluated = evaluateProjectJs(project, parameterValues, {
+      currentFrame: currentPlayheadFrame,
+      activeAnimationId,
     });
-  }, [project, parameterValues]);
+    setFrame(evaluated);
+  }, [project, parameterValues, currentPlayheadFrame, activeAnimationId]);
 
   // Live Animation Playback Loop
   useEffect(() => {
@@ -143,7 +137,7 @@ export function App() {
       const dt = (now - lastTime) / 1000;
       lastTime = now;
 
-      const activeAnim = project.animations?.find((a) => a.id === activeAnimationId);
+      const activeAnim = project.animations?.find((a) => a.id === activeAnimationId) || project.animations?.[0];
       const fps = activeAnim?.fps || 30;
       const duration = activeAnim?.duration_frames || 60;
 
@@ -152,31 +146,48 @@ export function App() {
         if (next >= duration) {
           next = activeAnim?.loop_playback !== false ? next % duration : duration;
         }
+        if (activeAnim) {
+          const evaluatedParams = evaluateAnimationAtFrameJs(activeAnim, next);
+          setParameterValues((params) => ({
+            ...params,
+            ...evaluatedParams,
+          }));
+        }
         return next;
       });
-
-      // Evaluate active animation keyframes if present
-      if (activeAnim) {
-        for (const track of activeAnim.tracks) {
-          if (track.keyframes.length > 0) {
-            // Find keyframe value at current frame
-            const kf = track.keyframes.reduce((prev, curr) =>
-              Math.abs(curr.frame - currentPlayheadFrame) < Math.abs(prev.frame - currentPlayheadFrame) ? curr : prev
-            );
-            setParameterValues((params) => ({
-              ...params,
-              [track.target_param_id]: kf.value,
-            }));
-          }
-        }
-      }
 
       animHandle = requestAnimationFrame(tick);
     };
 
     animHandle = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animHandle);
-  }, [isPlayingAnimation, project.animations, activeAnimationId, currentPlayheadFrame]);
+  }, [isPlayingAnimation, project.animations, activeAnimationId]);
+
+  // Live Pendulum Physics Simulation Loop
+  useEffect(() => {
+    if (!isPhysicsEnabled) {
+      physicsSimRef.current.reset();
+      return;
+    }
+    let lastTime = performance.now();
+    let animHandle: number;
+
+    const tick = (now: number) => {
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      setParameterValues((prev) => {
+        const physOut = physicsSimRef.current.update(project, prev, dt);
+        if (Object.keys(physOut).length === 0) return prev;
+        return { ...prev, ...physOut };
+      });
+
+      animHandle = requestAnimationFrame(tick);
+    };
+
+    animHandle = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animHandle);
+  }, [isPhysicsEnabled, project]);
 
   // Auto Idle / Natural Breathing Loop
   useEffect(() => {
@@ -241,6 +252,11 @@ export function App() {
     }
   };
 
+  const jumpToHistory = (targetIndex: number) => {
+    if (bus.jumpToHistory(targetIndex)) {
+      setProject({ ...bus.getProject() });
+    }
+  };
   const handleSave = async () => {
     const json = JSON.stringify(project, null, 2);
     if ((window as any).l2dApi) {
@@ -375,6 +391,13 @@ export function App() {
       position: { referencePanel: rightTop, direction: 'within' },
     });
 
+    // Add History (Undo Tree) panel tabbed next to parameters/physics
+    event.api.addPanel({
+      id: 'history_panel',
+      component: 'history',
+      title: 'History',
+      position: { referencePanel: rightTop, direction: 'within' },
+    });
     event.api.addPanel({
       id: 'inspector_panel',
       component: 'inspector',
@@ -403,6 +426,7 @@ export function App() {
     setParameterValue: (id: string, val: number) =>
       setParameterValues((prev) => ({ ...prev, [id]: val })),
     executeCommand,
+    jumpToHistory,
     notify,
     // Mesh editing mode
     isMeshEditMode,
@@ -417,6 +441,11 @@ export function App() {
     // Auto Idle
     isAutoIdleEnabled,
     setIsAutoIdleEnabled,
+    // Onion Skin & Motion Path
+    isOnionSkinEnabled,
+    setIsOnionSkinEnabled,
+    isMotionPathEnabled,
+    setIsMotionPathEnabled,
     // Animation
     isPlayingAnimation,
     setIsPlayingAnimation,
@@ -424,6 +453,8 @@ export function App() {
     setCurrentPlayheadFrame,
     activeAnimationId,
     setActiveAnimationId,
+    waveformPeaks,
+    setWaveformPeaks,
   };
 
   return (
@@ -560,7 +591,30 @@ export function App() {
             else if (action === 'undo') handleUndo();
             else if (action === 'redo') handleRedo();
             else if (action === 'lint') {
-              notify('Running project linter...', 'info');
+              const diags = lintProjectJs(project);
+              if (diags.length === 0) {
+                notify('Project Linter: 0 errors, 0 warnings', 'success');
+              } else {
+                notify(`Linter found ${diags.length} issue(s): ${diags[0].code}`, 'error');
+              }
+            } else if (action === 'cleanup_empty') {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'project.cleanup_empty',
+                params: {},
+              });
+              notify('Cleaned up empty Parts, Deformers, and unused Parameters', 'success');
+            } else if (action === 'synthesize_corners') {
+              if (selectedNodeId) {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'keyform.synthesize_corners',
+                  params: { target_node_id: selectedNodeId },
+                });
+                notify('Synthesized 4-corner keyforms (Ctrl+4)', 'success');
+              } else {
+                notify('Select a node with 2D keyforms first', 'error');
+              }
             } else if (action === 'macro_turn_xy') {
               if (selectedNodeId) {
                 executeCommand({

@@ -11,6 +11,10 @@ import {
   TrendingUp,
   List,
   Mic,
+  Zap,
+  Sparkles,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { type Animation, analyzeWavForLipSync } from '@l2d/schema';
 
@@ -24,6 +28,8 @@ export const TimelinePanel: React.FC = () => {
     activeAnimationId,
     setActiveAnimationId,
     parameterValues,
+    waveformPeaks,
+    setWaveformPeaks,
     executeCommand,
     notify,
   } = useEditor();
@@ -223,6 +229,37 @@ export const TimelinePanel: React.FC = () => {
             <Mic className="w-3 h-3 mr-1" /> LipSync Audio
           </button>
 
+          <button
+            className="flex items-center px-2 py-0.5 text-dcc-sm bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 rounded font-medium transition-colors"
+            onClick={() => {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'animation.bake_physics',
+                params: { animation_id: activeAnim.id },
+              });
+              notify(`Baked pendulum physics into ${activeAnim.name} tracks`, 'success');
+            }}
+            title="Bake Physics Simulation into Animation Tracks (物理演算烘焙 CMD_BAKE_PHYSICS)"
+          >
+            <Zap className="w-3 h-3 mr-1" /> Bake Physics
+          </button>
+
+          <button
+            className="flex items-center px-2 py-0.5 text-dcc-sm bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded font-medium transition-colors"
+            onClick={() => {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'macro.auto_face_motion',
+                params: { animation_id: activeAnim.id, duration_frames: duration },
+              });
+              setActiveAnimationId(activeAnim.id);
+              notify('Generated AI Auto Face Motion tracks', 'success');
+            }}
+            title="Generate AI Auto Face Motion (顔の動きの自動生成)"
+          >
+            <Sparkles className="w-3 h-3 mr-1" /> Auto Face
+          </button>
+
           <input
             type="file"
             ref={wavInputRef}
@@ -234,13 +271,28 @@ export const TimelinePanel: React.FC = () => {
               try {
                 const arr = await file.arrayBuffer();
                 const res = analyzeWavForLipSync(new Uint8Array(arr), 30);
-                const targetParam = project.parameters.find((p) => p.id === 'ParamMouthOpen')?.id || 'ParamMouthOpen';
+                setWaveformPeaks(res.waveformPeaks);
+                const targetOpenParam =
+                  project.parameters.find((p) => p.id === 'ParamMouthOpen' || p.id === 'ParamMouthOpenY')?.id ||
+                  'ParamMouthOpen';
+                const targetFormParam =
+                  project.parameters.find((p) => p.id === 'ParamMouthForm')?.id || 'ParamMouthForm';
 
-                const updatedTracks = [...activeAnim.tracks.filter((t) => t.target_param_id !== targetParam)];
+                const updatedTracks = [
+                  ...activeAnim.tracks.filter(
+                    (t) => t.target_param_id !== targetOpenParam && t.target_param_id !== targetFormParam
+                  ),
+                ];
                 updatedTracks.push({
-                  target_param_id: targetParam,
+                  target_param_id: targetOpenParam,
                   keyframes: res.keyframes,
                 });
+                if (project.parameters.some((p) => p.id === targetFormParam)) {
+                  updatedTracks.push({
+                    target_param_id: targetFormParam,
+                    keyframes: res.mouthFormKeyframes,
+                  });
+                }
 
                 executeCommand({
                   id: `cmd_${Date.now()}`,
@@ -251,7 +303,7 @@ export const TimelinePanel: React.FC = () => {
                     tracks: updatedTracks,
                   },
                 });
-                notify(`Generated ${res.keyframes.length} LipSync keyframes from ${file.name}`, 'success');
+                notify(`Generated CRI 5-Vowel LipSync (${res.keyframes.length} frames) from ${file.name}`, 'success');
               } catch (err: any) {
                 notify(`LipSync error: ${err?.message || err}`, 'error');
               }
@@ -269,6 +321,8 @@ export const TimelinePanel: React.FC = () => {
           </div>
           {project.parameters.map((param) => {
             const isSelected = selectedTrackParamId === param.id;
+            const trackObj = activeAnim.tracks.find((t) => t.target_param_id === param.id);
+            const isFrozen = !!trackObj?.frozen;
             return (
               <div
                 key={param.id}
@@ -278,16 +332,36 @@ export const TimelinePanel: React.FC = () => {
                 onClick={() => setSelectedTrackParamId(param.id)}
               >
                 <span className="truncate">{param.name || param.id}</span>
-                <button
-                  className="p-0.5 text-zinc-500 hover:text-emerald-400 transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAddKeyframeAtPlayhead(param.id);
-                  }}
-                  title="Add Keyframe at playhead"
-                >
-                  <Key className="w-3 h-3" />
-                </button>
+                <div className="flex items-center space-x-1">
+                  <button
+                    className="p-0.5 text-zinc-500 hover:text-sky-400 transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      executeCommand({
+                        id: `cmd_${Date.now()}`,
+                        name: 'animation.set_track_freeze',
+                        params: {
+                          animation_id: activeAnim.id,
+                          param_id: param.id,
+                          frozen: !isFrozen,
+                        },
+                      });
+                    }}
+                    title={isFrozen ? 'Unfreeze Track (CMD_SET_UNFREEZE)' : 'Freeze Track (CMD_SET_FREEZE_SELECTED)'}
+                  >
+                    {isFrozen ? <Lock className="w-3 h-3 text-sky-400" /> : <Unlock className="w-3 h-3 text-zinc-600" />}
+                  </button>
+                  <button
+                    className="p-0.5 text-zinc-500 hover:text-emerald-400 transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAddKeyframeAtPlayhead(param.id);
+                    }}
+                    title="Add Keyframe at playhead"
+                  >
+                    <Key className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -301,6 +375,18 @@ export const TimelinePanel: React.FC = () => {
             className="h-6 border-b border-dcc-border bg-dcc-header/40 relative cursor-pointer shrink-0"
             onClick={handleRulerClick}
           >
+            {/* Audio PCM Waveform Bar Chart Overlay */}
+            {waveformPeaks.length > 0 && (
+              <div className="absolute inset-0 flex items-end pointer-events-none opacity-45 px-0.5">
+                {waveformPeaks.slice(0, duration).map((peak, idx) => (
+                  <div
+                    key={idx}
+                    className="flex-1 bg-purple-400 mx-[0.5px] rounded-t"
+                    style={{ height: `${Math.max(8, Math.round(peak * 100))}%` }}
+                  />
+                ))}
+              </div>
+            )}
             {Array.from({ length: Math.floor(duration / 5) + 1 }).map((_, i) => {
               const frameNum = i * 5;
               const pct = (frameNum / duration) * 100;

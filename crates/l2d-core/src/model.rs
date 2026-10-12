@@ -137,6 +137,7 @@ pub enum NodeKind {
     WarpDeformer(WarpDeformerData),
     RotationDeformer(RotationDeformerData),
     DeformPath(DeformPathData),
+    ArtPath(ArtPathData),
     ArtMesh(ArtMeshData),
 }
 
@@ -170,6 +171,44 @@ pub struct DeformPathData {
     pub control_points: Vec<[f32; 2]>,
     #[serde(default)]
     pub target_mesh_ids: Vec<String>,
+}
+
+fn default_stroke_width() -> f32 {
+    4.0
+}
+
+fn default_art_path_color() -> [f32; 4] {
+    [0.15, 0.15, 0.18, 1.0]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ArtPathPoint {
+    pub pos: [f32; 2],
+    #[serde(default = "default_stroke_width")]
+    pub width: f32,
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ArtPathData {
+    pub points: Vec<ArtPathPoint>,
+    #[serde(default)]
+    pub closed: bool,
+    #[serde(default = "default_art_path_color")]
+    pub color: [f32; 4],
+    #[serde(default)]
+    pub texture_id: Option<String>,
+    #[serde(default)]
+    pub blend_mode: BlendMode,
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub draw_order: i32,
+    #[serde(default)]
+    pub mask_ids: Vec<String>,
+    #[serde(default)]
+    pub is_mask_inverted: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -281,6 +320,9 @@ pub enum KeyformPayload {
     },
     DeformPath {
         control_points: Vec<[f32; 2]>,
+    },
+    ArtPath {
+        points: Vec<ArtPathPoint>,
     },
     ArtMesh {
         /// Vertex positions or offsets
@@ -396,6 +438,8 @@ pub struct ModelStats {
     pub total_vertices: usize,
     pub total_triangles: usize,
     pub artmesh_count: usize,
+    #[serde(default)]
+    pub artpath_count: usize,
     pub warp_count: usize,
     pub rotation_count: usize,
     pub deform_path_count: usize,
@@ -409,6 +453,7 @@ impl Project {
         let mut total_vertices = 0;
         let mut total_triangles = 0;
         let mut artmesh_count = 0;
+        let mut artpath_count = 0;
         let mut warp_count = 0;
         let mut rotation_count = 0;
         let mut deform_path_count = 0;
@@ -419,6 +464,13 @@ impl Project {
                     artmesh_count += 1;
                     total_vertices += mesh.vertices.len();
                     total_triangles += mesh.indices.len() / 3;
+                }
+                NodeKind::ArtPath(path) => {
+                    artpath_count += 1;
+                    if path.points.len() >= 2 {
+                        total_vertices += path.points.len() * 2;
+                        total_triangles += (path.points.len() - 1) * 2;
+                    }
                 }
                 NodeKind::WarpDeformer(_) => warp_count += 1,
                 NodeKind::RotationDeformer(_) => rotation_count += 1,
@@ -436,6 +488,7 @@ impl Project {
             total_vertices,
             total_triangles,
             artmesh_count,
+            artpath_count,
             warp_count,
             rotation_count,
             deform_path_count,

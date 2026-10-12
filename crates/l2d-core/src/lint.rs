@@ -216,6 +216,21 @@ pub fn lint_project(project: &Project) -> Vec<Diagnostic> {
                     }
                 }
             }
+            NodeKind::ArtPath(path) => {
+                if path.points.len() < 2 {
+                    diags.push(Diagnostic {
+                        code: "ART_PATH_TOO_FEW_POINTS".into(),
+                        severity: DiagnosticSeverity::Warning,
+                        message: format!(
+                            "ArtPath '{}' must have at least 2 control points, got {}",
+                            node.id,
+                            path.points.len()
+                        ),
+                        target_id: Some(node.id.clone()),
+                        json_path: format!("/nodes/{}/points", idx),
+                    });
+                }
+            }
             _ => {}
         }
     }

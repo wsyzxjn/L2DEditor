@@ -16,7 +16,7 @@ import {
 } from '@l2d/renderer';
 import type { Project } from '@l2d/schema';
 // Wasm node bindings
-import { WasmModel, lintProjectJson, getProjectStats } from '@l2d/schema/wasm-node';
+import { WasmModel, lintProjectJson, getProjectStats, importMtnMotion, bakePhysicsToAnimation } from '@l2d/schema/wasm-node';
 
 export function createMcpServer(): Server {
   const server = new Server(
@@ -161,6 +161,10 @@ export function createMcpServer(): Server {
                 type: 'string',
                 description: 'Output directory for the exported runtime model files',
               },
+              outputZipPath: {
+                type: 'string',
+                description: 'Optional path to package exported directory into a .zip archive',
+              },
               modelName: {
                 type: 'string',
                 description: 'Name of the model (default: "model")',
@@ -253,6 +257,33 @@ export function createMcpServer(): Server {
               },
             },
             required: ['projectPath'],
+          },
+        },
+        {
+          name: 'l2d_import_mtn',
+          description: 'Import an official Live2D .mtn motion template into a project (supports IdConverter PARAM_ANGLE_X -> ParamAngleX and $fadein/$fadeout).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string' },
+              mtnPath: { type: 'string' },
+              animationId: { type: 'string' },
+              animationName: { type: 'string' },
+              normalizeIds: { type: 'boolean' },
+            },
+            required: ['projectPath', 'mtnPath'],
+          },
+        },
+        {
+          name: 'l2d_bake_physics',
+          description: 'Simulate PhysicsGroup pendulums across an animation and bake resulting curves into animation tracks (CMD_BAKE_PHYSICS).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string' },
+              animationId: { type: 'string' },
+            },
+            required: ['projectPath', 'animationId'],
           },
         },
       ],
@@ -473,13 +504,14 @@ export function createMcpServer(): Server {
 
         const res = exportRuntimePackage(project, textureResolver, outDir, {
           modelName,
+          zipOutputPath: args?.outputZipPath as string | undefined,
         });
 
         return {
           content: [
             {
               type: 'text',
-              text: `Exported runtime model to ${outDir} (${res.numTextures} textures, ${res.numMotions} motions). Manifest: ${res.model3JsonPath}`,
+              text: `Exported runtime model to ${outDir} (${res.numTextures} textures, ${res.numMotions} motions). Manifest: ${res.model3JsonPath}${res.zipPath ? ` | Zip: ${res.zipPath}` : ''}`,
             },
           ],
         };
@@ -615,6 +647,46 @@ export function createMcpServer(): Server {
         const stats = getProjectStats(raw);
         return {
           content: [{ type: 'text', text: JSON.stringify(stats, null, 2) }],
+        };
+      }
+
+      if (name === 'l2d_import_mtn') {
+        const projectPath = resolveProjectJsonPath(args?.projectPath as string);
+        const mtnPath = args?.mtnPath as string;
+        const animId = (args?.animationId as string) || 'mtn_imported';
+        const animName = (args?.animationName as string) || 'Imported MTN Motion';
+        const normalizeIds = args?.normalizeIds !== false;
+        const project: Project = JSON.parse(fs.readFileSync(projectPath, 'utf-8'));
+        const mtnContent = fs.readFileSync(mtnPath, 'utf-8');
+        const anim = importMtnMotion(animId, animName, mtnContent, normalizeIds);
+        if (!project.animations) project.animations = [];
+        const idx = project.animations.findIndex((a) => a.id === anim.id);
+        if (idx >= 0) project.animations[idx] = anim;
+        else project.animations.push(anim);
+        fs.writeFileSync(projectPath, JSON.stringify(project, null, 2), 'utf-8');
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Imported .mtn motion '${anim.name}' (${anim.tracks.length} tracks, ${anim.duration_frames} frames @ ${anim.fps}fps)`,
+            },
+          ],
+        };
+      }
+
+      if (name === 'l2d_bake_physics') {
+        const projectPath = resolveProjectJsonPath(args?.projectPath as string);
+        const animationId = args?.animationId as string;
+        const raw = fs.readFileSync(projectPath, 'utf-8');
+        const updatedJson = bakePhysicsToAnimation(raw, animationId);
+        fs.writeFileSync(projectPath, updatedJson, 'utf-8');
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Baked pendulum physics into animation '${animationId}'.`,
+            },
+          ],
         };
       }
 

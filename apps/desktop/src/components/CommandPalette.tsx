@@ -104,6 +104,20 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               </Command.Item>
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
+                onSelect={() => { onAction('synthesize_corners'); onOpenChange(false); }}
+              >
+                <Sparkles className="w-3.5 h-3.5 mr-2 text-purple-400" />
+                <span>Synthesize 4-Corner Keyforms (四角自动合成 Ctrl+4)</span>
+              </Command.Item>
+              <Command.Item
+                className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
+                onSelect={() => { onAction('cleanup_empty'); onOpenChange(false); }}
+              >
+                <Sparkles className="w-3.5 h-3.5 mr-2 text-emerald-400" />
+                <span>Clean Up Empty Parts, Deformers & Unused Parameters</span>
+              </Command.Item>
+              <Command.Item
+                className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('undo'); onOpenChange(false); }}
               >
                 <Undo2 className="w-3.5 h-3.5 mr-2" />

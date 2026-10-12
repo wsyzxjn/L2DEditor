@@ -92,6 +92,42 @@ export const PhysicsPanel: React.FC = () => {
         </div>
       </div>
 
+      {/* Official Cubism 5.3 Physics Presets Bar (`default_physics_preset40.xml`) */}
+      <div className="flex items-center justify-between px-2 py-1 border-b border-dcc-border bg-dcc-bg/60 space-x-1.5">
+        <span className="text-[10px] font-semibold uppercase text-zinc-400 shrink-0">Preset:</span>
+        <select
+          className="flex-1 h-5 px-1 text-dcc-sm bg-dcc-panel border border-dcc-border rounded text-dcc-text"
+          defaultValue=""
+          onChange={(e) => {
+            const preset = e.target.value as any;
+            if (!preset) return;
+            executeCommand({
+              id: `cmd_${Date.now()}`,
+              name: 'physics.apply_preset',
+              params: {
+                group_id: selectedGroup?.id,
+                preset,
+                input_preset: 'head_input',
+              },
+            });
+            notify(`Applied Cubism 5.3 Physics Preset: ${preset}`, 'success');
+            e.target.value = '';
+          }}
+        >
+          <option value="" disabled>Apply Official Rig Preset...</option>
+          <option value="hair_short">髪（短い） / Hair Short</option>
+          <option value="hair_long">髪（長い） / Hair Long</option>
+          <option value="hair_2stage">髪 2段振り子 / Hair 2-Stage</option>
+          <option value="hair_3stage">髪 3段振り子 / Hair 3-Stage</option>
+          <option value="cloth_light">服（軽い） / Cloth Light</option>
+          <option value="cloth_heavy">服（重い） / Cloth Heavy</option>
+          <option value="bust_small">胸（小さい） / Bust Small</option>
+          <option value="bust_large">胸（大きい） / Bust Large</option>
+          <option value="pendulum_10stage">10段振り子 / 10-Stage</option>
+          <option value="pendulum_20stage">20段振り子 / 20-Stage</option>
+        </select>
+      </div>
+
       {groups.length === 0 ? (
         <div className="p-4 text-center text-dcc text-dcc-muted">
           No physics groups. Click + Group to add hair/clothing sway physics.

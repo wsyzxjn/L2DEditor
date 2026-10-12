@@ -53,6 +53,24 @@ export interface DeformPathData {
   target_mesh_ids: string[];
 }
 
+export interface ArtPathPoint {
+  pos: [number, number];
+  width: number;
+  opacity: number;
+}
+
+export interface ArtPathData {
+  points: ArtPathPoint[];
+  closed?: boolean;
+  color?: [number, number, number, number];
+  texture_id?: string | null;
+  blend_mode?: BlendMode;
+  opacity?: number;
+  draw_order?: number;
+  mask_ids?: string[];
+  is_mask_inverted?: boolean;
+}
+
 export interface MorphTarget {
   id: string;
   name: string;
@@ -82,6 +100,7 @@ export type NodeKind =
   | ({ type: 'WarpDeformer' } & WarpDeformerData)
   | ({ type: 'RotationDeformer' } & RotationDeformerData)
   | ({ type: 'DeformPath' } & DeformPathData)
+  | ({ type: 'ArtPath' } & ArtPathData)
   | ({ type: 'ArtMesh' } & ArtMeshData);
 
 export interface Node {
@@ -105,6 +124,7 @@ export type KeyformPayload =
   | { kind: 'Warp'; control_points: [number, number][] }
   | { kind: 'Rotation'; origin: [number, number]; angle_deg: number; scale: [number, number] }
   | { kind: 'DeformPath'; control_points: [number, number][] }
+  | { kind: 'ArtPath'; points: ArtPathPoint[] }
   | {
       kind: 'ArtMesh';
       vertex_offsets: [number, number][];
@@ -202,6 +222,26 @@ export interface TimelineKeyframe {
 export interface AnimationTrack {
   target_param_id: string;
   keyframes: TimelineKeyframe[];
+  fade_in_ms?: number;
+  fade_out_ms?: number;
+  frozen?: boolean;
+}
+
+export interface TimelineMarker {
+  frame: number;
+  label: string;
+  color?: string;
+}
+
+export interface FormAnimationKeyframe {
+  frame: number;
+  offsets: [number, number][];
+  curve?: CurveType;
+}
+
+export interface FormAnimationTrack {
+  target_node_id: string;
+  keyframes: FormAnimationKeyframe[];
 }
 
 export interface Animation {
@@ -211,6 +251,8 @@ export interface Animation {
   fps?: number;
   loop_playback?: boolean;
   tracks: AnimationTrack[];
+  markers?: TimelineMarker[];
+  form_tracks?: FormAnimationTrack[];
 }
 
 export interface Project {
@@ -270,6 +312,7 @@ export interface ModelStats {
   total_vertices: number;
   total_triangles: number;
   artmesh_count: number;
+  artpath_count?: number;
   warp_count: number;
   rotation_count: number;
   deform_path_count: number;

@@ -177,4 +177,42 @@ export class CommandBus {
     this.undoStack.push(entry);
     return true;
   }
+
+  public getHistory(): {
+    entries: { id: string; name: string; patchCount: number; status: 'applied' | 'undone' }[];
+    currentIndex: number;
+  } {
+    const applied = this.undoStack.map((e) => ({
+      id: e.command.id,
+      name: e.command.name,
+      patchCount: e.patches.length,
+      status: 'applied' as const,
+    }));
+    const undone = [...this.redoStack].reverse().map((e) => ({
+      id: e.command.id,
+      name: e.command.name,
+      patchCount: e.patches.length,
+      status: 'undone' as const,
+    }));
+    return {
+      entries: [...applied, ...undone],
+      currentIndex: applied.length - 1,
+    };
+  }
+
+  public jumpToHistory(targetIndex: number): boolean {
+    if (this.activeTransaction) return false;
+    const currentIndex = this.undoStack.length - 1;
+    if (targetIndex === currentIndex) return true;
+    if (targetIndex < -1 || targetIndex >= this.undoStack.length + this.redoStack.length) {
+      return false;
+    }
+    while (this.undoStack.length - 1 > targetIndex) {
+      if (!this.undo()) break;
+    }
+    while (this.undoStack.length - 1 < targetIndex) {
+      if (!this.redo()) break;
+    }
+    return true;
+  }
 }

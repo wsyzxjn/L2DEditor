@@ -1,7 +1,7 @@
 import React from 'react';
 import type { Node } from '@l2d/schema';
 import { useEditor } from '../context/EditorContext.js';
-import { Eye, EyeOff, Lock, Unlock, Grid, RotateCw, Image, Folder, Plus } from 'lucide-react';
+import { Eye, EyeOff, Lock, Unlock, Grid, RotateCw, Image, Folder, Plus, PenTool, Sparkles } from 'lucide-react';
 
 export const HierarchyPanel: React.FC = () => {
   const { project, selectedNodeId, setSelectedNodeId, executeCommand, notify } = useEditor();
@@ -24,6 +24,7 @@ export const HierarchyPanel: React.FC = () => {
     if (node.kind.type === 'WarpDeformer') KindIcon = Grid;
     else if (node.kind.type === 'RotationDeformer') KindIcon = RotateCw;
     else if (node.kind.type === 'Part') KindIcon = Folder;
+    else if (node.kind.type === 'ArtPath') KindIcon = PenTool;
 
     return (
       <div key={node.id} className="flex flex-col select-none">
@@ -148,6 +149,28 @@ export const HierarchyPanel: React.FC = () => {
     notify(`Created Part folder: ${name}`, 'success');
   };
 
+  const handleAddArtPath = () => {
+    const id = `artpath_${Date.now()}`;
+    const name = `ArtPath ${project.nodes.filter((n) => n.kind.type === 'ArtPath').length + 1}`;
+    executeCommand({
+      id: `cmd_${Date.now()}`,
+      name: 'art_path.create',
+      params: {
+        id,
+        name,
+        parent_id: selectedNodeId,
+        points: [
+          { pos: [800, 480], width: 6, opacity: 1 },
+          { pos: [960, 440], width: 8, opacity: 1 },
+          { pos: [1120, 480], width: 6, opacity: 1 },
+        ],
+        closed: false,
+      },
+    });
+    setSelectedNodeId(id);
+    notify(`Created ArtPath stroke: ${name}`, 'success');
+  };
+
   return (
     <div className="flex flex-col h-full bg-dcc-panel border-r border-dcc-border">
       {/* Header bar */}
@@ -174,6 +197,27 @@ export const HierarchyPanel: React.FC = () => {
             title="Create Part Folder"
           >
             <Plus className="w-3 h-3 mr-0.5" /> Part
+          </button>
+          <button
+            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded border border-purple-500/30 transition-colors"
+            onClick={handleAddArtPath}
+            title="Create ArtPath Line Stroke (艺术路径)"
+          >
+            <PenTool className="w-3 h-3 mr-0.5" /> Path
+          </button>
+          <button
+            className="p-1 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-zinc-400 hover:text-emerald-300 rounded transition-colors"
+            onClick={() => {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'project.cleanup_empty',
+                params: {},
+              });
+              notify('Cleaned up empty Parts, Deformers & unused Parameters', 'success');
+            }}
+            title="Remove all empty Parts, Deformers & unused Parameters"
+          >
+            <Sparkles className="w-3 h-3" />
           </button>
         </div>
       </div>

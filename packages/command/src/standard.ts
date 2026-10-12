@@ -1,4 +1,16 @@
-import type { Project, Parameter, Node, KeyformBinding, TextureMeta } from '@l2d/schema';
+import {
+  evaluateAnimationAtFrameJs,
+  PhysicsSimulatorJs,
+  type ArtPathPoint,
+  type KeyformBinding,
+  type KeyformPayload,
+  type Node,
+  type Parameter,
+  type PhysicsInput,
+  type PhysicsPendulum,
+  type Project,
+  type TextureMeta,
+} from '@l2d/schema';
 import { CommandBus } from './bus.js';
 
 export function registerStandardCommands(bus: CommandBus): void {
@@ -1084,6 +1096,814 @@ export function registerStandardCommands(bus: CommandBus): void {
 
     draft.nodes.push(warpNode);
     mesh.parent_id = warpId;
+  });
+
+  // ============================================================================
+  // Cubism 5.3 Deep Alignment Commands
+  // ============================================================================
+
+  // 0. Live Sculpting at Active Parameter Coordinate (`keyform.update_at_params`)
+  bus.register<{
+    target_node_id: string;
+    params: Record<string, number>;
+    payload: KeyformPayload;
+  }>('keyform.update_at_params', (draft, { target_node_id, params, payload }) => {
+    const node = draft.nodes.find((n) => n.id === target_node_id);
+    if (!node) return;
+    const binding = draft.keyforms.find((k) => k.target_node_id === target_node_id);
+    if (!binding || binding.dimensions.length === 0) {
+      // Update base rest geometry
+      if (node.kind.type === 'WarpDeformer' && payload.kind === 'Warp') {
+        node.kind.control_points = payload.control_points;
+      } else if (node.kind.type === 'RotationDeformer' && payload.kind === 'Rotation') {
+        node.kind.origin = payload.origin;
+        node.kind.angle_deg = payload.angle_deg;
+        node.kind.scale = payload.scale;
+      } else if (node.kind.type === 'DeformPath' && payload.kind === 'DeformPath') {
+        node.kind.control_points = payload.control_points;
+      } else if (node.kind.type === 'ArtPath' && payload.kind === 'ArtPath') {
+        node.kind.points = payload.points;
+      }
+      return;
+    }
+
+    // Snap current parameter values to nearest keys in each bound dimension
+    const snappedCoords = binding.dimensions.map((dim) => {
+      const def = draft.parameters.find((p) => p.id === dim.param_id)?.default ?? 0;
+      const cur = params[dim.param_id] ?? def;
+      return dim.keys.reduce((prev, k) => (Math.abs(k - cur) < Math.abs(prev - cur) ? k : prev), dim.keys[0]);
+    });
+
+    const existing = binding.keyforms.find(
+      (s) =>
+        s.coordinates.length === snappedCoords.length &&
+        s.coordinates.every((c, idx) => Math.abs(c - snappedCoords[idx]) < 1e-4)
+    );
+    if (existing) {
+      existing.payload = payload;
+    } else {
+      binding.keyforms.push({
+        coordinates: snappedCoords,
+        payload,
+      });
+    }
+  });
+
+  // 1. CMD_AUTO_BLEND_4_CORNER (Ctrl+4): 4-Corner Automatic Keyform Synthesis
+  bus.register<{
+    target_node_id: string;
+  }>('keyform.synthesize_corners', (draft, { target_node_id }) => {
+    const binding = draft.keyforms.find((k) => k.target_node_id === target_node_id);
+    if (!binding || binding.dimensions.length < 2) {
+      throw new Error(`Node '${target_node_id}' requires at least 2 bound parameter dimensions for 4-corner synthesis`);
+    }
+    const dimX = binding.dimensions[0];
+    const dimY = binding.dimensions[1];
+    const paramX = draft.parameters.find((p) => p.id === dimX.param_id);
+    const paramY = draft.parameters.find((p) => p.id === dimY.param_id);
+
+    const defX = paramX?.default ?? 0;
+    const defY = paramY?.default ?? 0;
+    const centerX = dimX.keys.reduce((prev, curr) => (Math.abs(curr - defX) < Math.abs(prev - defX) ? curr : prev), dimX.keys[0]);
+    const centerY = dimY.keys.reduce((prev, curr) => (Math.abs(curr - defY) < Math.abs(prev - defY) ? curr : prev), dimY.keys[0]);
+
+    const findState = (x: number, y: number) =>
+      binding.keyforms.find(
+        (s) => Math.abs(s.coordinates[0] - x) < 1e-4 && Math.abs(s.coordinates[1] - y) < 1e-4
+      );
+
+    const centerState = findState(centerX, centerY);
+    if (!centerState) {
+      throw new Error(`Center keyform state at (${centerX}, ${centerY}) not found on '${target_node_id}'`);
+    }
+
+    for (const kx of dimX.keys) {
+      if (Math.abs(kx - centerX) < 1e-4) continue;
+      for (const ky of dimY.keys) {
+        if (Math.abs(ky - centerY) < 1e-4) continue;
+        const stateX = findState(kx, centerY);
+        const stateY = findState(centerX, ky);
+        if (!stateX || !stateY) continue;
+
+        let cornerPayload: KeyformPayload | null = null;
+        if (
+          centerState.payload.kind === 'Warp' &&
+          stateX.payload.kind === 'Warp' &&
+          stateY.payload.kind === 'Warp'
+        ) {
+          const p0 = centerState.payload.control_points;
+          const px = stateX.payload.control_points;
+          const py = stateY.payload.control_points;
+          cornerPayload = {
+            kind: 'Warp',
+            control_points: p0.map((c0, idx): [number, number] => [
+              c0[0] + ((px[idx]?.[0] ?? c0[0]) - c0[0]) + ((py[idx]?.[0] ?? c0[0]) - c0[0]),
+              c0[1] + ((px[idx]?.[1] ?? c0[1]) - c0[1]) + ((py[idx]?.[1] ?? c0[1]) - c0[1]),
+            ]),
+          };
+        } else if (
+          centerState.payload.kind === 'Rotation' &&
+          stateX.payload.kind === 'Rotation' &&
+          stateY.payload.kind === 'Rotation'
+        ) {
+          const p0 = centerState.payload;
+          const px = stateX.payload;
+          const py = stateY.payload;
+          cornerPayload = {
+            kind: 'Rotation',
+            origin: [
+              p0.origin[0] + (px.origin[0] - p0.origin[0]) + (py.origin[0] - p0.origin[0]),
+              p0.origin[1] + (px.origin[1] - p0.origin[1]) + (py.origin[1] - p0.origin[1]),
+            ],
+            angle_deg: p0.angle_deg + (px.angle_deg - p0.angle_deg) + (py.angle_deg - p0.angle_deg),
+            scale: [
+              p0.scale[0] + (px.scale[0] - p0.scale[0]) + (py.scale[0] - p0.scale[0]),
+              p0.scale[1] + (px.scale[1] - p0.scale[1]) + (py.scale[1] - p0.scale[1]),
+            ],
+          };
+        } else if (
+          centerState.payload.kind === 'DeformPath' &&
+          stateX.payload.kind === 'DeformPath' &&
+          stateY.payload.kind === 'DeformPath'
+        ) {
+          const p0 = centerState.payload.control_points;
+          const px = stateX.payload.control_points;
+          const py = stateY.payload.control_points;
+          cornerPayload = {
+            kind: 'DeformPath',
+            control_points: p0.map((c0, idx): [number, number] => [
+              c0[0] + ((px[idx]?.[0] ?? c0[0]) - c0[0]) + ((py[idx]?.[0] ?? c0[0]) - c0[0]),
+              c0[1] + ((px[idx]?.[1] ?? c0[1]) - c0[1]) + ((py[idx]?.[1] ?? c0[1]) - c0[1]),
+            ]),
+          };
+        } else if (
+          centerState.payload.kind === 'ArtPath' &&
+          stateX.payload.kind === 'ArtPath' &&
+          stateY.payload.kind === 'ArtPath'
+        ) {
+          const p0 = centerState.payload.points;
+          const px = stateX.payload.points;
+          const py = stateY.payload.points;
+          cornerPayload = {
+            kind: 'ArtPath',
+            points: p0.map((pt0, idx) => ({
+              pos: [
+                pt0.pos[0] + ((px[idx]?.pos[0] ?? pt0.pos[0]) - pt0.pos[0]) + ((py[idx]?.pos[0] ?? pt0.pos[0]) - pt0.pos[0]),
+                pt0.pos[1] + ((px[idx]?.pos[1] ?? pt0.pos[1]) - pt0.pos[1]) + ((py[idx]?.pos[1] ?? pt0.pos[1]) - pt0.pos[1]),
+              ],
+              width: pt0.width + ((px[idx]?.width ?? pt0.width) - pt0.width) + ((py[idx]?.width ?? pt0.width) - pt0.width),
+              opacity: pt0.opacity,
+            })),
+          };
+        } else if (
+          centerState.payload.kind === 'ArtMesh' &&
+          stateX.payload.kind === 'ArtMesh' &&
+          stateY.payload.kind === 'ArtMesh'
+        ) {
+          const p0 = centerState.payload.vertex_offsets;
+          const px = stateX.payload.vertex_offsets;
+          const py = stateY.payload.vertex_offsets;
+          cornerPayload = {
+            kind: 'ArtMesh',
+            vertex_offsets: p0.map((o0, idx): [number, number] => [
+              o0[0] + ((px[idx]?.[0] ?? o0[0]) - o0[0]) + ((py[idx]?.[0] ?? o0[0]) - o0[0]),
+              o0[1] + ((px[idx]?.[1] ?? o0[1]) - o0[1]) + ((py[idx]?.[1] ?? o0[1]) - o0[1]),
+            ]),
+            opacity: centerState.payload.opacity,
+          };
+        }
+
+        if (cornerPayload) {
+          const existingCorner = findState(kx, ky);
+          if (existingCorner) {
+            existingCorner.payload = cornerPayload;
+          } else {
+            binding.keyforms.push({
+              coordinates: [kx, ky],
+              payload: cornerPayload,
+            });
+          }
+        }
+      }
+    }
+  });
+
+  // 2. CMD_BLEND_SHAPE (Ctrl+Shift+B) & CMD_RESTORE_ORIGINAL_SHAPE
+  bus.register<{
+    target_node_id: string;
+    source_coords: number[];
+    dest_coords: number[];
+    weight?: number;
+  }>('keyform.blend_shape', (draft, { target_node_id, source_coords, dest_coords, weight = 0.5 }) => {
+    const binding = draft.keyforms.find((k) => k.target_node_id === target_node_id);
+    if (!binding) throw new Error(`Keyform binding for '${target_node_id}' not found`);
+    const src = binding.keyforms.find(
+      (s) => s.coordinates.length === source_coords.length && s.coordinates.every((c, i) => Math.abs(c - source_coords[i]) < 1e-4)
+    );
+    const dst = binding.keyforms.find(
+      (s) => s.coordinates.length === dest_coords.length && s.coordinates.every((c, i) => Math.abs(c - dest_coords[i]) < 1e-4)
+    );
+    if (!src || !dst) throw new Error('Source or destination keyform state not found');
+    if (src.payload.kind === 'Warp' && dst.payload.kind === 'Warp') {
+      const srcCps = src.payload.control_points;
+      dst.payload.control_points = dst.payload.control_points.map((p, i): [number, number] => [
+        p[0] * (1 - weight) + (srcCps[i]?.[0] ?? p[0]) * weight,
+        p[1] * (1 - weight) + (srcCps[i]?.[1] ?? p[1]) * weight,
+      ]);
+    } else if (src.payload.kind === 'ArtMesh' && dst.payload.kind === 'ArtMesh') {
+      const srcOffs = src.payload.vertex_offsets;
+      dst.payload.vertex_offsets = dst.payload.vertex_offsets.map((p, i): [number, number] => [
+        p[0] * (1 - weight) + (srcOffs[i]?.[0] ?? p[0]) * weight,
+        p[1] * (1 - weight) + (srcOffs[i]?.[1] ?? p[1]) * weight,
+      ]);
+    } else if (src.payload.kind === 'Rotation' && dst.payload.kind === 'Rotation') {
+      dst.payload.angle_deg = dst.payload.angle_deg * (1 - weight) + src.payload.angle_deg * weight;
+    }
+  });
+
+  bus.register<{
+    target_node_id: string;
+    coordinates: number[];
+  }>('keyform.restore_original_shape', (draft, { target_node_id, coordinates }) => {
+    const node = draft.nodes.find((n) => n.id === target_node_id);
+    const binding = draft.keyforms.find((k) => k.target_node_id === target_node_id);
+    if (!node || !binding) return;
+    const st = binding.keyforms.find(
+      (s) => s.coordinates.length === coordinates.length && s.coordinates.every((c, i) => Math.abs(c - coordinates[i]) < 1e-4)
+    );
+    if (!st) return;
+    if (node.kind.type === 'WarpDeformer') {
+      st.payload = { kind: 'Warp', control_points: JSON.parse(JSON.stringify(node.kind.control_points)) };
+    } else if (node.kind.type === 'RotationDeformer') {
+      st.payload = {
+        kind: 'Rotation',
+        origin: [...node.kind.origin],
+        angle_deg: node.kind.angle_deg,
+        scale: [...node.kind.scale],
+      };
+    } else if (node.kind.type === 'DeformPath') {
+      st.payload = { kind: 'DeformPath', control_points: JSON.parse(JSON.stringify(node.kind.control_points)) };
+    } else if (node.kind.type === 'ArtPath') {
+      st.payload = { kind: 'ArtPath', points: JSON.parse(JSON.stringify(node.kind.points)) };
+    } else if (node.kind.type === 'ArtMesh') {
+      st.payload = {
+        kind: 'ArtMesh',
+        vertex_offsets: node.kind.vertices.map(() => [0, 0]),
+        opacity: node.kind.opacity,
+      };
+    }
+  });
+
+  // 3. ArtPath Commands (CMD_CREATE_ART_PATH_INDIVISUALLY, CMD_FIT_ART_MESH_CONTOUR, CMD_EDIT_WIDTH_ART_PATH_CONTROL_POINT_THICKEN/THIN)
+  bus.register<{
+    id: string;
+    name: string;
+    points: ArtPathPoint[];
+    closed?: boolean;
+    color?: [number, number, number, number];
+    draw_order?: number;
+    parent_id?: string | null;
+  }>('art_path.create', (draft, params) => {
+    draft.nodes.push({
+      id: params.id,
+      name: params.name,
+      parent_id: params.parent_id ?? null,
+      visible: true,
+      locked: false,
+      kind: {
+        type: 'ArtPath',
+        points: params.points,
+        closed: params.closed ?? false,
+        color: params.color ?? [0.15, 0.15, 0.18, 1.0],
+        blend_mode: 'normal',
+        opacity: 1.0,
+        draw_order: params.draw_order ?? 100,
+        mask_ids: [],
+        is_mask_inverted: false,
+      },
+    });
+  });
+
+  bus.register<{
+    mesh_id: string;
+    art_path_id?: string;
+    stroke_width?: number;
+    color?: [number, number, number, number];
+  }>('art_path.fit_mesh_contour', (draft, { mesh_id, art_path_id, stroke_width = 4.0, color = [0.15, 0.15, 0.18, 1.0] }) => {
+    const mesh = draft.nodes.find((n) => n.id === mesh_id);
+    if (!mesh || mesh.kind.type !== 'ArtMesh') {
+      throw new Error(`ArtMesh '${mesh_id}' not found`);
+    }
+    const verts = mesh.kind.vertices;
+    const inds = mesh.kind.indices;
+
+    const edgeCounts = new Map<string, { a: number; b: number; count: number }>();
+    const addEdge = (a: number, b: number) => {
+      const k = a < b ? `${a}_${b}` : `${b}_${a}`;
+      const ex = edgeCounts.get(k);
+      if (ex) ex.count++;
+      else edgeCounts.set(k, { a, b, count: 1 });
+    };
+    for (let i = 0; i < inds.length; i += 3) {
+      addEdge(inds[i], inds[i + 1]);
+      addEdge(inds[i + 1], inds[i + 2]);
+      addEdge(inds[i + 2], inds[i]);
+    }
+
+    const boundaryEdges = Array.from(edgeCounts.values()).filter((e) => e.count === 1);
+    const orderedPoints: [number, number][] = [];
+
+    if (boundaryEdges.length >= 2) {
+      const adj = new Map<number, number[]>();
+      for (const e of boundaryEdges) {
+        if (!adj.has(e.a)) adj.set(e.a, []);
+        if (!adj.has(e.b)) adj.set(e.b, []);
+        adj.get(e.a)!.push(e.b);
+        adj.get(e.b)!.push(e.a);
+      }
+      const visited = new Set<number>();
+      let curr = boundaryEdges[0].a;
+      while (!visited.has(curr)) {
+        visited.add(curr);
+        if (verts[curr]) orderedPoints.push([verts[curr][0], verts[curr][1]]);
+        const neighbors = adj.get(curr) || [];
+        const next = neighbors.find((n) => !visited.has(n));
+        if (next === undefined) break;
+        curr = next;
+      }
+    } else {
+      for (const v of verts) orderedPoints.push([v[0], v[1]]);
+    }
+
+    const pathId = art_path_id || `artpath_${mesh.id}`;
+    draft.nodes.push({
+      id: pathId,
+      name: `${mesh.name || mesh.id} ArtPath`,
+      parent_id: mesh.parent_id,
+      visible: true,
+      locked: false,
+      kind: {
+        type: 'ArtPath',
+        points: orderedPoints.map((pos) => ({ pos, width: stroke_width, opacity: 1.0 })),
+        closed: true,
+        color,
+        blend_mode: 'normal',
+        opacity: 1.0,
+        draw_order: mesh.kind.draw_order + 1,
+        mask_ids: [],
+        is_mask_inverted: false,
+      },
+    });
+  });
+
+  bus.register<{
+    node_id: string;
+    delta?: number;
+    scale?: number;
+    point_index?: number;
+  }>('art_path.adjust_width', (draft, { node_id, delta = 0, scale = 1.0, point_index }) => {
+    const node = draft.nodes.find((n) => n.id === node_id);
+    if (!node || node.kind.type !== 'ArtPath') return;
+    node.kind.points.forEach((pt, idx) => {
+      if (point_index === undefined || point_index === idx) {
+        pt.width = Math.max(0.5, pt.width * scale + delta);
+      }
+    });
+  });
+
+  // 4. CMD_DELETE_DEFORMER_AND_SET_PARAM: Delete deformer while baking its current deformation into children
+  bus.register<{
+    deformer_id: string;
+  }>('deformer.delete_and_bake_to_children', (draft, { deformer_id }) => {
+    const deformer = draft.nodes.find((n) => n.id === deformer_id);
+    if (!deformer) return;
+
+    const bakePoint = (pt: [number, number]): [number, number] => {
+      if (deformer.kind.type === 'WarpDeformer') {
+        const { cols, rows, bounds, control_points } = deformer.kind;
+        const [minX, minY, w, h] = bounds;
+        if (cols === 0 || rows === 0 || Math.abs(w) < 1e-5 || Math.abs(h) < 1e-5) return pt;
+        const u = Math.max(0, Math.min(1, (pt[0] - minX) / w));
+        const v = Math.max(0, Math.min(1, (pt[1] - minY) / h));
+        const gx = u * cols;
+        const gy = v * rows;
+        const c0 = Math.min(Math.floor(gx), cols - 1);
+        const r0 = Math.min(Math.floor(gy), rows - 1);
+        const tx = gx - c0;
+        const ty = gy - r0;
+        const stride = cols + 1;
+        const p00 = control_points[r0 * stride + c0] || pt;
+        const p10 = control_points[r0 * stride + c0 + 1] || pt;
+        const p01 = control_points[(r0 + 1) * stride + c0] || pt;
+        const p11 = control_points[(r0 + 1) * stride + c0 + 1] || pt;
+        const topX = p00[0] * (1 - tx) + p10[0] * tx;
+        const topY = p00[1] * (1 - tx) + p10[1] * tx;
+        const botX = p01[0] * (1 - tx) + p11[0] * tx;
+        const botY = p01[1] * (1 - tx) + p11[1] * tx;
+        return [topX * (1 - ty) + botX * ty, topY * (1 - ty) + botY * ty];
+      } else if (deformer.kind.type === 'RotationDeformer') {
+        const { origin, angle_deg, scale } = deformer.kind;
+        const dx = (pt[0] - origin[0]) * scale[0];
+        const dy = (pt[1] - origin[1]) * scale[1];
+        const rad = (angle_deg * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        return [origin[0] + dx * cos - dy * sin, origin[1] + dx * sin + dy * cos];
+      }
+      return pt;
+    };
+
+    for (const child of draft.nodes) {
+      if (child.parent_id === deformer_id) {
+        if (child.kind.type === 'ArtMesh') {
+          child.kind.vertices = child.kind.vertices.map(bakePoint);
+        } else if (child.kind.type === 'WarpDeformer') {
+          child.kind.control_points = child.kind.control_points.map(bakePoint);
+        } else if (child.kind.type === 'ArtPath') {
+          child.kind.points.forEach((p) => {
+            p.pos = bakePoint(p.pos);
+          });
+        }
+        child.parent_id = deformer.parent_id;
+      }
+    }
+    draft.nodes = draft.nodes.filter((n) => n.id !== deformer_id);
+    draft.keyforms = draft.keyforms.filter((k) => k.target_node_id !== deformer_id);
+  });
+
+  // 5. Official Cubism 5.3 Physics Presets (`res/values/physics/default_physics_preset40.xml`)
+  bus.register<{
+    group_id?: string;
+    preset:
+      | 'hair_short'
+      | 'hair_long'
+      | 'hair_2stage'
+      | 'hair_3stage'
+      | 'cloth_light'
+      | 'cloth_heavy'
+      | 'bust_small'
+      | 'bust_large'
+      | 'pendulum_10stage'
+      | 'pendulum_20stage';
+    input_preset?: 'head_input' | 'body_input' | 'bust_input';
+    output_param_id?: string;
+  }>('physics.apply_preset', (draft, { group_id, preset, input_preset = 'head_input', output_param_id }) => {
+    if (!draft.physics) draft.physics = [];
+
+    const inputPresets: Record<string, PhysicsInput[]> = {
+      head_input: [
+        { param_id: 'ParamAngleX', weight: 0.6, reflect: false },
+        { param_id: 'ParamAngleZ', weight: 0.6, reflect: false },
+        { param_id: 'ParamBodyAngleX', weight: 0.4, reflect: false },
+        { param_id: 'ParamBodyAngleZ', weight: 0.4, reflect: false },
+      ],
+      body_input: [
+        { param_id: 'ParamBodyAngleX', weight: 1.0, reflect: false },
+        { param_id: 'ParamBodyAngleZ', weight: 1.0, reflect: false },
+      ],
+      bust_input: [
+        { param_id: 'ParamBodyAngleX', weight: 0.7, reflect: false },
+        { param_id: 'ParamBodyAngleZ', weight: 0.3, reflect: false },
+      ],
+    };
+
+    const modelPresets: Record<string, { name: string; pendulums: PhysicsPendulum[] }> = {
+      hair_short: { name: 'Hair (Short) / 髪（短い）', pendulums: [{ length: 3, damping: 0.9, mass: 1.5 }] },
+      hair_long: { name: 'Hair (Long) / 髪（長い）', pendulums: [{ length: 15, damping: 0.8, mass: 1.5 }] },
+      hair_2stage: {
+        name: 'Hair 2-Stage / 髪 2段振り子',
+        pendulums: [
+          { length: 10, damping: 0.8, mass: 1.5 },
+          { length: 8, damping: 0.8, mass: 1.5 },
+        ],
+      },
+      hair_3stage: {
+        name: 'Hair 3-Stage / 髪 3段振り子',
+        pendulums: [
+          { length: 10, damping: 0.9, mass: 1.0 },
+          { length: 10, damping: 0.9, mass: 1.0 },
+          { length: 8, damping: 0.9, mass: 0.8 },
+        ],
+      },
+      cloth_light: { name: 'Cloth (Light) / 服（軽い）', pendulums: [{ length: 10, damping: 0.6, mass: 1.5 }] },
+      cloth_heavy: { name: 'Cloth (Heavy) / 服（重い）', pendulums: [{ length: 10, damping: 0.8, mass: 1.5 }] },
+      bust_small: { name: 'Bust (Small) / 胸（小さい）', pendulums: [{ length: 3, damping: 0.9, mass: 1.5 }] },
+      bust_large: { name: 'Bust (Large) / 胸（大きい）', pendulums: [{ length: 5, damping: 0.8, mass: 1.5 }] },
+      pendulum_10stage: {
+        name: '10-Stage Pendulum / 10段',
+        pendulums: Array.from({ length: 10 }, () => ({ length: 10, damping: 0.85, mass: 1.2 })),
+      },
+      pendulum_20stage: {
+        name: '20-Stage Pendulum / 20段',
+        pendulums: Array.from({ length: 20 }, () => ({ length: 10, damping: 0.85, mass: 1.2 })),
+      },
+    };
+
+    const chosen = modelPresets[preset] || modelPresets.hair_2stage;
+    const inputs = inputPresets[input_preset] || inputPresets.head_input;
+    const targetOut =
+      output_param_id ||
+      draft.parameters.find((p) => p.id.toLowerCase().includes('hair'))?.id ||
+      draft.parameters[0]?.id ||
+      'ParamHairFront';
+
+    const id = group_id || `physics_${preset}`;
+    const group = {
+      id,
+      name: chosen.name,
+      inputs,
+      pendulums: chosen.pendulums,
+      outputs: chosen.pendulums.map((_, idx) => ({
+        param_id: targetOut,
+        pendulum_index: idx,
+        angle_scale: 0.05,
+        weight: Number((1.0 / chosen.pendulums.length).toFixed(2)),
+      })),
+    };
+
+    const existingIdx = draft.physics.findIndex((g) => g.id === id);
+    if (existingIdx >= 0) draft.physics[existingIdx] = group;
+    else draft.physics.push(group);
+  });
+
+  // 6. CMD_BAKE_PHYSICS: Bake Physics Simulation into Animation Timeline Tracks
+  bus.register<{
+    animation_id: string;
+  }>('animation.bake_physics', (draft, { animation_id }) => {
+    const anim = draft.animations?.find((a) => a.id === animation_id);
+    if (!anim || !draft.physics || draft.physics.length === 0) return;
+
+    const fps = Math.max(1, anim.fps || 30);
+    const duration = Math.max(1, Math.ceil(anim.duration_frames));
+    const dt = 1.0 / fps;
+
+    const outputParamIds = new Set<string>();
+    for (const g of draft.physics) {
+      for (const out of g.outputs) outputParamIds.add(out.param_id);
+    }
+    for (const t of anim.tracks) {
+      if (t.frozen) outputParamIds.delete(t.target_param_id);
+    }
+    if (outputParamIds.size === 0) return;
+
+    const sim = new PhysicsSimulatorJs();
+    const bakedMap = new Map<string, { frame: number; value: number; curve: 'linear' }[]>();
+    for (const pid of outputParamIds) bakedMap.set(pid, []);
+
+    for (let f = 0; f <= duration; f++) {
+      const frameParams = evaluateAnimationAtFrameJs(anim, f);
+      for (const p of draft.parameters) {
+        if (frameParams[p.id] === undefined) frameParams[p.id] = p.default;
+      }
+      const physOut = sim.update(draft, frameParams, dt);
+      for (const pid of outputParamIds) {
+        bakedMap.get(pid)!.push({
+          frame: f,
+          value: Number((physOut[pid] ?? 0).toFixed(3)),
+          curve: 'linear',
+        });
+      }
+    }
+
+    for (const [pid, keyframes] of bakedMap.entries()) {
+      const existing = anim.tracks.find((t) => t.target_param_id === pid);
+      if (existing) {
+        existing.keyframes = keyframes;
+      } else {
+        anim.tracks.push({
+          target_param_id: pid,
+          keyframes,
+          frozen: false,
+        });
+      }
+    }
+  });
+
+  // 7. Timeline Track Freeze, Markers, and Form Animation (`CMD_SET_FREEZE_*`, `CMD_CREATE_FORMANIMATION_KEY`)
+  bus.register<{
+    animation_id: string;
+    param_id?: string;
+    frozen: boolean;
+  }>('animation.set_track_freeze', (draft, { animation_id, param_id, frozen }) => {
+    const anim = draft.animations?.find((a) => a.id === animation_id);
+    if (!anim) return;
+    for (const t of anim.tracks) {
+      if (!param_id || t.target_param_id === param_id) {
+        t.frozen = frozen;
+      }
+    }
+  });
+
+  bus.register<{
+    animation_id: string;
+    frame: number;
+    label: string;
+    color?: string;
+  }>('animation.add_marker', (draft, { animation_id, frame, label, color }) => {
+    const anim = draft.animations?.find((a) => a.id === animation_id);
+    if (!anim) return;
+    if (!anim.markers) anim.markers = [];
+    anim.markers = anim.markers.filter((m) => Math.abs(m.frame - frame) > 1e-4);
+    anim.markers.push({ frame, label, color });
+    anim.markers.sort((a, b) => a.frame - b.frame);
+  });
+
+  bus.register<{
+    animation_id: string;
+    target_node_id: string;
+    frame: number;
+    offsets: [number, number][];
+  }>('animation.set_form_keyframe', (draft, { animation_id, target_node_id, frame, offsets }) => {
+    const anim = draft.animations?.find((a) => a.id === animation_id);
+    if (!anim) return;
+    if (!anim.form_tracks) anim.form_tracks = [];
+    let ft = anim.form_tracks.find((t) => t.target_node_id === target_node_id);
+    if (!ft) {
+      ft = { target_node_id, keyframes: [] };
+      anim.form_tracks.push(ft);
+    }
+    const idx = ft.keyframes.findIndex((k) => Math.abs(k.frame - frame) < 1e-4);
+    if (idx >= 0) ft.keyframes[idx].offsets = offsets;
+    else {
+      ft.keyframes.push({ frame, offsets, curve: 'linear' });
+      ft.keyframes.sort((a, b) => a.frame - b.frame);
+    }
+  });
+
+  // 8. Scene Hygiene Cleanup (`CMD_PART_PALETTE_CMD_REMOVE_ALL_EMPTY_PARTS`, `CMD_PART_PALETTE_CMD_REMOVE_ALL_EMPTY_DEFORMERS`, `CMD_PARAMETER_PALETTE_DELETE_ALL_EMPTY_PARAMETERS`)
+  bus.register<{
+    remove_empty_parts?: boolean;
+    remove_empty_deformers?: boolean;
+    remove_unused_parameters?: boolean;
+    remove_empty_parameter_groups?: boolean;
+  }>('project.cleanup_empty', (draft, opts = {}) => {
+    const removeParts = opts.remove_empty_parts ?? true;
+    const removeDeformers = opts.remove_empty_deformers ?? true;
+    const removeParams = opts.remove_unused_parameters ?? true;
+    const removeGroups = opts.remove_empty_parameter_groups ?? true;
+
+    if (removeParts || removeDeformers) {
+      let changed = true;
+      while (changed) {
+        changed = false;
+        const parentIds = new Set(draft.nodes.map((n) => n.parent_id).filter(Boolean));
+        const beforeLen = draft.nodes.length;
+        draft.nodes = draft.nodes.filter((n) => {
+          if (parentIds.has(n.id)) return true;
+          if (removeParts && n.kind.type === 'Part') return false;
+          if (
+            removeDeformers &&
+            (n.kind.type === 'WarpDeformer' || n.kind.type === 'RotationDeformer')
+          ) {
+            return false;
+          }
+          return true;
+        });
+        if (draft.nodes.length !== beforeLen) changed = true;
+      }
+      const remainingNodeIds = new Set(draft.nodes.map((n) => n.id));
+      draft.keyforms = draft.keyforms.filter((k) => remainingNodeIds.has(k.target_node_id));
+    }
+
+    if (removeParams) {
+      const usedParams = new Set<string>();
+      for (const kf of draft.keyforms) {
+        for (const d of kf.dimensions) usedParams.add(d.param_id);
+      }
+      for (const n of draft.nodes) {
+        if (n.kind.type === 'ArtMesh') {
+          for (const m of n.kind.morph_targets || []) usedParams.add(m.param_id);
+        }
+      }
+      for (const p of draft.physics || []) {
+        for (const inp of p.inputs) usedParams.add(inp.param_id);
+        for (const out of p.outputs) usedParams.add(out.param_id);
+      }
+      for (const e of draft.expressions || []) {
+        for (const ep of e.parameters) usedParams.add(ep.id);
+      }
+      for (const a of draft.animations || []) {
+        for (const t of a.tracks) usedParams.add(t.target_param_id);
+      }
+      draft.parameters = draft.parameters.filter((p) => usedParams.has(p.id));
+    }
+
+    if (removeGroups && draft.parameter_groups) {
+      const usedGroups = new Set(draft.parameters.map((p) => p.group_id).filter(Boolean));
+      draft.parameter_groups = draft.parameter_groups.filter((g) => usedGroups.has(g.id));
+    }
+  });
+
+  // 9. Cubism 5.0/5.1 AI Automation Counterparts: `macro.auto_sway` (揺れの動きの自動生成) & `macro.auto_face_motion` (顔の動きの自動生成)
+  bus.register<{
+    target_node_id: string;
+    param_id?: string;
+    sway_amplitude?: number;
+  }>('macro.auto_sway', (draft, { target_node_id, param_id = 'ParamHairFront', sway_amplitude = 18 }) => {
+    const node = draft.nodes.find((n) => n.id === target_node_id);
+    if (!node) throw new Error(`Target node '${target_node_id}' not found`);
+
+    if (!draft.parameters.some((p) => p.id === param_id)) {
+      draft.parameters.push({ id: param_id, name: 'Sway Parameter', min: -1, max: 1, default: 0 });
+    }
+
+    if (node.kind.type === 'WarpDeformer') {
+      const { cols, rows, control_points } = node.kind;
+      const stride = cols + 1;
+      const makeSway = (dir: number): [number, number][] =>
+        control_points.map(([cx, cy], idx) => {
+          const r = Math.floor(idx / stride);
+          const rowWeight = rows > 0 ? (r / rows) ** 1.5 : 1.0;
+          return [cx + dir * sway_amplitude * rowWeight, cy];
+        });
+      const binding: KeyformBinding = {
+        target_node_id,
+        dimensions: [{ param_id, keys: [-1, 0, 1], extended_interpolation: 'circle' }],
+        keyforms: [
+          { coordinates: [-1], payload: { kind: 'Warp', control_points: makeSway(-1) } },
+          { coordinates: [0], payload: { kind: 'Warp', control_points: control_points.map((p) => [p[0], p[1]]) } },
+          { coordinates: [1], payload: { kind: 'Warp', control_points: makeSway(1) } },
+        ],
+      };
+      const idx = draft.keyforms.findIndex((k) => k.target_node_id === target_node_id);
+      if (idx >= 0) draft.keyforms[idx] = binding;
+      else draft.keyforms.push(binding);
+    }
+
+    if (!draft.physics) draft.physics = [];
+    const physId = `physics_sway_${param_id}`;
+    if (!draft.physics.some((p) => p.id === physId)) {
+      draft.physics.push({
+        id: physId,
+        name: `Auto Sway (${param_id})`,
+        inputs: [{ param_id: 'ParamAngleX', weight: 0.8, reflect: false }],
+        pendulums: [
+          { length: 12, damping: 0.85, mass: 1.2 },
+          { length: 10, damping: 0.85, mass: 1.0 },
+        ],
+        outputs: [
+          { param_id, pendulum_index: 0, angle_scale: 0.05, weight: 0.5 },
+          { param_id, pendulum_index: 1, angle_scale: 0.05, weight: 0.5 },
+        ],
+      });
+    }
+  });
+
+  bus.register<{
+    animation_id?: string;
+    duration_frames?: number;
+  }>('macro.auto_face_motion', (draft, { animation_id = 'auto_face_idle', duration_frames = 120 } = {}) => {
+    if (!draft.animations) draft.animations = [];
+    const tracks = [
+      {
+        target_param_id: 'ParamAngleX',
+        keyframes: [
+          { frame: 0, value: 0, curve: 'bezier' as const },
+          { frame: Math.round(duration_frames * 0.25), value: 15, curve: 'bezier' as const },
+          { frame: Math.round(duration_frames * 0.75), value: -15, curve: 'bezier' as const },
+          { frame: duration_frames, value: 0, curve: 'bezier' as const },
+        ],
+      },
+      {
+        target_param_id: 'ParamAngleY',
+        keyframes: [
+          { frame: 0, value: 0, curve: 'bezier' as const },
+          { frame: Math.round(duration_frames * 0.5), value: 10, curve: 'bezier' as const },
+          { frame: duration_frames, value: 0, curve: 'bezier' as const },
+        ],
+      },
+      {
+        target_param_id: 'ParamEyeLOpen',
+        keyframes: [
+          { frame: 0, value: 1, curve: 'linear' as const },
+          { frame: 40, value: 1, curve: 'linear' as const },
+          { frame: 43, value: 0, curve: 'linear' as const },
+          { frame: 47, value: 1, curve: 'linear' as const },
+          { frame: duration_frames, value: 1, curve: 'linear' as const },
+        ],
+      },
+      {
+        target_param_id: 'ParamEyeROpen',
+        keyframes: [
+          { frame: 0, value: 1, curve: 'linear' as const },
+          { frame: 40, value: 1, curve: 'linear' as const },
+          { frame: 43, value: 0, curve: 'linear' as const },
+          { frame: 47, value: 1, curve: 'linear' as const },
+          { frame: duration_frames, value: 1, curve: 'linear' as const },
+        ],
+      },
+    ];
+    const anim = {
+      id: animation_id,
+      name: 'Auto Face Motion (AI Preset)',
+      duration_frames,
+      fps: 30,
+      loop_playback: true,
+      tracks,
+    };
+    const idx = draft.animations.findIndex((a) => a.id === animation_id);
+    if (idx >= 0) draft.animations[idx] = anim;
+    else draft.animations.push(anim);
   });
 
 }
