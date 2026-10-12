@@ -1304,4 +1304,86 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(kf.dimensions[0].keys).toEqual([-30, 30]);
   });
 
+
+  it('should verify warp.create_enclosing_mesh bounding box enclosure and parameter.swap_keys', () => {
+    const encloseProject: Project = {
+      format_version: 1,
+      canvas: { width: 800, height: 800, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [{ id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 }],
+      nodes: [
+        {
+          id: 'mesh_single',
+          name: 'Single Eye Piece',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_1',
+            vertices: [[150, 250], [350, 250], [150, 450]],
+            uvs: [[0, 0], [1, 0], [0, 1]],
+            indices: [0, 1, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 1,
+            mask_ids: [],
+          },
+        },
+      ],
+      keyforms: [
+        {
+          target_node_id: 'mesh_single',
+          dimensions: [{ param_id: 'ParamAngleX', keys: [-30, 30] }],
+          keyforms: [
+            { coordinates: [-30], payload: { kind: 'ArtMesh', vertex_offsets: [[-10, 0], [-10, 0], [-10, 0]] } },
+            { coordinates: [30], payload: { kind: 'ArtMesh', vertex_offsets: [[10, 0], [10, 0], [10, 0]] } },
+          ],
+        },
+      ],
+      textures: [{ id: 'tex_1', path: 'textures/t1.png', width: 100, height: 100 }],
+    };
+
+    const bus = new CommandBus(encloseProject);
+    registerStandardCommands(bus);
+
+    // 1. Create enclosing warp around mesh_single with padding 20
+    bus.execute({
+      id: 'cmd_enclose',
+      name: 'warp.create_enclosing_mesh',
+      params: { mesh_id: 'mesh_single', cols: 2, rows: 2, padding: 20 },
+    });
+
+    const updated = bus.getProject();
+    const createdWarp = updated.nodes.find((n) => n.id === 'warp_mesh_single');
+    expect(createdWarp).toBeDefined();
+    if (createdWarp && createdWarp.kind.type === 'WarpDeformer') {
+      const [bx, by, bw, bh] = createdWarp.kind.bounds;
+      // Vertices range from X: [150, 350] (width 200). With padding 20 -> X: 130, width: 240
+      expect(bx).toBe(130);
+      expect(bw).toBe(240);
+      // Vertices range from Y: [250, 450] (height 200). With padding 20 -> Y: 230, height: 240
+      expect(by).toBe(230);
+      expect(bh).toBe(240);
+    }
+
+    const enclosedMesh = updated.nodes.find((n) => n.id === 'mesh_single')!;
+    expect(enclosedMesh.parent_id).toBe('warp_mesh_single');
+
+    // 2. Test parameter.swap_keys (-30 and 30 swap payloads)
+    bus.execute({
+      id: 'cmd_swap',
+      name: 'parameter.swap_keys',
+      params: { param_id: 'ParamAngleX', key_a: -30, key_b: 30 },
+    });
+
+    const kf = bus.getProject().keyforms[0];
+    const stateNeg30 = kf.keyforms.find((s) => s.coordinates[0] === -30)!;
+    const statePos30 = kf.keyforms.find((s) => s.coordinates[0] === 30)!;
+    if (stateNeg30.payload.kind === 'ArtMesh' && statePos30.payload.kind === 'ArtMesh') {
+      // Swapped: state at -30 now has offset +10, state at 30 has offset -10!
+      expect(stateNeg30.payload.vertex_offsets[0][0]).toBe(10);
+      expect(statePos30.payload.vertex_offsets[0][0]).toBe(-10);
+    }
+  });
+
 });

@@ -879,4 +879,81 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+
+  // Parameter Swap Keys (swaps shape states between two parameter key values)
+  bus.register<{
+    param_id: string;
+    key_a: number;
+    key_b: number;
+  }>('parameter.swap_keys', (draft, { param_id, key_a, key_b }) => {
+    for (const kf of draft.keyforms) {
+      const dimIdx = kf.dimensions.findIndex((d) => d.param_id === param_id);
+      if (dimIdx >= 0) {
+        const stateA = kf.keyforms.find((s) => Math.abs(s.coordinates[dimIdx] - key_a) < 1e-4);
+        const stateB = kf.keyforms.find((s) => Math.abs(s.coordinates[dimIdx] - key_b) < 1e-4);
+        if (stateA && stateB) {
+          const tmpPayload = stateA.payload;
+          stateA.payload = stateB.payload;
+          stateB.payload = tmpPayload;
+        }
+      }
+    }
+  });
+
+  // Create Enclosing Warp Deformer fitted around an ArtMesh
+  bus.register<{
+    mesh_id: string;
+    cols?: number;
+    rows?: number;
+    padding?: number;
+  }>('warp.create_enclosing_mesh', (draft, { mesh_id, cols = 3, rows = 3, padding = 15 }) => {
+    const mesh = draft.nodes.find((n) => n.id === mesh_id);
+    if (!mesh || mesh.kind.type !== 'ArtMesh') return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [vx, vy] of mesh.kind.vertices) {
+      if (vx < minX) minX = vx;
+      if (vx > maxX) maxX = vx;
+      if (vy < minY) minY = vy;
+      if (vy > maxY) maxY = vy;
+    }
+
+    const bounds: [number, number, number, number] = [
+      minX - padding,
+      minY - padding,
+      (maxX - minX) + padding * 2,
+      (maxY - minY) + padding * 2,
+    ];
+
+    const [bx, by, bw, bh] = bounds;
+    const cps: [number, number][] = [];
+    for (let r = 0; r <= rows; r++) {
+      const y = by + (bh * r) / rows;
+      for (let c = 0; c <= cols; c++) {
+        const x = bx + (bw * c) / cols;
+        cps.push([x, y]);
+      }
+    }
+
+    const warpId = `warp_${mesh.id}`;
+    const warpNode: any = {
+      id: warpId,
+      name: `${mesh.name || mesh.id} Warp`,
+      parent_id: mesh.parent_id,
+      visible: true,
+      locked: false,
+      kind: {
+        type: 'WarpDeformer',
+        cols,
+        rows,
+        bounds,
+        control_points: cps,
+        bezier_smooth: true,
+      },
+    };
+
+    draft.nodes.push(warpNode);
+    mesh.parent_id = warpId;
+  });
+
 }

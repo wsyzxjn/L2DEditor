@@ -386,6 +386,20 @@ export const InspectorPanel: React.FC = () => {
           >
             Reverse Triangle Winding
           </button>
+
+          <button
+            className="w-full mt-1.5 py-1 text-dcc-sm bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded border border-blue-500/30 font-medium"
+            onClick={() => {
+              executeCommand({
+                id: `cmd_${Date.now()}`,
+                name: 'warp.create_enclosing_mesh',
+                params: { mesh_id: selectedNode.id },
+              });
+              notify(`Created enclosing Warp Deformer for ${selectedNode.name || selectedNode.id}`, 'success');
+            }}
+          >
+            Create Enclosing Warp Deformer
+          </button>
 </div>
       )}
     </div>
