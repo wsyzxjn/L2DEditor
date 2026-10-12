@@ -408,6 +408,7 @@ mod tests {
                 default: 0.0,
                 repeats: false,
                 group_id: None,
+                locked: false,
             }],
             nodes: vec![
                 Node {
@@ -591,6 +592,7 @@ mod tests {
                 default: 0.0,
                 repeats: false,
                 group_id: None,
+                locked: false,
             }],
             nodes: vec![
                 Node {

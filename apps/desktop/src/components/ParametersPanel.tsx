@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { ScrubInput } from './ScrubInput.js';
-import { Plus, SlidersHorizontal, Folder, ChevronDown, ChevronRight, FolderPlus, RotateCcw } from 'lucide-react';
+import { Plus, SlidersHorizontal, Folder, ChevronDown, ChevronRight, FolderPlus, RotateCcw, Lock, Unlock } from 'lucide-react';
 import type { Parameter } from '@l2d/schema';
 
 export const ParametersPanel: React.FC = () => {
@@ -60,10 +60,27 @@ export const ParametersPanel: React.FC = () => {
     return (
       <div key={param.id} className="flex flex-col space-y-1 bg-dcc-bg/40 p-1.5 rounded border border-dcc-border/50">
         <div className="flex items-center justify-between">
-          <span className="text-dcc font-medium text-dcc-text truncate">{param.name || param.id}</span>
+          <div className="flex items-center space-x-1 truncate flex-1 mr-2">
+            <button
+              className="p-0.5 rounded text-zinc-500 hover:text-white"
+              onClick={() => {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'parameter.set_locked',
+                  params: { param_id: param.id, locked: !param.locked },
+                });
+              }}
+              title={param.locked ? 'Unlock Parameter' : 'Lock Parameter'}
+            >
+              {param.locked ? <Lock className="w-3 h-3 text-amber-500" /> : <Unlock className="w-3 h-3 text-zinc-600 hover:text-zinc-400" />}
+            </button>
+            <span className={`text-dcc font-medium truncate ${param.locked ? 'text-amber-300/80' : 'text-dcc-text'}`}>
+              {param.name || param.id}
+            </span>
+          </div>
           <ScrubInput
             value={val}
-            onChange={(v) => setParameterValue(param.id, v)}
+            onChange={(v) => !param.locked && setParameterValue(param.id, v)}
             min={param.min}
             max={param.max}
             step={(param.max - param.min) / 100}
@@ -79,8 +96,9 @@ export const ParametersPanel: React.FC = () => {
             max={param.max}
             step={(param.max - param.min) / 200}
             value={val}
-            onChange={(e) => setParameterValue(param.id, parseFloat(e.target.value))}
-            className="w-full h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-dcc-accent"
+            disabled={param.locked}
+            onChange={(e) => !param.locked && setParameterValue(param.id, parseFloat(e.target.value))}
+            className={`w-full h-1 bg-zinc-700 rounded-lg appearance-none ${param.locked ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer accent-dcc-accent'}`}
           />
 
           {ticks.map((t, idx) => {

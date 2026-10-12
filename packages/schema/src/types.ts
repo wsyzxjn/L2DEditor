@@ -22,6 +22,7 @@ export interface Parameter {
   default: number;
   repeats?: boolean;
   group_id?: string;
+  locked?: boolean;
 }
 
 export interface TextureMeta {

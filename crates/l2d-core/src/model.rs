@@ -97,6 +97,8 @@ pub struct Parameter {
     pub repeats: bool,
     #[serde(default)]
     pub group_id: Option<String>,
+    #[serde(default)]
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

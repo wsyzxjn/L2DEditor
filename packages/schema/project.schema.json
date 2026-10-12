@@ -945,6 +945,10 @@
         "id": {
           "type": "string"
         },
+        "locked": {
+          "default": false,
+          "type": "boolean"
+        },
         "max": {
           "type": "number",
           "format": "float"

@@ -75,6 +75,21 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  bus.register<{ param_id: string; locked: boolean }>('parameter.set_locked', (draft, { param_id, locked }) => {
+    const p = draft.parameters.find((param) => param.id === param_id);
+    if (p) {
+      p.locked = locked;
+    }
+  });
+
+  bus.register<{ group_id: string; locked: boolean }>('parameter_group.set_all_locked', (draft, { group_id, locked }) => {
+    for (const p of draft.parameters) {
+      if (p.group_id === group_id) {
+        p.locked = locked;
+      }
+    }
+  });
+
   // Hit Areas & User Data
   bus.register<{ mesh_id: string; hit_area_name: string | null }>('mesh.set_hit_area', (draft, { mesh_id, hit_area_name }) => {
     const node = draft.nodes.find((n) => n.id === mesh_id);
