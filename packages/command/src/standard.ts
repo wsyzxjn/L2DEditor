@@ -201,6 +201,23 @@ export function registerStandardCommands(bus: CommandBus): void {
     target.parent_id = parent_id;
   });
 
+
+  bus.register<{ parent_id: string; visible: boolean }>('node.set_children_visible', (draft, { parent_id, visible }) => {
+    for (const child of draft.nodes) {
+      if (child.parent_id === parent_id) {
+        child.visible = visible;
+      }
+    }
+  });
+
+  bus.register<{ parent_id: string; locked: boolean }>('node.set_children_locked', (draft, { parent_id, locked }) => {
+    for (const child of draft.nodes) {
+      if (child.parent_id === parent_id) {
+        child.locked = locked;
+      }
+    }
+  });
+
   bus.register<{ id: string }>('node.delete', (draft, { id }) => {
     // Reparent direct children to deleted node's parent
     const target = draft.nodes.find((n) => n.id === id);
@@ -235,6 +252,58 @@ export function registerStandardCommands(bus: CommandBus): void {
 
   bus.register<{ target_node_id: string }>('keyform.delete', (draft, { target_node_id }) => {
     draft.keyforms = draft.keyforms.filter((k) => k.target_node_id !== target_node_id);
+  });
+
+
+  // Keyform Shape Copy and Paste (with optional horizontal mirror reflection)
+  bus.register<{
+    target_node_id: string;
+    source_coords: number[];
+    dest_coords: number[];
+    mirror_x?: boolean;
+  }>('keyform.copy_paste', (draft, { target_node_id, source_coords, dest_coords, mirror_x }) => {
+    const binding = draft.keyforms.find((k) => k.target_node_id === target_node_id);
+    if (!binding) throw new Error(`Keyform binding for node '${target_node_id}' not found`);
+
+    const sourceState = binding.keyforms.find((s) =>
+      s.coordinates.length === source_coords.length &&
+      s.coordinates.every((c, idx) => Math.abs(c - source_coords[idx]) < 1e-4)
+    );
+    if (!sourceState) throw new Error(`Source keyform state at coordinates ${source_coords} not found`);
+
+    let payload = JSON.parse(JSON.stringify(sourceState.payload));
+    if (mirror_x) {
+      const targetNode = draft.nodes.find((n) => n.id === target_node_id);
+      if (payload.kind === 'Warp') {
+        const bounds = targetNode?.kind.type === 'WarpDeformer' ? targetNode.kind.bounds : [0, 0, 1000, 1000];
+        const centerX = bounds[0] + bounds[2] / 2;
+        payload.control_points = payload.control_points.map(([cx, cy]: [number, number]) => [
+          2 * centerX - cx,
+          cy,
+        ]);
+      } else if (payload.kind === 'Rotation') {
+        payload.angle_deg = -payload.angle_deg;
+      } else if (payload.kind === 'ArtMesh') {
+        payload.vertex_offsets = payload.vertex_offsets.map(([dx, dy]: [number, number]) => [
+          -dx,
+          dy,
+        ]);
+      }
+    }
+
+    const destIdx = binding.keyforms.findIndex((s) =>
+      s.coordinates.length === dest_coords.length &&
+      s.coordinates.every((c, idx) => Math.abs(c - dest_coords[idx]) < 1e-4)
+    );
+
+    if (destIdx >= 0) {
+      binding.keyforms[destIdx].payload = payload;
+    } else {
+      binding.keyforms.push({
+        coordinates: dest_coords,
+        payload,
+      });
+    }
   });
 
   // Keyform Horizontal Reflection / Mirroring

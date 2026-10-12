@@ -1441,4 +1441,108 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(cycleRes.error).toContain('Hierarchy cycle detected');
   });
 
+
+  it('should verify keyform.copy_paste with mirror_x and node.set_children_visible', () => {
+    const copyProject: Project = {
+      format_version: 1,
+      canvas: { width: 1000, height: 1000, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [{ id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 }],
+      nodes: [
+        {
+          id: 'part_folder',
+          name: 'Folder',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: { type: 'Part', opacity: 1.0, collapsed: false },
+        },
+        {
+          id: 'child_mesh_1',
+          name: 'Child 1',
+          parent_id: 'part_folder',
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_1',
+            vertices: [[500, 500]],
+            uvs: [[0, 0]],
+            indices: [0],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 1,
+            mask_ids: [],
+          },
+        },
+        {
+          id: 'child_mesh_2',
+          name: 'Child 2',
+          parent_id: 'part_folder',
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_1',
+            vertices: [[500, 500]],
+            uvs: [[0, 0]],
+            indices: [0],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 2,
+            mask_ids: [],
+          },
+        },
+      ],
+      keyforms: [
+        {
+          target_node_id: 'child_mesh_1',
+          dimensions: [{ param_id: 'ParamAngleX', keys: [-30, 30] }],
+          keyforms: [
+            {
+              coordinates: [-30],
+              payload: {
+                kind: 'ArtMesh',
+                vertex_offsets: [[-25, 0]],
+              },
+            },
+          ],
+        },
+      ],
+      textures: [{ id: 'tex_1', path: 'textures/t1.png', width: 100, height: 100 }],
+    };
+
+    const bus = new CommandBus(copyProject);
+    registerStandardCommands(bus);
+
+    // 1. Copy keyform from -30 and paste to +30 with mirror_x: true
+    bus.execute({
+      id: 'cmd_copy_paste',
+      name: 'keyform.copy_paste',
+      params: {
+        target_node_id: 'child_mesh_1',
+        source_coords: [-30],
+        dest_coords: [30],
+        mirror_x: true,
+      },
+    });
+
+    const binding = bus.getProject().keyforms[0];
+    const pastedState = binding.keyforms.find((s) => s.coordinates[0] === 30)!;
+    expect(pastedState).toBeDefined();
+    if (pastedState.payload.kind === 'ArtMesh') {
+      // Mirrored offset: -25 mirrored should be +25!
+      expect(pastedState.payload.vertex_offsets[0][0]).toBe(25);
+    }
+
+    // 2. Test node.set_children_visible on part_folder
+    bus.execute({
+      id: 'cmd_hide_children',
+      name: 'node.set_children_visible',
+      params: { parent_id: 'part_folder', visible: false },
+    });
+
+    const children = bus.getProject().nodes.filter((n) => n.parent_id === 'part_folder');
+    expect(children.every((c) => c.visible === false)).toBe(true);
+  });
+
 });

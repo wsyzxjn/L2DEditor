@@ -1,11 +1,12 @@
 import React from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { ScrubInput } from './ScrubInput.js';
-import { Info, Sparkles, Layers, Key } from 'lucide-react';
+import { Info, Sparkles, Layers, Key, Copy, FlipHorizontal } from 'lucide-react';
 
 export const InspectorPanel: React.FC = () => {
   const { project, selectedNodeId, executeCommand, notify } = useEditor();
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId);
+  const [copiedShape, setCopiedShape] = React.useState<any>(null);
 
   if (!selectedNode) {
     // Canvas Inspector
@@ -127,6 +128,47 @@ export const InspectorPanel: React.FC = () => {
         </div>
       </div>
 
+      {/* Shape Copy & Paste */}
+      <div className="pt-2 border-t border-dcc-border/60 space-y-1.5">
+        <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">Keyform Shape Copy/Paste</span>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-dcc-bg hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border transition-colors"
+            onClick={() => {
+              const binding = project.keyforms.find((k) => k.target_node_id === selectedNode.id);
+              if (binding && binding.keyforms.length > 0) {
+                setCopiedShape(JSON.parse(JSON.stringify(binding.keyforms[0])));
+                notify('Copied keyform shape to clipboard', 'info');
+              } else {
+                notify('No keyforms on this node to copy', 'error');
+              }
+            }}
+          >
+            <Copy className="w-3 h-3 mr-1" /> Copy Shape
+          </button>
+          <button
+            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-dcc-bg hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border transition-colors disabled:opacity-40"
+            disabled={!copiedShape}
+            onClick={() => {
+              if (copiedShape) {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'keyform.copy_paste',
+                  params: {
+                    target_node_id: selectedNode.id,
+                    source_coords: copiedShape.coordinates,
+                    dest_coords: copiedShape.coordinates.map((c: number) => -c),
+                    mirror_x: true,
+                  },
+                });
+                notify('Pasted mirrored shape to opposite key', 'success');
+              }
+            }}
+          >
+            <FlipHorizontal className="w-3 h-3 mr-1 text-amber-400" /> Paste Mirrored
+          </button>
+        </div>
+      </div>
       
       {/* Part Properties */}
       {kind.type === 'Part' && (
