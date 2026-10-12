@@ -456,6 +456,21 @@ program
   });
 
 program
+  .command('snapshot-save <project>')
+  .description('Save an incremental backup snapshot of the project to .l2d/history/')
+  .action((projectInput) => {
+    const file = resolveProjectPath(projectInput);
+    const projectDir = path.dirname(file);
+    const historyDir = path.join(projectDir, '.l2d', 'history');
+    fs.mkdirSync(historyDir, { recursive: true });
+
+    const snapId = `snap_${Date.now()}`;
+    const snapFile = path.join(historyDir, `${snapId}.json`);
+    fs.copyFileSync(file, snapFile);
+    console.log(`Saved snapshot '${snapId}' to ${snapFile}`);
+  });
+
+program
   .command('stats <project>')
   .description('Inspect detailed geometry, polygon count, and estimated VRAM budget of a project')
   .action((projectInput) => {

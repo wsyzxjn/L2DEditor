@@ -90,6 +90,14 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  bus.register<{ group_id: string; param_ids: string[] }>('parameter_group.assign_parameters', (draft, { group_id, param_ids }) => {
+    for (const p of draft.parameters) {
+      if (param_ids.includes(p.id)) {
+        p.group_id = group_id;
+      }
+    }
+  });
+
   // Hit Areas & User Data
   bus.register<{ mesh_id: string; hit_area_name: string | null }>('mesh.set_hit_area', (draft, { mesh_id, hit_area_name }) => {
     const node = draft.nodes.find((n) => n.id === mesh_id);

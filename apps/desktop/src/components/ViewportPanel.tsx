@@ -87,6 +87,40 @@ export const ViewportPanel: React.FC = () => {
     ctx.lineWidth = 2 / zoom;
     ctx.strokeRect(0, 0, project.canvas.width, project.canvas.height);
 
+    // Draw background grid lines (every 50px)
+    ctx.save();
+    ctx.strokeStyle = '#27272a66';
+    ctx.lineWidth = 1 / zoom;
+    const gridStep = 50;
+    for (let gx = 0; gx <= project.canvas.width; gx += gridStep) {
+      ctx.beginPath();
+      ctx.moveTo(gx, 0);
+      ctx.lineTo(gx, project.canvas.height);
+      ctx.stroke();
+    }
+    for (let gy = 0; gy <= project.canvas.height; gy += gridStep) {
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      ctx.lineTo(project.canvas.width, gy);
+      ctx.stroke();
+    }
+
+    // Draw symmetry center axis lines (dashed)
+    ctx.strokeStyle = '#38bdf888';
+    ctx.lineWidth = 1.5 / zoom;
+    ctx.setLineDash([6 / zoom, 4 / zoom]);
+    const midX = project.canvas.width / 2;
+    const midY = project.canvas.height / 2;
+    ctx.beginPath();
+    ctx.moveTo(midX, 0);
+    ctx.lineTo(midX, project.canvas.height);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, midY);
+    ctx.lineTo(project.canvas.width, midY);
+    ctx.stroke();
+    ctx.restore();
+
     // Draw evaluated meshes (wireframe or solid preview)
     if (frame) {
       for (const mesh of frame.meshes) {
