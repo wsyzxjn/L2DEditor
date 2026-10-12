@@ -177,6 +177,7 @@ pub fn evaluate_project(
             let mut opacity = mesh_data.opacity;
             let mut multiply_color = mesh_data.multiply_color;
             let mut screen_color = mesh_data.screen_color;
+            let mut draw_order = mesh_data.draw_order;
 
             // Apply ArtMesh keyforms (vertex offsets, opacity, colors)
             if let Some(kf) = keyform_map.get(node.id.as_str()) {
@@ -186,9 +187,10 @@ pub fn evaluate_project(
                 let mut offset_acc = vec![[0.0, 0.0]; vertices.len()];
                 let mut opacity_acc = 0.0;
                 let mut has_op_kf = false;
+                let mut max_draw_order_w = 0.0f32;
 
                 for (state, &w) in kf.keyforms.iter().zip(weights.iter()) {
-                    if let KeyformPayload::ArtMesh { vertex_offsets, opacity: op, multiply_color: mc, screen_color: sc } = &state.payload {
+                    if let KeyformPayload::ArtMesh { vertex_offsets, opacity: op, multiply_color: mc, screen_color: sc, draw_order: do_opt } = &state.payload {
                         has_offsets = true;
                         for (idx, off) in vertex_offsets.iter().enumerate().take(vertices.len()) {
                             offset_acc[idx][0] += off[0] * w;
@@ -206,6 +208,12 @@ pub fn evaluate_project(
                         if let Some(c) = sc {
                             for ch in 0..4 {
                                 screen_color[ch] = screen_color[ch] * (1.0 - w) + c[ch] * w;
+                            }
+                        }
+                        if let Some(d) = do_opt {
+                            if w > max_draw_order_w {
+                                max_draw_order_w = w;
+                                draw_order = *d;
                             }
                         }
                     }
@@ -307,7 +315,7 @@ pub fn evaluate_project(
                 opacity,
                 multiply_color,
                 screen_color,
-                draw_order: mesh_data.draw_order,
+                draw_order,
                 mask_ids: mesh_data.mask_ids.clone(),
                 is_mask_inverted: mesh_data.is_mask_inverted,
             });

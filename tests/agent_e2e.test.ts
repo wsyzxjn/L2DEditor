@@ -824,4 +824,104 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(diags.filter((d) => d.severity === 'error').length).toBe(0);
   });
 
+
+  it('should verify dynamic keyform draw_order depth swapping and mesh.flip_uv', () => {
+    const depthProject: Project = {
+      format_version: 1,
+      canvas: { width: 500, height: 500, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [{ id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 }],
+      nodes: [
+        {
+          id: 'mesh_ear_l',
+          name: 'Ear Left',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_ear',
+            vertices: [[50, 50], [100, 50], [50, 100]],
+            uvs: [[0.2, 0.3], [0.8, 0.3], [0.2, 0.9]],
+            indices: [0, 1, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 10,
+            mask_ids: [],
+          },
+        },
+        {
+          id: 'mesh_head_base',
+          name: 'Head Base',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_head',
+            vertices: [[40, 40], [150, 40], [40, 150]],
+            uvs: [[0, 0], [1, 0], [0, 1]],
+            indices: [0, 1, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 20, // normally in front of ear_l (20 > 10)
+            mask_ids: [],
+          },
+        },
+      ],
+      keyforms: [
+        {
+          target_node_id: 'mesh_ear_l',
+          dimensions: [{ param_id: 'ParamAngleX', keys: [-30, 30] }],
+          keyforms: [
+            {
+              coordinates: [-30],
+              payload: {
+                kind: 'ArtMesh',
+                vertex_offsets: [[0, 0], [0, 0], [0, 0]],
+                draw_order: 30, // at AngleX = -30, ear moves IN FRONT of head (30 > 20)!
+              },
+            },
+            {
+              coordinates: [30],
+              payload: {
+                kind: 'ArtMesh',
+                vertex_offsets: [[0, 0], [0, 0], [0, 0]],
+                draw_order: 10, // at AngleX = +30, ear moves BEHIND head (10 < 20)!
+              },
+            },
+          ],
+        },
+      ],
+      textures: [{ id: 'tex_ear', path: 'textures/ear.png', width: 50, height: 50 }, { id: 'tex_head', path: 'textures/head.png', width: 100, height: 100 }],
+    };
+
+    const model = new WasmModel(JSON.stringify(depthProject));
+
+    // At AngleX = -30: ear_l should have draw_order 30 and be rendered LAST (on top)
+    model.setParameter('ParamAngleX', -30);
+    const frameTurnLeft = model.evaluate() as any;
+    expect(frameTurnLeft.meshes[0].id).toBe('mesh_head_base'); // 20
+    expect(frameTurnLeft.meshes[1].id).toBe('mesh_ear_l');     // 30 (on top!)
+
+    // At AngleX = +30: ear_l should have draw_order 10 and be rendered FIRST (behind)
+    model.setParameter('ParamAngleX', 30);
+    const frameTurnRight = model.evaluate() as any;
+    expect(frameTurnRight.meshes[0].id).toBe('mesh_ear_l');     // 10 (behind!)
+    expect(frameTurnRight.meshes[1].id).toBe('mesh_head_base'); // 20
+
+    // Test mesh.flip_uv command
+    const bus = new CommandBus(depthProject);
+    registerStandardCommands(bus);
+    bus.execute({
+      id: 'cmd_flip',
+      name: 'mesh.flip_uv',
+      params: { mesh_id: 'mesh_ear_l', axis: 'horizontal' },
+    });
+    const updatedMesh = bus.getProject().nodes.find((n) => n.id === 'mesh_ear_l')!;
+    if (updatedMesh.kind.type === 'ArtMesh') {
+      // Original U was 0.2 -> flipped horizontally should be 1.0 - 0.2 = 0.8
+      expect(updatedMesh.kind.uvs[0][0]).toBeCloseTo(0.8, 4);
+    }
+  });
+
 });

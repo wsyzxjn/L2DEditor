@@ -110,6 +110,7 @@ export type KeyformPayload =
       opacity?: number;
       multiply_color?: [number, number, number, number];
       screen_color?: [number, number, number, number];
+      draw_order?: number;
     };
 
 export interface KeyformState {

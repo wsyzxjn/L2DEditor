@@ -283,9 +283,14 @@ pub enum KeyformPayload {
     ArtMesh {
         /// Vertex positions or offsets
         vertex_offsets: Vec<[f32; 2]>,
+        #[serde(default)]
         opacity: Option<f32>,
+        #[serde(default)]
         multiply_color: Option<[f32; 4]>,
+        #[serde(default)]
         screen_color: Option<[f32; 4]>,
+        #[serde(default)]
+        draw_order: Option<i32>,
     },
 }
 

@@ -449,6 +449,14 @@
             "vertex_offsets"
           ],
           "properties": {
+            "draw_order": {
+              "default": null,
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            },
             "kind": {
               "type": "string",
               "enum": [
@@ -456,6 +464,7 @@
               ]
             },
             "multiply_color": {
+              "default": null,
               "type": [
                 "array",
                 "null"
@@ -468,6 +477,7 @@
               "minItems": 4
             },
             "opacity": {
+              "default": null,
               "type": [
                 "number",
                 "null"
@@ -475,6 +485,7 @@
               "format": "float"
             },
             "screen_color": {
+              "default": null,
               "type": [
                 "array",
                 "null"

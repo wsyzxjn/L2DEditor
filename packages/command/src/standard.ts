@@ -359,6 +359,22 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  bus.register<{
+    mesh_id: string;
+    axis: 'horizontal' | 'vertical';
+  }>('mesh.flip_uv', (draft, { mesh_id, axis }) => {
+    const target = draft.nodes.find((n) => n.id === mesh_id);
+    if (target && target.kind.type === 'ArtMesh') {
+      for (const uv of target.kind.uvs) {
+        if (axis === 'horizontal') {
+          uv[0] = 1.0 - uv[0];
+        } else {
+          uv[1] = 1.0 - uv[1];
+        }
+      }
+    }
+  });
+
   // Deform Path
   bus.register<{
     id: string;
