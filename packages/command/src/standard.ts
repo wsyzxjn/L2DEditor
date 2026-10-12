@@ -135,6 +135,69 @@ export function registerStandardCommands(bus: CommandBus): void {
     draft.keyforms = draft.keyforms.filter((k) => k.target_node_id !== target_node_id);
   });
 
+  // Keyform Horizontal Reflection / Mirroring
+  bus.register<{
+    target_node_id: string;
+    param_id: string;
+    source_key: number;
+    dest_key: number;
+  }>('keyform.reflect_horizontal', (draft, params) => {
+    const binding = draft.keyforms.find((k) => k.target_node_id === params.target_node_id);
+    if (!binding) {
+      throw new Error(`Keyform binding for node '${params.target_node_id}' not found`);
+    }
+    const dimIdx = binding.dimensions.findIndex((d) => d.param_id === params.param_id);
+    if (dimIdx < 0) {
+      throw new Error(`Parameter dimension '${params.param_id}' not found on keyform`);
+    }
+
+    // Ensure dest_key is listed in keys
+    const dim = binding.dimensions[dimIdx];
+    if (!dim.keys.includes(params.dest_key)) {
+      dim.keys.push(params.dest_key);
+      dim.keys.sort((a, b) => a - b);
+    }
+
+    // Find state at source_key
+    const sourceState = binding.keyforms.find((s) => Math.abs(s.coordinates[dimIdx] - params.source_key) < 1e-4);
+    if (!sourceState) {
+      throw new Error(`Keyform state at source key ${params.source_key} not found`);
+    }
+
+    // Compute mirrored payload
+    const targetNode = draft.nodes.find((n) => n.id === params.target_node_id);
+    let reflectedPayload = JSON.parse(JSON.stringify(sourceState.payload));
+
+    if (reflectedPayload.kind === 'Warp') {
+      const bounds = targetNode?.kind.type === 'WarpDeformer' ? targetNode.kind.bounds : [0, 0, 1000, 1000];
+      const centerX = bounds[0] + bounds[2] / 2;
+      reflectedPayload.control_points = reflectedPayload.control_points.map(([cx, cy]: [number, number]) => [
+        2 * centerX - cx,
+        cy,
+      ]);
+    } else if (reflectedPayload.kind === 'Rotation') {
+      reflectedPayload.angle_deg = -reflectedPayload.angle_deg;
+    } else if (reflectedPayload.kind === 'ArtMesh') {
+      reflectedPayload.vertex_offsets = reflectedPayload.vertex_offsets.map(([dx, dy]: [number, number]) => [
+        -dx,
+        dy,
+      ]);
+    }
+
+    const destCoords = [...sourceState.coordinates];
+    destCoords[dimIdx] = params.dest_key;
+
+    const destIdx = binding.keyforms.findIndex((s) => Math.abs(s.coordinates[dimIdx] - params.dest_key) < 1e-4);
+    if (destIdx >= 0) {
+      binding.keyforms[destIdx].payload = reflectedPayload;
+    } else {
+      binding.keyforms.push({
+        coordinates: destCoords,
+        payload: reflectedPayload,
+      });
+    }
+  });
+
   // Textures
   bus.register<TextureMeta>('texture.add', (draft, texture) => {
     if (!draft.textures.some((t) => t.id === texture.id)) {

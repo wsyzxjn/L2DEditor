@@ -23,9 +23,11 @@
     "@l2d/renderer": "workspace:*",
     "@l2d/schema": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "ws": "^8.18.0",
     "zod": "^4.6.6"
   },
   "devDependencies": {
+    "@types/ws": "^8.5.14",
     "typescript": "^5.7.0"
   }
 }

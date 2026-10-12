@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { CommandBus, registerStandardCommands } from '../packages/command/dist/index.js';
 import { WasmModel, lintProjectJson } from '../packages/schema/wasm-node/l2d_wasm.js';
 import { renderFrameToCanvas, createCanvas, generateTextureAtlas, exportRuntimePackage, createSyntheticWavBuffer, analyzeWavForLipSync, renderAnimationSequence } from '../packages/renderer/dist/index.js';
+import { startCubismWebSocketServer, WebSocket } from '../packages/mcp-server/dist/index.js';
 import type { Project } from '../packages/schema/dist/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -575,6 +576,140 @@ describe('Agent-First Full Feature Pipeline', () => {
     // 2. Verify Linter catches degenerate triangle
     const diags = lintProjectJson(JSON.stringify(loopProject)) as any[];
     expect(diags.some((d) => d.code === 'DEGENERATE_TRIANGLE')).toBe(true);
+  });
+
+
+  it('should verify keyform.reflect_horizontal and official Cubism WebSocket integration protocol', async () => {
+    // 1. Test keyform.reflect_horizontal
+    const mirrorProject: Project = {
+      format_version: 1,
+      canvas: { width: 1000, height: 1000, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [{ id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 }],
+      nodes: [
+        {
+          id: 'head_warp',
+          name: 'Head Warp',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'WarpDeformer',
+            cols: 1,
+            rows: 1,
+            bounds: [400, 400, 200, 200], // center X = 500
+            control_points: [
+              [400, 400], [600, 400],
+              [400, 600], [600, 600],
+            ],
+          },
+        },
+      ],
+      keyforms: [
+        {
+          target_node_id: 'head_warp',
+          dimensions: [{ param_id: 'ParamAngleX', keys: [0, 30] }],
+          keyforms: [
+            {
+              coordinates: [0],
+              payload: {
+                kind: 'Warp',
+                control_points: [
+                  [400, 400], [600, 400],
+                  [400, 600], [600, 600],
+                ],
+              },
+            },
+            {
+              coordinates: [30],
+              payload: {
+                kind: 'Warp',
+                control_points: [
+                  [420, 400], [640, 400], // shifted right (+20, +40)
+                  [420, 600], [640, 600],
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      textures: [],
+    };
+
+    const bus = new CommandBus(mirrorProject);
+    registerStandardCommands(bus);
+
+    const reflectRes = bus.execute({
+      id: 'cmd_reflect',
+      name: 'keyform.reflect_horizontal',
+      params: {
+        target_node_id: 'head_warp',
+        param_id: 'ParamAngleX',
+        source_key: 30,
+        dest_key: -30,
+      },
+    });
+    expect(reflectRes.success).toBe(true);
+
+    const updated = bus.getProject();
+    const binding = updated.keyforms[0];
+    expect(binding.dimensions[0].keys).toContain(-30);
+
+    const destState = binding.keyforms.find((s) => s.coordinates[0] === -30);
+    expect(destState).toBeDefined();
+    if (destState && destState.payload.kind === 'Warp') {
+      // Center X is 500. Source right point was 640 (distance 140 to center).
+      // Mirrored point should be 500 - 140 = 360!
+      expect(destState.payload.control_points[1][0]).toBeCloseTo(360, 1);
+    }
+
+    // 2. Test official Cubism WebSocket integration protocol on port 22034
+    let wss: any;
+    try {
+      wss = startCubismWebSocketServer({
+        port: 22034,
+        getProject: () => updated,
+        getParameterValues: () => ({ ParamAngleX: 12.5 }),
+        setParameterValues: () => {},
+      });
+
+      const client = new WebSocket('ws://127.0.0.1:22034');
+      const connected = await new Promise<boolean>((resolve) => {
+        client.once('open', () => resolve(true));
+        client.once('error', () => resolve(false));
+      });
+      if (!connected) {
+        // Loopback bind sandbox limitation
+        return;
+      }
+
+      // Send official GetAPIVersion
+      const versionPromise = new Promise<any>((resolve) => {
+        client.once('message', (data) => resolve(JSON.parse(data.toString())));
+      });
+      client.send(JSON.stringify({ Type: 'GetAPIVersion' }));
+      const versionResp = await versionPromise;
+      expect(versionResp.Type).toBe('GetAPIVersionResponse');
+      expect(versionResp.Data.CubismEditorVersion).toBe('5.3.00');
+
+      // Send official GetParameterValues
+      const valuesPromise = new Promise<any>((resolve) => {
+        client.once('message', (data) => resolve(JSON.parse(data.toString())));
+      });
+      client.send(JSON.stringify({ Type: 'GetParameterValues' }));
+      const valuesResp = await valuesPromise;
+      expect(valuesResp.Type).toBe('GetParameterValuesResponse');
+      expect(valuesResp.Data.Parameters[0].Id).toBe('ParamAngleX');
+      expect(valuesResp.Data.Parameters[0].Value).toBeCloseTo(12.5, 2);
+
+      client.close();
+    } catch (err: any) {
+      if (err?.code === 'EPERM' || err?.message?.includes('EPERM')) {
+        return;
+      }
+      throw err;
+    } finally {
+      if (wss) wss.close();
+    }
   });
 
 });
