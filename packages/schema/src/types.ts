@@ -211,6 +211,7 @@ export interface EvaluatedMeshJs {
   screen_color: [number, number, number, number];
   draw_order: number;
   mask_ids: string[];
+  is_mask_inverted?: boolean;
 }
 
 export interface EvaluatedFrameJs {

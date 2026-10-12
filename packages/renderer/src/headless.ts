@@ -62,6 +62,33 @@ export function renderFrameToCanvas(
           break;
       }
 
+      // Apply clipping mask from specified mask meshes if present
+      if (mesh.mask_ids && mesh.mask_ids.length > 0) {
+        const maskMeshes = frame.meshes.filter((m) => mesh.mask_ids.includes(m.id));
+        if (maskMeshes.length > 0) {
+          ctx.beginPath();
+          if (mesh.is_mask_inverted) {
+            ctx.rect(0, 0, canvasWidth, canvasHeight);
+          }
+          for (const m of maskMeshes) {
+            for (let i = 0; i < m.indices.length; i += 3) {
+              const i0 = m.indices[i] * 2;
+              const i1 = m.indices[i + 1] * 2;
+              const i2 = m.indices[i + 2] * 2;
+              ctx.moveTo(m.vertices[i0], m.vertices[i0 + 1]);
+              ctx.lineTo(m.vertices[i1], m.vertices[i1 + 1]);
+              ctx.lineTo(m.vertices[i2], m.vertices[i2 + 1]);
+              ctx.closePath();
+            }
+          }
+          if (mesh.is_mask_inverted) {
+            ctx.clip('evenodd');
+          } else {
+            ctx.clip();
+          }
+        }
+      }
+
       drawTexturedMesh(ctx, mesh, img);
       ctx.restore();
     }
@@ -116,13 +143,14 @@ function drawTexturedMesh(ctx: SKRSContext2D, mesh: EvaluatedMeshJs, img: Image)
     const u2 = uvs[i2 * 2] * texW;
     const v2 = uvs[i2 * 2 + 1] * texH;
 
-    drawTexturedTriangle(ctx, img, x0, y0, x1, y1, x2, y2, u0, v0, u1, v1, u2, v2);
+    drawTexturedTriangle(ctx, img, mesh, x0, y0, x1, y1, x2, y2, u0, v0, u1, v1, u2, v2);
   }
 }
 
 function drawTexturedTriangle(
   ctx: SKRSContext2D,
   img: Image,
+  mesh: EvaluatedMeshJs,
   x0: number, y0: number,
   x1: number, y1: number,
   x2: number, y2: number,
@@ -158,4 +186,36 @@ function drawTexturedTriangle(
   ctx.transform(a, b, c, d, e, f);
   ctx.drawImage(img, 0, 0);
   ctx.restore();
+
+  // Apply Multiply Color filter if not [1, 1, 1, 1]
+  const mc = mesh.multiply_color;
+  if (mc && (mc[0] < 0.999 || mc[1] < 0.999 || mc[2] < 0.999)) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = `rgba(${Math.round(mc[0] * 255)}, ${Math.round(mc[1] * 255)}, ${Math.round(mc[2] * 255)}, ${mc[3]})`;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Apply Screen Color filter if not [0, 0, 0, 0]
+  const sc = mesh.screen_color;
+  if (sc && (sc[0] > 0.001 || sc[1] > 0.001 || sc[2] > 0.001)) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = `rgba(${Math.round(sc[0] * 255)}, ${Math.round(sc[1] * 255)}, ${Math.round(sc[2] * 255)}, ${sc[3]})`;
+    ctx.fill();
+    ctx.restore();
+  }
 }

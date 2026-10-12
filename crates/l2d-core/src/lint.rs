@@ -241,7 +241,7 @@ mod tests {
                 parent_id: Some("B".into()),
                 visible: true,
                 locked: false,
-                kind: NodeKind::Part { collapsed: false },
+                kind: NodeKind::Part { collapsed: false, opacity: 1.0 },
             },
             Node {
                 id: "B".into(),
@@ -249,7 +249,7 @@ mod tests {
                 parent_id: Some("A".into()),
                 visible: true,
                 locked: false,
-                kind: NodeKind::Part { collapsed: false },
+                kind: NodeKind::Part { collapsed: false, opacity: 1.0 },
             },
         ];
         let diags = lint_project(&proj);

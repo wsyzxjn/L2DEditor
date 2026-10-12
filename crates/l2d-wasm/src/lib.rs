@@ -32,6 +32,7 @@ pub struct EvaluatedMeshJs {
     pub screen_color: [f32; 4],
     pub draw_order: i32,
     pub mask_ids: Vec<String>,
+    pub is_mask_inverted: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -113,6 +114,7 @@ impl WasmModel {
                     screen_color: m.screen_color,
                     draw_order: m.draw_order,
                     mask_ids: m.mask_ids,
+                    is_mask_inverted: m.is_mask_inverted,
                 }
             })
             .collect();

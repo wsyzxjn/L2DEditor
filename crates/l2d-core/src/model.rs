@@ -110,6 +110,8 @@ pub enum NodeKind {
     Part {
         #[serde(default)]
         collapsed: bool,
+        #[serde(default = "default_opacity")]
+        opacity: f32,
     },
     WarpDeformer(WarpDeformerData),
     RotationDeformer(RotationDeformerData),
@@ -196,6 +198,8 @@ pub struct ArtMeshData {
     pub draw_order: i32,
     #[serde(default)]
     pub mask_ids: Vec<String>,
+    #[serde(default)]
+    pub is_mask_inverted: bool,
     #[serde(default)]
     pub morph_targets: Vec<MorphTarget>,
 }

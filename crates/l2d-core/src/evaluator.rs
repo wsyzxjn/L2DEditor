@@ -18,6 +18,7 @@ pub struct EvaluatedMesh {
     pub screen_color: [f32; 4],
     pub draw_order: i32,
     pub mask_ids: Vec<String>,
+    pub is_mask_inverted: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -244,16 +245,28 @@ pub fn evaluate_project(
             let mut ancestors = Vec::new();
             let mut curr_parent = node.parent_id.as_deref();
             let mut visited = std::collections::HashSet::new();
+            let mut inherited_visible = true;
             while let Some(pid) = curr_parent {
                 if !visited.insert(pid) {
                     break; // Prevent infinite cycle
                 }
                 if let Some(parent_node) = node_map.get(pid) {
+                    if !parent_node.visible {
+                        inherited_visible = false;
+                        break;
+                    }
+                    if let NodeKind::Part { opacity: part_op, .. } = parent_node.kind {
+                        opacity *= part_op;
+                    }
                     ancestors.push(pid);
                     curr_parent = parent_node.parent_id.as_deref();
                 } else {
                     break;
                 }
+            }
+
+            if !inherited_visible {
+                continue;
             }
 
             // Deform vertices through ancestor chain (bottom-up: immediate parent first)
@@ -294,6 +307,7 @@ pub fn evaluate_project(
                 screen_color,
                 draw_order: mesh_data.draw_order,
                 mask_ids: mesh_data.mask_ids.clone(),
+                is_mask_inverted: mesh_data.is_mask_inverted,
             });
         }
     }
@@ -415,6 +429,7 @@ mod tests {
                         screen_color: [0.0, 0.0, 0.0, 0.0],
                         draw_order: 0,
                         mask_ids: vec![],
+                        is_mask_inverted: false,
                         morph_targets: vec![],
                     }),
                 },
@@ -482,6 +497,7 @@ mod tests {
                         screen_color: [0.0, 0.0, 0.0, 0.0],
                         draw_order: 0,
                         mask_ids: vec![],
+                        is_mask_inverted: false,
                         morph_targets: vec![],
                     }),
                 },
@@ -502,6 +518,7 @@ mod tests {
                         screen_color: [0.0, 0.0, 0.0, 0.0],
                         draw_order: 1,
                         mask_ids: vec![],
+                        is_mask_inverted: false,
                         morph_targets: vec![],
                     }),
                 },
@@ -579,6 +596,7 @@ mod tests {
                         screen_color: [0.0, 0.0, 0.0, 0.0],
                         draw_order: 0,
                         mask_ids: vec![],
+                        is_mask_inverted: false,
                         morph_targets: vec![],
                     }),
                 },

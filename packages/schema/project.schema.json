@@ -515,6 +515,11 @@
               "default": false,
               "type": "boolean"
             },
+            "opacity": {
+              "default": 1.0,
+              "type": "number",
+              "format": "float"
+            },
             "type": {
               "type": "string",
               "enum": [
@@ -680,6 +685,10 @@
                 "format": "uint32",
                 "minimum": 0.0
               }
+            },
+            "is_mask_inverted": {
+              "default": false,
+              "type": "boolean"
             },
             "mask_ids": {
               "default": [],

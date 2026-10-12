@@ -199,4 +199,101 @@ describe('Agent-First Full Feature Pipeline', () => {
     bus.undo(); // param 1
     expect(bus.getProject()).toEqual(initialProject);
   });
+
+  it('should verify Part opacity inheritance, clipping mask, and multiply/screen color filters', () => {
+    const projectWithFeatures: Project = {
+      format_version: 1,
+      canvas: {
+        width: 400,
+        height: 400,
+        origin_x: 0.5,
+        origin_y: 0.5,
+        background_color: '#000000',
+      },
+      parameters: [],
+      nodes: [
+        {
+          id: 'folder_body',
+          name: 'Body Folder',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: { type: 'Part', opacity: 0.5, collapsed: false },
+        },
+        {
+          id: 'mask_eye_white',
+          name: 'Eye White Mask',
+          parent_id: 'folder_body',
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_white',
+            vertices: [[50, 50], [150, 50], [50, 150], [150, 150]],
+            uvs: [[0, 0], [1, 0], [0, 1], [1, 1]],
+            indices: [0, 1, 2, 1, 3, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 1,
+            mask_ids: [],
+          },
+        },
+        {
+          id: 'mesh_pupil',
+          name: 'Eye Pupil',
+          parent_id: 'folder_body',
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_pupil',
+            vertices: [[0, 0], [200, 0], [0, 200], [200, 200]],
+            uvs: [[0, 0], [1, 0], [0, 1], [1, 1]],
+            indices: [0, 1, 2, 1, 3, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            multiply_color: [0.5, 0.5, 1.0, 1.0], // blue tint
+            screen_color: [0.2, 0.0, 0.0, 1.0],  // reddish highlight
+            draw_order: 2,
+            mask_ids: ['mask_eye_white'], // clipped to eye white!
+            is_mask_inverted: false,
+          },
+        },
+      ],
+      keyforms: [],
+      textures: [
+        { id: 'tex_white', path: 'textures/white.png', width: 100, height: 100 },
+        { id: 'tex_pupil', path: 'textures/pupil.png', width: 200, height: 200 },
+      ],
+    };
+
+    const model = new WasmModel(JSON.stringify(projectWithFeatures));
+    const frame = model.evaluate() as any;
+
+    expect(frame.meshes.length).toBe(2);
+    // Part opacity 0.5 should inherit to both meshes
+    expect(frame.meshes[0].opacity).toBeCloseTo(0.5, 3);
+    expect(frame.meshes[1].opacity).toBeCloseTo(0.5, 3);
+
+    // Pupil mesh must have mask_ids containing mask_eye_white
+    expect(frame.meshes[1].mask_ids).toContain('mask_eye_white');
+    expect(frame.meshes[1].multiply_color[0]).toBeCloseTo(0.5, 2);
+
+    // Render snapshot with dummy textures
+    const dummyC = createCanvas(100, 100);
+    const ctx = dummyC.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 100, 100);
+    const buf = dummyC.toBuffer('image/png');
+
+    const png = renderFrameToCanvas(
+      projectWithFeatures.canvas.width,
+      projectWithFeatures.canvas.height,
+      frame,
+      () => buf,
+      '#000000'
+    );
+    expect(png.length).toBeGreaterThan(500);
+  });
+
 });
