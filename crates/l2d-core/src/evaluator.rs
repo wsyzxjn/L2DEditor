@@ -1,3 +1,4 @@
+use crate::math::deform_path::transform_point_by_deform_path;
 use crate::math::interpolation::{compute_multidim_weights, blend_points};
 use crate::math::rotation::transform_point_by_rotation;
 use crate::math::warp::transform_point_by_warp;
@@ -37,6 +38,11 @@ enum DeformerState {
         origin: [f32; 2],
         angle_deg: f32,
         scale: [f32; 2],
+    },
+    DeformPath {
+        base_points: Vec<[f32; 2]>,
+        deformed_points: Vec<[f32; 2]>,
+        target_mesh_ids: Vec<String>,
     },
 }
 
@@ -123,11 +129,38 @@ pub fn evaluate_project(
                     },
                 );
             }
+            NodeKind::DeformPath(data) => {
+                let mut pts = data.control_points.clone();
+                if let Some(kf) = keyform_map.get(node.id.as_str()) {
+                    let (dim_keys, query_coords, kf_coords) = extract_keyform_coords(kf, params, project);
+                    let weights = compute_multidim_weights(&dim_keys, &query_coords, &kf_coords);
+                    let point_states: Vec<&[[f32; 2]]> = kf
+                        .keyforms
+                        .iter()
+                        .filter_map(|s| match &s.payload {
+                            KeyformPayload::DeformPath { control_points } => Some(control_points.as_slice()),
+                            _ => None,
+                        })
+                        .collect();
+
+                    if point_states.len() == weights.len() && !point_states.is_empty() {
+                        pts = blend_points(&point_states, &weights);
+                    }
+                }
+                deformer_states.insert(
+                    node.id.clone(),
+                    DeformerState::DeformPath {
+                        base_points: data.control_points.clone(),
+                        deformed_points: pts,
+                        target_mesh_ids: data.target_mesh_ids.clone(),
+                    },
+                );
+            }
             _ => {}
         }
     }
 
-    // 2. Evaluate ArtMeshes through ancestor deformer hierarchies
+    // 2. Evaluate ArtMeshes through ancestor deformer hierarchies and bound deform paths
     let mut evaluated_meshes = Vec::new();
     let mut total_verts = 0;
     let mut total_inds = 0;
@@ -196,6 +229,17 @@ pub fn evaluate_project(
                 }
             }
 
+            // Apply Deform Paths targeting this mesh
+            for deformer in deformer_states.values() {
+                if let DeformerState::DeformPath { base_points, deformed_points, target_mesh_ids } = deformer {
+                    if target_mesh_ids.iter().any(|mid| mid == &node.id) {
+                        for pt in &mut vertices {
+                            *pt = transform_point_by_deform_path(*pt, base_points, deformed_points);
+                        }
+                    }
+                }
+            }
+
             // Trace ancestor deformers from child up to root
             let mut ancestors = Vec::new();
             let mut curr_parent = node.parent_id.as_deref();
@@ -224,6 +268,11 @@ pub fn evaluate_project(
                         DeformerState::Rotation { origin, angle_deg, scale } => {
                             for pt in &mut vertices {
                                 *pt = transform_point_by_rotation(*pt, *origin, *angle_deg, *scale);
+                            }
+                        }
+                        DeformerState::DeformPath { base_points, deformed_points, .. } => {
+                            for pt in &mut vertices {
+                                *pt = transform_point_by_deform_path(*pt, base_points, deformed_points);
                             }
                         }
                     }
@@ -390,6 +439,7 @@ mod tests {
             textures: vec![],
             glues: vec![],
             physics: vec![],
+            animations: vec![],
         };
 
         let mut params = HashMap::new();
@@ -470,14 +520,96 @@ mod tests {
                 }],
             }],
             physics: vec![],
+            animations: vec![],
         };
 
         let frame = evaluate_project(&project, &HashMap::new());
         assert_eq!(frame.meshes.len(), 2);
-        // Both vertices should now be exactly at midpoint (15.0, 15.0)
         assert!((frame.meshes[0].vertices[0][0] - 15.0).abs() < 1e-4);
         assert!((frame.meshes[0].vertices[0][1] - 15.0).abs() < 1e-4);
         assert!((frame.meshes[1].vertices[0][0] - 15.0).abs() < 1e-4);
         assert!((frame.meshes[1].vertices[0][1] - 15.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_evaluator_deform_path() {
+        let base_path = vec![[0.0, 0.0], [0.0, 100.0]];
+        let mut deformed_path = base_path.clone();
+        deformed_path[0][0] += 30.0;
+        deformed_path[1][0] += 30.0;
+
+        let project = Project {
+            format_version: 1,
+            canvas: Canvas::default(),
+            parameters: vec![Parameter {
+                id: "ParamAngleX".into(),
+                name: "Angle X".into(),
+                min: 0.0,
+                max: 30.0,
+                default: 0.0,
+                repeats: false,
+            }],
+            nodes: vec![
+                Node {
+                    id: "path1".into(),
+                    name: "Path 1".into(),
+                    parent_id: None,
+                    visible: true,
+                    locked: false,
+                    kind: NodeKind::DeformPath(DeformPathData {
+                        control_points: base_path.clone(),
+                        target_mesh_ids: vec!["mesh1".into()],
+                    }),
+                },
+                Node {
+                    id: "mesh1".into(),
+                    name: "Mesh 1".into(),
+                    parent_id: None,
+                    visible: true,
+                    locked: false,
+                    kind: NodeKind::ArtMesh(ArtMeshData {
+                        texture_id: "tex1".into(),
+                        vertices: vec![[0.0, 50.0]],
+                        uvs: vec![[0.5, 0.5]],
+                        indices: vec![0],
+                        blend_mode: BlendMode::Normal,
+                        opacity: 1.0,
+                        multiply_color: [1.0, 1.0, 1.0, 1.0],
+                        screen_color: [0.0, 0.0, 0.0, 0.0],
+                        draw_order: 0,
+                        mask_ids: vec![],
+                        morph_targets: vec![],
+                    }),
+                },
+            ],
+            keyforms: vec![KeyformBinding {
+                target_node_id: "path1".into(),
+                dimensions: vec![ParamDimension {
+                    param_id: "ParamAngleX".into(),
+                    keys: vec![0.0, 30.0],
+                }],
+                keyforms: vec![
+                    KeyformState {
+                        coordinates: vec![0.0],
+                        payload: KeyformPayload::DeformPath { control_points: base_path },
+                    },
+                    KeyformState {
+                        coordinates: vec![30.0],
+                        payload: KeyformPayload::DeformPath { control_points: deformed_path },
+                    },
+                ],
+            }],
+            textures: vec![],
+            glues: vec![],
+            physics: vec![],
+            animations: vec![],
+        };
+
+        let mut params = HashMap::new();
+        params.insert("ParamAngleX".into(), 30.0);
+        let frame = evaluate_project(&project, &params);
+        assert_eq!(frame.meshes.len(), 1);
+        // Vertex should follow path translation
+        assert!((frame.meshes[0].vertices[0][0] - 30.0).abs() < 1e-3);
     }
 }

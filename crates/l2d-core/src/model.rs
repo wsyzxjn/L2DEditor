@@ -1,3 +1,4 @@
+use crate::animation::Animation;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +21,8 @@ pub struct Project {
     pub glues: Vec<GlueBinding>,
     #[serde(default)]
     pub physics: Vec<PhysicsGroup>,
+    #[serde(default)]
+    pub animations: Vec<Animation>,
 }
 
 impl Default for Project {
@@ -33,6 +36,7 @@ impl Default for Project {
             textures: Vec::new(),
             glues: Vec::new(),
             physics: Vec::new(),
+            animations: Vec::new(),
         }
     }
 }

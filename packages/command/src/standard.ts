@@ -123,6 +123,130 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  // Animations / Timeline
+  bus.register<any>('animation.add', (draft, anim) => {
+    if (!draft.animations) draft.animations = [];
+    draft.animations = draft.animations.filter((a) => a.id !== anim.id);
+    draft.animations.push(anim);
+  });
+
+  bus.register<{ id: string }>('animation.delete', (draft, { id }) => {
+    if (draft.animations) {
+      draft.animations = draft.animations.filter((a) => a.id !== id);
+    }
+  });
+
+  bus.register<{
+    animation_id: string;
+    param_id: string;
+    frame: number;
+    value: number;
+    curve?: 'linear' | 'stepped' | 'bezier';
+  }>('animation.set_keyframe', (draft, params) => {
+    if (!draft.animations) draft.animations = [];
+    let anim = draft.animations.find((a) => a.id === params.animation_id);
+    if (!anim) {
+      anim = {
+        id: params.animation_id,
+        name: 'Motion 1',
+        duration_frames: 60,
+        fps: 30,
+        loop_playback: true,
+        tracks: [],
+      };
+      draft.animations.push(anim);
+    }
+    let track = anim.tracks.find((t) => t.target_param_id === params.param_id);
+    if (!track) {
+      track = { target_param_id: params.param_id, keyframes: [] };
+      anim.tracks.push(track);
+    }
+    const existingIdx = track.keyframes.findIndex((k) => Math.abs(k.frame - params.frame) < 1e-4);
+    const kf = {
+      frame: params.frame,
+      value: params.value,
+      curve: params.curve || 'linear',
+    };
+    if (existingIdx >= 0) {
+      track.keyframes[existingIdx] = kf;
+    } else {
+      track.keyframes.push(kf);
+      track.keyframes.sort((a, b) => a.frame - b.frame);
+    }
+  });
+
+  // Interactive Mesh Editing
+  bus.register<{
+    mesh_id: string;
+    vertex: [number, number];
+    uv: [number, number];
+  }>('mesh.add_vertex', (draft, { mesh_id, vertex, uv }) => {
+    const target = draft.nodes.find((n) => n.id === mesh_id);
+    if (target && target.kind.type === 'ArtMesh') {
+      target.kind.vertices.push(vertex);
+      target.kind.uvs.push(uv);
+    }
+  });
+
+  bus.register<{
+    mesh_id: string;
+    vertex_index: number;
+    position: [number, number];
+  }>('mesh.move_vertex', (draft, { mesh_id, vertex_index, position }) => {
+    const target = draft.nodes.find((n) => n.id === mesh_id);
+    if (target && target.kind.type === 'ArtMesh' && vertex_index < target.kind.vertices.length) {
+      target.kind.vertices[vertex_index] = position;
+    }
+  });
+
+  bus.register<{
+    mesh_id: string;
+    vertex_index: number;
+  }>('mesh.delete_vertex', (draft, { mesh_id, vertex_index }) => {
+    const target = draft.nodes.find((n) => n.id === mesh_id);
+    if (target && target.kind.type === 'ArtMesh' && vertex_index < target.kind.vertices.length) {
+      target.kind.vertices.splice(vertex_index, 1);
+      target.kind.uvs.splice(vertex_index, 1);
+      // Remove triangles touching this vertex and re-index
+      const newIndices: number[] = [];
+      for (let i = 0; i < target.kind.indices.length; i += 3) {
+        const i0 = target.kind.indices[i];
+        const i1 = target.kind.indices[i + 1];
+        const i2 = target.kind.indices[i + 2];
+        if (i0 !== vertex_index && i1 !== vertex_index && i2 !== vertex_index) {
+          newIndices.push(
+            i0 > vertex_index ? i0 - 1 : i0,
+            i1 > vertex_index ? i1 - 1 : i1,
+            i2 > vertex_index ? i2 - 1 : i2
+          );
+        }
+      }
+      target.kind.indices = newIndices;
+    }
+  });
+
+  // Deform Path
+  bus.register<{
+    id: string;
+    name: string;
+    control_points: [number, number][];
+    target_mesh_ids: string[];
+    parent_id?: string | null;
+  }>('deform_path.create', (draft, params) => {
+    draft.nodes.push({
+      id: params.id,
+      name: params.name,
+      parent_id: params.parent_id || null,
+      visible: true,
+      locked: false,
+      kind: {
+        type: 'DeformPath',
+        control_points: params.control_points,
+        target_mesh_ids: params.target_mesh_ids,
+      },
+    });
+  });
+
   // Macro: setup_turn_xy (Creates ParamAngleX & ParamAngleY if missing, and binds 3x3 grid keyforms)
   bus.register<{
     target_node_id: string;

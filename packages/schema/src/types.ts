@@ -151,6 +151,29 @@ export interface PhysicsGroup {
   pendulums: PhysicsPendulum[];
 }
 
+export type CurveType = 'linear' | 'stepped' | 'bezier';
+
+export interface TimelineKeyframe {
+  frame: number;
+  value: number;
+  curve?: CurveType;
+  bezier_handles?: [number, number, number, number];
+}
+
+export interface AnimationTrack {
+  target_param_id: string;
+  keyframes: TimelineKeyframe[];
+}
+
+export interface Animation {
+  id: string;
+  name: string;
+  duration_frames: number;
+  fps?: number;
+  loop_playback?: boolean;
+  tracks: AnimationTrack[];
+}
+
 export interface Project {
   format_version: number;
   canvas: Canvas;
@@ -160,6 +183,7 @@ export interface Project {
   textures: TextureMeta[];
   glues?: GlueBinding[];
   physics?: PhysicsGroup[];
+  animations?: Animation[];
 }
 
 export type DiagnosticSeverity = 'error' | 'warning' | 'info';

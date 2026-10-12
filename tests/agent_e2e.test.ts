@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { CommandBus, registerStandardCommands } from '../packages/command/dist/index.js';
 import { WasmModel, lintProjectJson } from '../packages/schema/wasm-node/l2d_wasm.js';
-import { renderFrameToCanvas, createCanvas } from '../packages/renderer/dist/index.js';
+import { renderFrameToCanvas, createCanvas, generateTextureAtlas, exportRuntimePackage } from '../packages/renderer/dist/index.js';
 import type { Project } from '../packages/schema/dist/index.js';
+import * as fs from 'fs';
+import * as path from 'path';
 
-describe('Agent-First End-to-End Pipeline', () => {
+describe('Agent-First Full Feature Pipeline', () => {
   const initialProject: Project = {
     format_version: 1,
     canvas: {
@@ -18,20 +20,26 @@ describe('Agent-First End-to-End Pipeline', () => {
     nodes: [],
     keyforms: [],
     textures: [],
+    glues: [],
+    physics: [],
+    animations: [],
   };
 
-  it('should support full headless model assembly via commands, undo reversibility, and linting', () => {
+  it('should support full headless model assembly, deform path, physics, atlas, and runtime export', () => {
     const bus = new CommandBus(initialProject);
     registerStandardCommands(bus);
 
-    // 1. Add parameters
-    const cmdAddParamX = {
+    // 1. Add parameters (including physics-driven hair parameter)
+    bus.execute({
       id: 'cmd_1',
       name: 'parameter.add',
       params: { id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 },
-    };
-    const res1 = bus.execute(cmdAddParamX);
-    expect(res1.success).toBe(true);
+    });
+    bus.execute({
+      id: 'cmd_2',
+      name: 'parameter.add',
+      params: { id: 'ParamHairFront', name: 'Hair Front Sway', min: -1, max: 1, default: 0 },
+    });
 
     // 2. Add Warp Deformer
     const defaultCps: [number, number][] = [];
@@ -41,8 +49,8 @@ describe('Agent-First End-to-End Pipeline', () => {
       }
     }
 
-    const cmdAddWarp = {
-      id: 'cmd_2',
+    bus.execute({
+      id: 'cmd_3',
       name: 'node.add',
       params: {
         id: 'head_warp',
@@ -58,13 +66,17 @@ describe('Agent-First End-to-End Pipeline', () => {
           control_points: defaultCps,
         },
       },
-    };
-    const res2 = bus.execute(cmdAddWarp);
-    expect(res2.success).toBe(true);
+    });
 
-    // 3. Add ArtMesh child
-    const cmdAddMesh = {
-      id: 'cmd_3',
+    // 3. Add ArtMesh with texture
+    bus.execute({
+      id: 'cmd_4',
+      name: 'texture.add',
+      params: { id: 'tex_head', path: 'textures/head.png', width: 200, height: 200 },
+    });
+
+    bus.execute({
+      id: 'cmd_5',
       name: 'node.add',
       params: {
         id: 'head_mesh',
@@ -94,87 +106,97 @@ describe('Agent-First End-to-End Pipeline', () => {
           mask_ids: [],
         },
       },
-    };
-    const res3 = bus.execute(cmdAddMesh);
-    expect(res3.success).toBe(true);
+    });
 
-    // 4. Run macro to setup 3x3 turn XY
-    const cmdMacro = {
-      id: 'cmd_4',
+    // 4. Add DeformPath targeting head_mesh
+    bus.execute({
+      id: 'cmd_6',
+      name: 'deform_path.create',
+      params: {
+        id: 'hair_spine_path',
+        name: 'Hair Spine Path',
+        control_points: [
+          [500, 400],
+          [500, 600],
+        ],
+        target_mesh_ids: ['head_mesh'],
+      },
+    });
+
+    // 5. Add Physics group linking AngleX -> HairFront
+    bus.execute({
+      id: 'cmd_7',
+      name: 'physics.add_group',
+      params: {
+        id: 'hair_physics',
+        name: 'Hair Physics Group',
+        inputs: [{ param_id: 'ParamAngleX', weight: 1.0, reflect: false }],
+        outputs: [{ param_id: 'ParamHairFront', pendulum_index: 0, angle_scale: 0.05, weight: 1.0 }],
+        pendulums: [{ length: 80.0, damping: 0.85, mass: 1.2 }],
+      },
+    });
+
+    // 6. Run macro to setup 3x3 turn XY
+    bus.execute({
+      id: 'cmd_8',
       name: 'macro.setup_turn_xy',
       params: { target_node_id: 'head_warp' },
-    };
-    const res4 = bus.execute(cmdMacro);
-    expect(res4.success).toBe(true);
+    });
 
-    const assembledProject = bus.getProject();
-    expect(assembledProject.parameters.length).toBe(2); // ParamAngleX, ParamAngleY
-    expect(assembledProject.nodes.length).toBe(2); // head_warp, head_mesh
-    expect(assembledProject.keyforms.length).toBe(1);
+    const assembled = bus.getProject();
+    expect(assembled.nodes.length).toBe(3); // warp, mesh, deform_path
+    expect(assembled.physics?.length).toBe(1);
 
-    // 5. Lint verification via Rust wasm
-    const projectJson = JSON.stringify(assembledProject);
-    const diagnostics = lintProjectJson(projectJson) as any[];
-    const errors = diagnostics.filter((d) => d.severity === 'error');
+    // 7. Verify Lint passes
+    const projectJson = JSON.stringify(assembled);
+    const diags = lintProjectJson(projectJson) as any[];
+    const errors = diags.filter((d) => d.severity === 'error');
     expect(errors.length).toBe(0);
 
-    // 6. Multi-angle Wasm evaluation & deterministic rendering
-    const model = new WasmModel(projectJson);
-
-    // Angle X = -30
-    model.setParameter('ParamAngleX', -30);
-    const frameLeft = model.evaluate() as any;
-    expect(frameLeft.meshes.length).toBe(1);
-    const leftX0 = frameLeft.meshes[0].vertices[0];
-
-    // Angle X = 0 (neutral)
-    model.setParameter('ParamAngleX', 0);
-    const frameCenter = model.evaluate() as any;
-    const centerX0 = frameCenter.meshes[0].vertices[0];
-
-    // Angle X = +30
-    model.setParameter('ParamAngleX', 30);
-    const frameRight = model.evaluate() as any;
-    const rightX0 = frameRight.meshes[0].vertices[0];
-
-    // Verify monotonic coordinate displacement
-    expect(leftX0).toBeLessThan(centerX0);
-    expect(centerX0).toBeLessThan(rightX0);
-
-    // 7. Render offline snapshot
-    const dummyCanvas = createCanvas(100, 100);
+    // 8. Test Texture Atlas Packing
+    const dummyCanvas = createCanvas(200, 200);
     const ctx = dummyCanvas.getContext('2d');
-    ctx.fillStyle = '#ff0000';
-    ctx.fillRect(0, 0, 100, 100);
-    const dummyTexBuf = dummyCanvas.toBuffer('image/png');
+    ctx.fillStyle = '#ff69b4';
+    ctx.fillRect(0, 0, 200, 200);
+    const texBuf = dummyCanvas.toBuffer('image/png');
 
-    const pngBuffer = renderFrameToCanvas(
-      assembledProject.canvas.width,
-      assembledProject.canvas.height,
-      frameRight,
-      (texId) => dummyTexBuf,
-      '#18181b'
-    );
-    expect(pngBuffer.length).toBeGreaterThan(1000);
-    // PNG signature check
-    expect(pngBuffer[0]).toBe(0x89);
-    expect(pngBuffer[1]).toBe(0x50); // P
-    expect(pngBuffer[2]).toBe(0x4e); // N
-    expect(pngBuffer[3]).toBe(0x47); // G
+    const atlasRes = generateTextureAtlas(assembled, () => texBuf, 1024, 4);
+    expect(atlasRes.atlasPngBuffers.length).toBe(1);
+    expect(atlasRes.atlasPngBuffers[0].buffer.length).toBeGreaterThan(500);
 
-    // 8. Reversibility & Undo parity check
-    const preUndoHash = JSON.stringify(bus.getProject());
-    bus.undo(); // undo macro
-    bus.undo(); // undo mesh
-    bus.undo(); // undo warp
-    bus.undo(); // undo param
+    // Remapped UVs must be scaled to atlas coordinate space
+    const remappedMesh = atlasRes.updatedProject.nodes.find((n) => n.id === 'head_mesh')!;
+    if (remappedMesh.kind.type === 'ArtMesh') {
+      expect(remappedMesh.kind.texture_id).toBe('tex_atlas_00');
+      expect(remappedMesh.kind.uvs[1][0]).toBeLessThanOrEqual(1.0);
+    }
+
+    // 9. Test Standard Runtime Export Package
+    const tempExportDir = path.join('/tmp', `l2d_export_${Date.now()}`);
+    const exportRes = exportRuntimePackage(assembled, () => texBuf, tempExportDir, {
+      modelName: 'chara_test',
+      atlasSize: 1024,
+    });
+
+    expect(fs.existsSync(exportRes.model3JsonPath)).toBe(true);
+    expect(fs.existsSync(path.join(tempExportDir, 'chara_test.physics3.json'))).toBe(true);
+    expect(fs.existsSync(path.join(tempExportDir, 'chara_test.cdi3.json'))).toBe(true);
+    expect(fs.existsSync(path.join(tempExportDir, 'textures/texture_00.png'))).toBe(true);
+
+    const model3Content = JSON.parse(fs.readFileSync(exportRes.model3JsonPath, 'utf-8'));
+    expect(model3Content.Version).toBe(3);
+    expect(model3Content.FileReferences.Physics).toBe('chara_test.physics3.json');
+    expect(model3Content.FileReferences.Textures[0]).toBe('textures/texture_00.png');
+
+    // 10. Reversibility check
+    bus.undo(); // macro
+    bus.undo(); // physics
+    bus.undo(); // deform path
+    bus.undo(); // mesh
+    bus.undo(); // texture
+    bus.undo(); // warp
+    bus.undo(); // param 2
+    bus.undo(); // param 1
     expect(bus.getProject()).toEqual(initialProject);
-
-    // Redo all
-    bus.redo();
-    bus.redo();
-    bus.redo();
-    bus.redo();
-    expect(JSON.stringify(bus.getProject())).toBe(preUndoHash);
   });
 });

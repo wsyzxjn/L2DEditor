@@ -7,6 +7,13 @@
     "format_version"
   ],
   "properties": {
+    "animations": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Animation"
+      }
+    },
     "canvas": {
       "$ref": "#/definitions/Canvas"
     },
@@ -59,6 +66,60 @@
     }
   },
   "definitions": {
+    "Animation": {
+      "type": "object",
+      "required": [
+        "duration_frames",
+        "id",
+        "name",
+        "tracks"
+      ],
+      "properties": {
+        "duration_frames": {
+          "type": "number",
+          "format": "float"
+        },
+        "fps": {
+          "default": 30.0,
+          "type": "number",
+          "format": "float"
+        },
+        "id": {
+          "type": "string"
+        },
+        "loop_playback": {
+          "default": false,
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AnimationTrack"
+          }
+        }
+      }
+    },
+    "AnimationTrack": {
+      "type": "object",
+      "required": [
+        "keyframes",
+        "target_param_id"
+      ],
+      "properties": {
+        "keyframes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TimelineKeyframe"
+          }
+        },
+        "target_param_id": {
+          "type": "string"
+        }
+      }
+    },
     "BlendMode": {
       "type": "string",
       "enum": [
@@ -98,6 +159,14 @@
           "format": "float"
         }
       }
+    },
+    "CurveType": {
+      "type": "string",
+      "enum": [
+        "linear",
+        "stepped",
+        "bezier"
+      ]
     },
     "GlueBinding": {
       "type": "object",
@@ -873,6 +942,45 @@
           "type": "integer",
           "format": "uint32",
           "minimum": 0.0
+        }
+      }
+    },
+    "TimelineKeyframe": {
+      "type": "object",
+      "required": [
+        "frame",
+        "value"
+      ],
+      "properties": {
+        "bezier_handles": {
+          "description": "Tangents for cubic bezier: [cx1, cy1, cx2, cy2]",
+          "default": null,
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "maxItems": 4,
+          "minItems": 4
+        },
+        "curve": {
+          "default": "linear",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CurveType"
+            }
+          ]
+        },
+        "frame": {
+          "type": "number",
+          "format": "float"
+        },
+        "value": {
+          "type": "number",
+          "format": "float"
         }
       }
     }

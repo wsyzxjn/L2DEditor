@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CommandBus, registerStandardCommands } from '@l2d/command';
 import { importPsdBuffer } from '@l2d/psd';
-import { renderFrameToCanvas } from '@l2d/renderer';
+import { renderFrameToCanvas, generateTextureAtlas, exportRuntimePackage } from '@l2d/renderer';
 import type { Project } from '@l2d/schema';
 import { WasmModel, lintProjectJson } from '@l2d/schema/wasm-node';
 
@@ -220,6 +220,79 @@ program
 
     fs.writeFileSync(path.join(outDir, 'project.json'), JSON.stringify(project, null, 2), 'utf-8');
     console.log(`Imported PSD to '${outDir}': ${project.nodes.length} nodes, ${extractedTextures.length} textures.`);
+  });
+
+program
+  .command('atlas <project>')
+  .description('Generate and pack all ArtMesh textures into an optimized texture atlas')
+  .option('-s, --size <size>', 'Atlas width and height in pixels', '2048')
+  .option('-p, --padding <padding>', 'Pixel padding between packed textures', '4')
+  .action((projectInput, opts) => {
+    const file = resolveProjectPath(projectInput);
+    const projectDir = path.dirname(file);
+    const raw = fs.readFileSync(file, 'utf-8');
+    const project: Project = JSON.parse(raw);
+
+    const textureResolver = (textureId: string): Buffer | null => {
+      const meta = project.textures.find((t) => t.id === textureId);
+      if (!meta) return null;
+      const fullPath = path.isAbsolute(meta.path)
+        ? meta.path
+        : path.join(projectDir, meta.path);
+      if (fs.existsSync(fullPath)) {
+        return fs.readFileSync(fullPath);
+      }
+      return null;
+    };
+
+    const size = Number(opts.size);
+    const padding = Number(opts.padding);
+    const result = generateTextureAtlas(project, textureResolver, size, padding);
+
+    const texDir = path.join(projectDir, 'textures');
+    fs.mkdirSync(texDir, { recursive: true });
+
+    for (const atlas of result.atlasPngBuffers) {
+      fs.writeFileSync(path.join(texDir, atlas.filename), atlas.buffer);
+    }
+
+    fs.writeFileSync(file, JSON.stringify(result.updatedProject, null, 2), 'utf-8');
+    console.log(`Successfully generated texture atlas (${size}x${size}) and remapped mesh UVs.`);
+  });
+
+program
+  .command('export <project>')
+  .description('Export project to standard runtime distribution package (.model3.json, .physics3.json, .cdi3.json, atlas)')
+  .requiredOption('-o, --out <out_dir>', 'Target distribution directory')
+  .option('-n, --name <name>', 'Model name', 'model')
+  .option('-s, --size <size>', 'Atlas size in pixels', '2048')
+  .action((projectInput, opts) => {
+    const file = resolveProjectPath(projectInput);
+    const projectDir = path.dirname(file);
+    const raw = fs.readFileSync(file, 'utf-8');
+    const project: Project = JSON.parse(raw);
+
+    const textureResolver = (textureId: string): Buffer | null => {
+      const meta = project.textures.find((t) => t.id === textureId);
+      if (!meta) return null;
+      const fullPath = path.isAbsolute(meta.path)
+        ? meta.path
+        : path.join(projectDir, meta.path);
+      if (fs.existsSync(fullPath)) {
+        return fs.readFileSync(fullPath);
+      }
+      return null;
+    };
+
+    const res = exportRuntimePackage(project, textureResolver, opts.out, {
+      modelName: opts.name,
+      atlasSize: Number(opts.size),
+    });
+
+    console.log(`Successfully exported runtime package to '${opts.out}':`);
+    console.log(`  - Manifest: ${res.model3JsonPath}`);
+    console.log(`  - Textures: ${res.numTextures} atlas sheet(s)`);
+    console.log(`  - Motions: ${res.numMotions} motion file(s)`);
   });
 
 program.parse();

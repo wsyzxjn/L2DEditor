@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CommandBus, registerStandardCommands } from '@l2d/command';
 import { importPsdBuffer } from '@l2d/psd';
-import { renderFrameToCanvas } from '@l2d/renderer';
+import { renderFrameToCanvas, generateTextureAtlas, exportRuntimePackage } from '@l2d/renderer';
 import type { Project } from '@l2d/schema';
 // Wasm node bindings
 import { WasmModel, lintProjectJson } from '@l2d/schema/wasm-node';
@@ -122,6 +122,46 @@ export function createMcpServer(): Server {
               },
             },
             required: ['psdPath', 'outputProjectPath'],
+          },
+        },
+        {
+          name: 'l2d_atlas',
+          description: 'Pack loose ArtMesh textures into an optimized GPU texture atlas and remap UV coordinates.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: {
+                type: 'string',
+                description: 'Path to .l2dproj directory or project.json',
+              },
+              size: {
+                type: 'number',
+                description: 'Atlas width & height in pixels (default: 2048)',
+              },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'l2d_export',
+          description: 'Export project into standard runtime distribution package (.model3.json, .physics3.json, .cdi3.json, and packed texture atlas).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: {
+                type: 'string',
+                description: 'Path to .l2dproj directory or project.json',
+              },
+              outputPath: {
+                type: 'string',
+                description: 'Output directory for the exported runtime model files',
+              },
+              modelName: {
+                type: 'string',
+                description: 'Name of the model (default: "model")',
+              },
+            },
+            required: ['projectPath', 'outputPath'],
           },
         },
       ],
@@ -277,6 +317,78 @@ export function createMcpServer(): Server {
             {
               type: 'text',
               text: `Successfully imported PSD to ${outProjDir}: ${project.nodes.length} nodes created, ${extractedTextures.length} textures extracted.`,
+            },
+          ],
+        };
+      }
+
+      if (name === 'l2d_atlas') {
+        const projectPath = resolveProjectJsonPath(args?.projectPath as string);
+        const projectDir = path.dirname(projectPath);
+        const raw = fs.readFileSync(projectPath, 'utf-8');
+        const project: Project = JSON.parse(raw);
+        const size = typeof args?.size === 'number' ? args.size : 2048;
+
+        const textureResolver = (textureId: string): Buffer | null => {
+          const meta = project.textures.find((t) => t.id === textureId);
+          if (!meta) return null;
+          const fullPath = path.isAbsolute(meta.path)
+            ? meta.path
+            : path.join(projectDir, meta.path);
+          if (fs.existsSync(fullPath)) {
+            return fs.readFileSync(fullPath);
+          }
+          return null;
+        };
+
+        const result = generateTextureAtlas(project, textureResolver, size, 4);
+        const texDir = path.join(projectDir, 'textures');
+        fs.mkdirSync(texDir, { recursive: true });
+
+        for (const atlas of result.atlasPngBuffers) {
+          fs.writeFileSync(path.join(texDir, atlas.filename), atlas.buffer);
+        }
+
+        fs.writeFileSync(projectPath, JSON.stringify(result.updatedProject, null, 2), 'utf-8');
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Generated texture atlas (${size}x${size}) and remapped ${result.updatedProject.nodes.length} nodes.`,
+            },
+          ],
+        };
+      }
+
+      if (name === 'l2d_export') {
+        const projectPath = resolveProjectJsonPath(args?.projectPath as string);
+        const projectDir = path.dirname(projectPath);
+        const raw = fs.readFileSync(projectPath, 'utf-8');
+        const project: Project = JSON.parse(raw);
+        const outDir = args?.outputPath as string;
+        const modelName = (args?.modelName as string) || 'model';
+
+        const textureResolver = (textureId: string): Buffer | null => {
+          const meta = project.textures.find((t) => t.id === textureId);
+          if (!meta) return null;
+          const fullPath = path.isAbsolute(meta.path)
+            ? meta.path
+            : path.join(projectDir, meta.path);
+          if (fs.existsSync(fullPath)) {
+            return fs.readFileSync(fullPath);
+          }
+          return null;
+        };
+
+        const res = exportRuntimePackage(project, textureResolver, outDir, {
+          modelName,
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Exported runtime model to ${outDir} (${res.numTextures} textures, ${res.numMotions} motions). Manifest: ${res.model3JsonPath}`,
             },
           ],
         };
