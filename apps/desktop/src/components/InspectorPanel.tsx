@@ -95,11 +95,35 @@ export const InspectorPanel: React.FC = () => {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-dcc-sm text-dcc-muted">Columns</label>
-              <div className="text-dcc font-mono">{kind.cols}</div>
+              <ScrubInput
+                value={kind.cols}
+                onChange={(c) =>
+                  executeCommand({
+                    id: `cmd_${Date.now()}`,
+                    name: 'warp.set_divisions',
+                    params: { node_id: selectedNode.id, cols: Math.max(1, Math.round(c)), rows: kind.rows },
+                  })
+                }
+                step={1}
+                min={1}
+                max={16}
+              />
             </div>
             <div>
               <label className="text-dcc-sm text-dcc-muted">Rows</label>
-              <div className="text-dcc font-mono">{kind.rows}</div>
+              <ScrubInput
+                value={kind.rows}
+                onChange={(r) =>
+                  executeCommand({
+                    id: `cmd_${Date.now()}`,
+                    name: 'warp.set_divisions',
+                    params: { node_id: selectedNode.id, cols: kind.cols, rows: Math.max(1, Math.round(r)) },
+                  })
+                }
+                step={1}
+                min={1}
+                max={16}
+              />
             </div>
           </div>
 

@@ -456,6 +456,22 @@ export const ViewportPanel: React.FC = () => {
             >
               Triangulate
             </button>
+            <button
+              className="px-1.5 py-0.5 text-dcc-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded font-mono"
+              onClick={() => {
+                if (selectedNode) {
+                  executeCommand({
+                    id: `cmd_${Date.now()}`,
+                    name: 'mesh.subdivide',
+                    params: { mesh_id: selectedNode.id },
+                  });
+                  notify('Subdivided mesh into finer triangles', 'success');
+                }
+              }}
+              title="Subdivide all triangles into 4 finer triangles"
+            >
+              Subdivide
+            </button>
           </div>
         )}
 

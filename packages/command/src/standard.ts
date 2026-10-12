@@ -359,6 +359,84 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+
+  bus.register<{
+    mesh_id: string;
+  }>('mesh.subdivide', (draft, { mesh_id }) => {
+    const target = draft.nodes.find((n) => n.id === mesh_id);
+    if (!target || target.kind.type !== 'ArtMesh') return;
+
+    const vertices = target.kind.vertices;
+    const uvs = target.kind.uvs;
+    const indices = target.kind.indices;
+
+    const edgeMap = new Map<string, number>();
+
+    const getMidpoint = (idxA: number, idxB: number): number => {
+      const key = idxA < idxB ? `${idxA}_${idxB}` : `${idxB}_${idxA}`;
+      if (edgeMap.has(key)) {
+        return edgeMap.get(key)!;
+      }
+      const pa = vertices[idxA];
+      const pb = vertices[idxB];
+      const midPos: [number, number] = [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2];
+
+      const uva = uvs[idxA];
+      const uvb = uvs[idxB];
+      const midUv: [number, number] = [(uva[0] + uvb[0]) / 2, (uva[1] + uvb[1]) / 2];
+
+      const newIdx = vertices.length;
+      vertices.push(midPos);
+      uvs.push(midUv);
+      edgeMap.set(key, newIdx);
+      return newIdx;
+    };
+
+    const newIndices: number[] = [];
+    for (let i = 0; i < indices.length; i += 3) {
+      const i0 = indices[i];
+      const i1 = indices[i + 1];
+      const i2 = indices[i + 2];
+
+      const m01 = getMidpoint(i0, i1);
+      const m12 = getMidpoint(i1, i2);
+      const m20 = getMidpoint(i2, i0);
+
+      newIndices.push(i0, m01, m20);
+      newIndices.push(m01, i1, m12);
+      newIndices.push(m20, m12, i2);
+      newIndices.push(m01, m12, m20);
+    }
+
+    target.kind.indices = newIndices;
+  });
+
+  bus.register<{
+    node_id: string;
+    cols: number;
+    rows: number;
+  }>('warp.set_divisions', (draft, { node_id, cols, rows }) => {
+    const target = draft.nodes.find((n) => n.id === node_id);
+    if (!target || target.kind.type !== 'WarpDeformer') return;
+
+    const [bx, by, bw, bh] = target.kind.bounds;
+    const nextCps: [number, number][] = [];
+
+    for (let r = 0; r <= rows; r++) {
+      const v = r / rows;
+      const y = by + bh * v;
+      for (let c = 0; c <= cols; c++) {
+        const u = c / cols;
+        const x = bx + bw * u;
+        nextCps.push([x, y]);
+      }
+    }
+
+    target.kind.cols = cols;
+    target.kind.rows = rows;
+    target.kind.control_points = nextCps;
+  });
+
   bus.register<{
     mesh_id: string;
     axis: 'horizontal' | 'vertical';

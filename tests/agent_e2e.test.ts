@@ -924,4 +924,81 @@ describe('Agent-First Full Feature Pipeline', () => {
     }
   });
 
+
+  it('should verify mesh.subdivide triangle refinement and warp.set_divisions grid resampling', () => {
+    const subdivProject: Project = {
+      format_version: 1,
+      canvas: { width: 600, height: 600, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [],
+      nodes: [
+        {
+          id: 'mesh_subdiv',
+          name: 'Subdiv Mesh',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_1',
+            vertices: [[0, 0], [100, 0], [0, 100]],
+            uvs: [[0, 0], [1, 0], [0, 1]],
+            indices: [0, 1, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 1,
+            mask_ids: [],
+          },
+        },
+        {
+          id: 'warp_resample',
+          name: 'Warp Resample',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'WarpDeformer',
+            cols: 1,
+            rows: 1,
+            bounds: [0, 0, 200, 200],
+            control_points: [[0, 0], [200, 0], [0, 200], [200, 200]],
+          },
+        },
+      ],
+      keyforms: [],
+      textures: [{ id: 'tex_1', path: 'textures/t1.png', width: 100, height: 100 }],
+    };
+
+    const bus = new CommandBus(subdivProject);
+    registerStandardCommands(bus);
+
+    // 1. Subdivide mesh: 1 triangle (3 vertices) -> 4 triangles (6 vertices)
+    bus.execute({
+      id: 'cmd_subdiv_run',
+      name: 'mesh.subdivide',
+      params: { mesh_id: 'mesh_subdiv' },
+    });
+
+    const afterSubdiv = bus.getProject();
+    const meshNode = afterSubdiv.nodes.find((n) => n.id === 'mesh_subdiv')!;
+    if (meshNode.kind.type === 'ArtMesh') {
+      expect(meshNode.kind.vertices.length).toBe(6);
+      expect(meshNode.kind.indices.length).toBe(12); // 4 triangles * 3 indices
+    }
+
+    // 2. Resample Warp Deformer to 3x3
+    bus.execute({
+      id: 'cmd_warp_resample_run',
+      name: 'warp.set_divisions',
+      params: { node_id: 'warp_resample', cols: 3, rows: 3 },
+    });
+
+    const afterWarp = bus.getProject();
+    const warpNode = afterWarp.nodes.find((n) => n.id === 'warp_resample')!;
+    if (warpNode.kind.type === 'WarpDeformer') {
+      expect(warpNode.kind.cols).toBe(3);
+      expect(warpNode.kind.rows).toBe(3);
+      expect(warpNode.kind.control_points.length).toBe(16); // (3+1) * (3+1) = 16
+    }
+  });
+
 });
