@@ -146,6 +146,32 @@ export function exportRuntimePackage(
     }
   }
 
+  // 4.5 Generate userdata3.json
+  const userDataEntries: any[] = [];
+  for (const node of project.nodes) {
+    if (node.kind.type === 'ArtMesh' && node.kind.user_data) {
+      userDataEntries.push({
+        Target: 'ArtMesh',
+        Id: node.id,
+        Value: node.kind.user_data,
+      });
+    }
+  }
+
+  let userDataFilename: string | undefined;
+  if (userDataEntries.length > 0) {
+    const userDataJson = {
+      Version: 3,
+      Meta: {
+        UserDataCount: userDataEntries.length,
+        TotalUserDataSize: userDataEntries.reduce((acc, u) => acc + u.Value.length, 0),
+      },
+      UserData: userDataEntries,
+    };
+    userDataFilename = `${modelName}.userdata3.json`;
+    fs.writeFileSync(path.join(outDir, userDataFilename), JSON.stringify(userDataJson, null, 2), 'utf-8');
+  }
+
   // 5. Generate model3.json root manifest
   const hitAreas: { Id: string; Name: string }[] = [];
   for (const node of project.nodes) {
@@ -165,6 +191,7 @@ export function exportRuntimePackage(
       Physics: physicsFilename,
       DisplayInfo: cdiFilename,
       Motions: motionReferences,
+      ...(userDataFilename ? { UserData: userDataFilename } : {}),
     },
     Groups: [
       {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CommandBus, registerStandardCommands } from '../packages/command/dist/index.js';
 import { WasmModel, lintProjectJson } from '../packages/schema/wasm-node/l2d_wasm.js';
-import { renderFrameToCanvas, createCanvas, generateTextureAtlas, exportRuntimePackage } from '../packages/renderer/dist/index.js';
+import { renderFrameToCanvas, createCanvas, generateTextureAtlas, exportRuntimePackage, createSyntheticWavBuffer, analyzeWavForLipSync } from '../packages/renderer/dist/index.js';
 import type { Project } from '../packages/schema/dist/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -294,6 +294,76 @@ describe('Agent-First Full Feature Pipeline', () => {
       '#000000'
     );
     expect(png.length).toBeGreaterThan(500);
+  });
+
+
+  it('should analyze audio WAV buffer and generate lip-sync keyframes and export userdata3.json', () => {
+    // 1. Generate 1-second 440Hz test WAV
+    const wavBuf = createSyntheticWavBuffer(1.0, 440, 44100);
+    expect(wavBuf.length).toBeGreaterThan(1000);
+
+    // 2. Analyze for LipSync at 30 fps
+    const result = analyzeWavForLipSync(wavBuf, 30);
+    expect(result.fps).toBe(30);
+    expect(result.durationFrames).toBe(30);
+    expect(result.keyframes.length).toBe(30);
+    // Non-silent audio should generate mouth open values > 0
+    expect(result.keyframes[15].value).toBeGreaterThan(0.05);
+
+    // 3. Test UserData export in runtime package
+    const projectWithUserData: Project = {
+      format_version: 1,
+      canvas: { width: 800, height: 800, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [{ id: 'ParamMouthOpen', name: 'Mouth Open', min: 0, max: 1, default: 0 }],
+      nodes: [
+        {
+          id: 'mesh_head',
+          name: 'Head Mesh',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_1',
+            vertices: [[0, 0], [100, 0], [0, 100]],
+            uvs: [[0, 0], [1, 0], [0, 1]],
+            indices: [0, 1, 2],
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 1,
+            mask_ids: [],
+            user_data: 'costume_summer_tag',
+            hit_area_name: 'Head',
+          },
+        },
+      ],
+      keyforms: [],
+      textures: [{ id: 'tex_1', path: 'textures/t1.png', width: 100, height: 100 }],
+    };
+
+    const dummyC = createCanvas(100, 100);
+    const ctx = dummyC.getContext('2d');
+    ctx.fillStyle = '#00ff00';
+    ctx.fillRect(0, 0, 100, 100);
+    const texBuf = dummyC.toBuffer('image/png');
+
+    const tempDir = path.join('/tmp', `l2d_userdata_test_${Date.now()}`);
+    const exportRes = exportRuntimePackage(projectWithUserData, () => texBuf, tempDir, {
+      modelName: 'userdata_model',
+    });
+
+    const userdataPath = path.join(tempDir, 'userdata_model.userdata3.json');
+    expect(fs.existsSync(userdataPath)).toBe(true);
+
+    const userdataJson = JSON.parse(fs.readFileSync(userdataPath, 'utf-8'));
+    expect(userdataJson.Version).toBe(3);
+    expect(userdataJson.UserData[0].Id).toBe('mesh_head');
+    expect(userdataJson.UserData[0].Value).toBe('costume_summer_tag');
+
+    // model3.json must reference the userdata3.json
+    const model3Json = JSON.parse(fs.readFileSync(exportRes.model3JsonPath, 'utf-8'));
+    expect(model3Json.FileReferences.UserData).toBe('userdata_model.userdata3.json');
+    expect(model3Json.HitAreas[0].Name).toBe('Head');
   });
 
 });

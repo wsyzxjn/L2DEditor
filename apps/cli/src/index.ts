@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CommandBus, registerStandardCommands } from '@l2d/command';
 import { importPsdBuffer } from '@l2d/psd';
-import { renderFrameToCanvas, generateTextureAtlas, exportRuntimePackage } from '@l2d/renderer';
+import { renderFrameToCanvas, generateTextureAtlas, exportRuntimePackage, analyzeWavForLipSync } from '@l2d/renderer';
 import type { Project } from '@l2d/schema';
 import { WasmModel, lintProjectJson } from '@l2d/schema/wasm-node';
 
@@ -293,6 +293,45 @@ program
     console.log(`  - Manifest: ${res.model3JsonPath}`);
     console.log(`  - Textures: ${res.numTextures} atlas sheet(s)`);
     console.log(`  - Motions: ${res.numMotions} motion file(s)`);
+  });
+
+program
+  .command('lipsync <project> <audio_wav>')
+  .description('Analyze audio WAV file and generate lip-sync keyframes for mouth parameter')
+  .option('-p, --param <param_id>', 'Target mouth parameter ID', 'ParamMouthOpen')
+  .option('-a, --anim <animation_id>', 'Target animation ID', 'anim_default')
+  .action((projectInput, audioWavFile, opts) => {
+    const file = resolveProjectPath(projectInput);
+    const raw = fs.readFileSync(file, 'utf-8');
+    const project: Project = JSON.parse(raw);
+    const wavBuf = fs.readFileSync(audioWavFile);
+
+    const result = analyzeWavForLipSync(wavBuf, 30);
+
+    if (!project.animations) project.animations = [];
+    let anim = project.animations.find((a) => a.id === opts.anim);
+    if (!anim) {
+      anim = {
+        id: opts.anim,
+        name: 'LipSync Motion',
+        duration_frames: result.durationFrames,
+        fps: result.fps,
+        loop_playback: false,
+        tracks: [],
+      };
+      project.animations.push(anim);
+    }
+
+    anim.duration_frames = Math.max(anim.duration_frames, result.durationFrames);
+    let track = anim.tracks.find((t) => t.target_param_id === opts.param);
+    if (!track) {
+      track = { target_param_id: opts.param, keyframes: [] };
+      anim.tracks.push(track);
+    }
+
+    track.keyframes = result.keyframes;
+    fs.writeFileSync(file, JSON.stringify(project, null, 2), 'utf-8');
+    console.log(`Generated ${result.keyframes.length} lip-sync keyframes for ${opts.param} over ${result.durationFrames} frames.`);
   });
 
 program.parse();
