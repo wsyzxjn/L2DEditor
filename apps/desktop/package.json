@@ -14,6 +14,7 @@
     "@l2d/psd": "workspace:*",
     "@l2d/renderer": "workspace:*",
     "@l2d/schema": "workspace:*",
+    "@napi-rs/canvas": "^1.0.11",
     "cmdk": "^1.1.1",
     "dockview-react": "^8.5.1",
     "lucide-react": "^1.16.0",
