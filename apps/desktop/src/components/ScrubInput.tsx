@@ -9,6 +9,8 @@ interface ScrubInputProps {
   max?: number;
   precision?: number;
   className?: string;
+  onChangeStart?: () => void;
+  onChangeEnd?: () => void;
 }
 
 export const ScrubInput: React.FC<ScrubInputProps> = ({
@@ -20,6 +22,8 @@ export const ScrubInput: React.FC<ScrubInputProps> = ({
   max = Infinity,
   precision = 2,
   className = '',
+  onChangeStart,
+  onChangeEnd,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [textVal, setTextVal] = useState(String(value));
@@ -38,6 +42,7 @@ export const ScrubInput: React.FC<ScrubInputProps> = ({
     isDragging.current = true;
     startX.current = e.clientX;
     startVal.current = value;
+    onChangeStart?.();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
@@ -52,6 +57,17 @@ export const ScrubInput: React.FC<ScrubInputProps> = ({
   const handlePointerUp = (e: React.PointerEvent) => {
     if (isDragging.current) {
       isDragging.current = false;
+      onChangeEnd?.();
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+    }
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent) => {
+    if (isDragging.current) {
+      isDragging.current = false;
+      onChangeEnd?.();
       try {
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
       } catch {}
@@ -76,6 +92,7 @@ export const ScrubInput: React.FC<ScrubInputProps> = ({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
       onDoubleClick={() => setIsEditing(true)}
     >
       {label && <span className="text-dcc-muted mr-1.5 font-medium">{label}</span>}

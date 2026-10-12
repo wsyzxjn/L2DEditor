@@ -4,15 +4,29 @@ import type { Command, CommandExecutionResult, CommandHandler } from './types.js
 
 enablePatches();
 
+export interface CommandBusOptions {
+  /** Maximum number of undo entries kept in memory. */
+  maxHistoryEntries?: number;
+}
+
 export class CommandBus {
   private handlers = new Map<string, CommandHandler<any>>();
   private undoStack: { command: Command; inversePatches: Patch[]; patches: Patch[] }[] = [];
   private redoStack: { command: Command; inversePatches: Patch[]; patches: Patch[] }[] = [];
   private activeTransaction: { commands: Command[]; patches: Patch[]; inversePatches: Patch[] } | null = null;
   private project: Project;
+  private readonly maxHistoryEntries: number;
 
-  constructor(initialProject: Project) {
+  constructor(initialProject: Project, options: CommandBusOptions = {}) {
     this.project = initialProject;
+    this.maxHistoryEntries = Math.max(1, Math.floor(options.maxHistoryEntries ?? 1000));
+  }
+
+  private trimHistory(): void {
+    const excess = this.undoStack.length - this.maxHistoryEntries;
+    if (excess > 0) {
+      this.undoStack.splice(0, excess);
+    }
   }
 
   public register<T>(commandName: string, handler: CommandHandler<T>): void {
@@ -27,6 +41,7 @@ export class CommandBus {
     this.project = project;
     this.undoStack = [];
     this.redoStack = [];
+    this.activeTransaction = null;
   }
 
   public canUndo(): boolean {
@@ -35,6 +50,10 @@ export class CommandBus {
 
   public canRedo(): boolean {
     return this.redoStack.length > 0 && this.activeTransaction === null;
+  }
+
+  public isTransactionActive(): boolean {
+    return this.activeTransaction !== null;
   }
 
   public beginTransaction(): void {
@@ -59,6 +78,7 @@ export class CommandBus {
         inversePatches: this.activeTransaction.inversePatches,
       });
       this.redoStack = [];
+      this.trimHistory();
     }
     this.activeTransaction = null;
   }
@@ -109,13 +129,16 @@ export class CommandBus {
       this.project = nextProject;
 
       if (this.activeTransaction) {
-        this.activeTransaction.commands.push(command);
-        this.activeTransaction.patches.push(...patches);
-        // Inverse patches must be unshifted for proper rollback order
-        this.activeTransaction.inversePatches.unshift(...inversePatches);
-      } else {
+        if (patches.length > 0) {
+          this.activeTransaction.commands.push(command);
+          this.activeTransaction.patches.push(...patches);
+          // Inverse patches must be unshifted for proper rollback order
+          this.activeTransaction.inversePatches.unshift(...inversePatches);
+        }
+      } else if (patches.length > 0) {
         this.undoStack.push({ command, patches, inversePatches });
         this.redoStack = [];
+        this.trimHistory();
       }
 
       return {

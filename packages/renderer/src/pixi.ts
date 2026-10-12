@@ -4,6 +4,7 @@ import type { EvaluatedFrameJs, EvaluatedMeshJs } from '@l2d/schema';
 export class PixiL2DRenderer {
   public container: PIXI.Container;
   private meshMap = new Map<string, PIXI.Mesh>();
+  private meshTextureIds = new Map<string, string>();
   private textureMap = new Map<string, PIXI.Texture>();
 
   constructor() {
@@ -11,8 +12,24 @@ export class PixiL2DRenderer {
     this.container.sortableChildren = true;
   }
 
+  /** Register a texture owned by this renderer. It is destroyed on replacement or renderer teardown. */
   public registerTexture(textureId: string, texture: PIXI.Texture): void {
+    const previous = this.textureMap.get(textureId);
+    if (previous === texture) return;
+
     this.textureMap.set(textureId, texture);
+
+    // A texture can be replaced while meshes are alive (for example after a
+    // PSD reload). Rebind those meshes before releasing the old GPU source.
+    for (const [meshId, mesh] of this.meshMap.entries()) {
+      if (this.meshTextureIds.get(meshId) === textureId) {
+        mesh.texture = texture;
+      }
+    }
+
+    if (previous && previous !== PIXI.Texture.WHITE && ![...this.textureMap.values()].includes(previous)) {
+      previous.destroy(true);
+    }
   }
 
   public updateFrame(frame: EvaluatedFrameJs): void {
@@ -20,6 +37,7 @@ export class PixiL2DRenderer {
 
     for (const meshData of frame.meshes) {
       activeMeshIds.add(meshData.id);
+      this.meshTextureIds.set(meshData.id, meshData.texture_id);
       let mesh = this.meshMap.get(meshData.id);
 
       if (!mesh) {
@@ -71,15 +89,31 @@ export class PixiL2DRenderer {
     for (const [id, mesh] of this.meshMap.entries()) {
       if (!activeMeshIds.has(id)) {
         this.container.removeChild(mesh);
+        const geometry = mesh.geometry;
         mesh.destroy({ children: true });
+        geometry.destroy();
         this.meshMap.delete(id);
+        this.meshTextureIds.delete(id);
       }
     }
   }
 
   public destroy(): void {
-    this.container.destroy({ children: true });
+    this.container.removeChildren();
+    for (const mesh of this.meshMap.values()) {
+      const geometry = mesh.geometry;
+      mesh.destroy({ children: true });
+      geometry.destroy();
+    }
     this.meshMap.clear();
+    this.meshTextureIds.clear();
+
+    for (const texture of this.textureMap.values()) {
+      if (texture !== PIXI.Texture.WHITE) {
+        texture.destroy(true);
+      }
+    }
     this.textureMap.clear();
+    this.container.destroy();
   }
 }

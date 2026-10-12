@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { fileURLToPath } from "url";
-import { createCanvas } from "@napi-rs/canvas";
+import { createCanvas, clearAllCache } from "@napi-rs/canvas";
 function generateGridMesh(x, y, w, h, density = 2) {
   const cols = Math.max(1, Math.round(density));
   const rows = Math.max(1, Math.round(density));
@@ -17255,131 +17255,182 @@ var distEsExports = requireDistEs();
 distEsExports.initializeCanvas(createCanvas);
 async function importPsdBuffer(psdBuffer, options = {}) {
   const density = options.meshDensity ?? 2;
-  const psd2 = distEsExports.readPsd(psdBuffer, { skipThumbnail: true });
-  const canvasWidth = psd2.width;
-  const canvasHeight = psd2.height;
-  const existingProject = options.existingProject;
-  const existingNodesMap = /* @__PURE__ */ new Map();
-  if (existingProject) {
-    for (const node of existingProject.nodes) {
-      existingNodesMap.set(node.id, node);
-    }
-  }
-  const nodes = [];
-  const textures = [];
-  const extractedTextures = [];
-  let drawOrder = 10;
-  function processLayer(layer, parentId) {
-    var _a, _b;
-    if (layer.hidden) {
-      return;
-    }
-    const layerId = sanitizeId(layer.name || `layer_${nodes.length + 1}`);
-    if (layer.children && layer.children.length > 0) {
-      nodes.push({
-        id: layerId,
-        name: layer.name || layerId,
-        parent_id: parentId,
-        visible: true,
-        locked: false,
-        kind: { type: "Part", collapsed: false }
-      });
-      for (const child of layer.children) {
-        processLayer(child, layerId);
-      }
-      return;
-    }
-    if (layer.canvas || layer.width && layer.height) {
-      const lx = layer.left ?? 0;
-      const ly = layer.top ?? 0;
-      const lw = layer.width ?? ((_a = layer.canvas) == null ? void 0 : _a.width) ?? 0;
-      const lh = layer.height ?? ((_b = layer.canvas) == null ? void 0 : _b.height) ?? 0;
-      if (lw <= 0 || lh <= 0)
+  const psd2 = distEsExports.readPsd(psdBuffer, {
+    skipThumbnail: true,
+    skipCompositeImageData: true
+  });
+  try {
+    let processLayer = function(layer, parentId) {
+      var _a, _b;
+      if (layer.hidden) {
         return;
-      const textureId = `tex_${layerId}`;
-      const filename = `${layerId}.png`;
-      let pngBuffer;
-      if (layer.canvas && typeof layer.canvas.toBuffer === "function") {
-        pngBuffer = layer.canvas.toBuffer("image/png");
-      } else {
-        const tempCanvas = createCanvas(lw, lh);
-        const ctx = tempCanvas.getContext("2d");
-        if (layer.canvas) {
-          ctx.drawImage(layer.canvas, 0, 0);
-        }
-        pngBuffer = tempCanvas.toBuffer("image/png");
       }
-      textures.push({
-        id: textureId,
-        path: `textures/${filename}`,
-        width: lw,
-        height: lh
-      });
-      extractedTextures.push({
-        id: textureId,
-        buffer: pngBuffer,
-        filename
-      });
-      const existing = existingNodesMap.get(layerId);
-      let meshKind;
-      if (existing && existing.kind.type === "ArtMesh") {
-        meshKind = {
-          ...existing.kind,
-          texture_id: textureId
-        };
-      } else {
-        const mesh = generateGridMesh(lx, ly, lw, lh, density);
-        meshKind = {
-          texture_id: textureId,
-          vertices: mesh.vertices,
-          uvs: mesh.uvs,
-          indices: mesh.indices,
-          blend_mode: "normal",
-          opacity: layer.opacity ?? 1,
-          draw_order: drawOrder++,
-          mask_ids: []
-        };
-      }
-      nodes.push({
-        id: layerId,
-        name: layer.name || layerId,
-        parent_id: existing ? existing.parent_id : parentId,
-        visible: true,
-        locked: false,
-        kind: {
-          type: "ArtMesh",
-          ...meshKind
+      const layerId = sanitizeId(layer.name || `layer_${nodes.length + 1}`);
+      if (layer.children && layer.children.length > 0) {
+        nodes.push({
+          id: layerId,
+          name: layer.name || layerId,
+          parent_id: parentId,
+          visible: true,
+          locked: false,
+          kind: { type: "Part", collapsed: false }
+        });
+        for (const child of layer.children) {
+          processLayer(child, layerId);
         }
-      });
+        return;
+      }
+      if (layer.canvas || layer.width && layer.height) {
+        const lx = layer.left ?? 0;
+        const ly = layer.top ?? 0;
+        const lw = layer.width ?? ((_a = layer.canvas) == null ? void 0 : _a.width) ?? 0;
+        const lh = layer.height ?? ((_b = layer.canvas) == null ? void 0 : _b.height) ?? 0;
+        if (lw <= 0 || lh <= 0)
+          return;
+        const textureId = `tex_${layerId}`;
+        const filename = `${layerId}.png`;
+        let pngBuffer;
+        if (layer.canvas && typeof layer.canvas.toBuffer === "function") {
+          const sourceCanvas = layer.canvas;
+          try {
+            pngBuffer = sourceCanvas.toBuffer("image/png");
+          } finally {
+            releaseCanvas(sourceCanvas);
+            delete layer.canvas;
+          }
+        } else {
+          const tempCanvas = createCanvas(lw, lh);
+          try {
+            const ctx = tempCanvas.getContext("2d");
+            if (layer.canvas) {
+              ctx.drawImage(layer.canvas, 0, 0);
+            }
+            pngBuffer = tempCanvas.toBuffer("image/png");
+          } finally {
+            releaseCanvas(tempCanvas);
+          }
+        }
+        textures.push({
+          id: textureId,
+          path: `textures/${filename}`,
+          width: lw,
+          height: lh
+        });
+        extractedTextures.push({
+          id: textureId,
+          buffer: pngBuffer,
+          filename
+        });
+        const existing = existingNodesMap.get(layerId);
+        let meshKind;
+        if (existing && existing.kind.type === "ArtMesh") {
+          meshKind = {
+            ...existing.kind,
+            texture_id: textureId
+          };
+        } else {
+          const mesh = generateGridMesh(lx, ly, lw, lh, density);
+          meshKind = {
+            texture_id: textureId,
+            vertices: mesh.vertices,
+            uvs: mesh.uvs,
+            indices: mesh.indices,
+            blend_mode: "normal",
+            opacity: layer.opacity ?? 1,
+            draw_order: drawOrder++,
+            mask_ids: []
+          };
+        }
+        nodes.push({
+          id: layerId,
+          name: layer.name || layerId,
+          parent_id: existing ? existing.parent_id : parentId,
+          visible: true,
+          locked: false,
+          kind: {
+            type: "ArtMesh",
+            ...meshKind
+          }
+        });
+      }
+    };
+    const canvasWidth = psd2.width;
+    const canvasHeight = psd2.height;
+    const existingProject = options.existingProject;
+    const existingNodesMap = /* @__PURE__ */ new Map();
+    if (existingProject) {
+      for (const node of existingProject.nodes) {
+        existingNodesMap.set(node.id, node);
+      }
     }
-  }
-  if (psd2.children) {
-    for (const child of psd2.children) {
-      processLayer(child, null);
+    const nodes = [];
+    const textures = [];
+    const extractedTextures = [];
+    let drawOrder = 10;
+    if (psd2.children) {
+      for (const child of psd2.children) {
+        processLayer(child, null);
+      }
     }
+    const project = {
+      format_version: 1,
+      canvas: {
+        width: canvasWidth,
+        height: canvasHeight,
+        origin_x: 0.5,
+        origin_y: 0.5,
+        background_color: "#18181b"
+      },
+      parameters: (existingProject == null ? void 0 : existingProject.parameters) ?? [
+        { id: "ParamAngleX", name: "Angle X", min: -30, max: 30, default: 0 },
+        { id: "ParamAngleY", name: "Angle Y", min: -30, max: 30, default: 0 },
+        { id: "ParamEyeLOpen", name: "Eye Left Open", min: 0, max: 1, default: 1 },
+        { id: "ParamEyeROpen", name: "Eye Right Open", min: 0, max: 1, default: 1 },
+        { id: "ParamMouthForm", name: "Mouth Form", min: -1, max: 1, default: 0 },
+        { id: "ParamMouthOpen", name: "Mouth Open", min: 0, max: 1, default: 0 }
+      ],
+      nodes,
+      keyforms: (existingProject == null ? void 0 : existingProject.keyforms) ?? [],
+      textures
+    };
+    return { project, extractedTextures };
+  } finally {
+    releasePsdResources(psd2);
+    clearAllCache();
   }
-  const project = {
-    format_version: 1,
-    canvas: {
-      width: canvasWidth,
-      height: canvasHeight,
-      origin_x: 0.5,
-      origin_y: 0.5,
-      background_color: "#18181b"
-    },
-    parameters: (existingProject == null ? void 0 : existingProject.parameters) ?? [
-      { id: "ParamAngleX", name: "Angle X", min: -30, max: 30, default: 0 },
-      { id: "ParamAngleY", name: "Angle Y", min: -30, max: 30, default: 0 },
-      { id: "ParamEyeLOpen", name: "Eye Left Open", min: 0, max: 1, default: 1 },
-      { id: "ParamEyeROpen", name: "Eye Right Open", min: 0, max: 1, default: 1 },
-      { id: "ParamMouthForm", name: "Mouth Form", min: -1, max: 1, default: 0 },
-      { id: "ParamMouthOpen", name: "Mouth Open", min: 0, max: 1, default: 0 }
-    ],
-    nodes,
-    keyforms: (existingProject == null ? void 0 : existingProject.keyforms) ?? [],
-    textures
+}
+function releaseCanvas(canvas) {
+  if (!canvas)
+    return;
+  try {
+    canvas.width = 0;
+    canvas.height = 0;
+  } catch {
+  }
+}
+function releasePsdResources(psd2) {
+  const releaseLayer = (layer) => {
+    releaseCanvas(layer.canvas);
+    delete layer.canvas;
+    releaseCanvas(layer.thumbnail);
+    delete layer.thumbnail;
+    for (const mask of [layer.mask, layer.realMask]) {
+      if (!mask)
+        continue;
+      releaseCanvas(mask.canvas);
+      delete mask.canvas;
+    }
+    for (const child of layer.children ?? []) {
+      releaseLayer(child);
+    }
   };
-  return { project, extractedTextures };
+  releaseCanvas(psd2.canvas);
+  delete psd2.canvas;
+  releaseCanvas(psd2.thumbnail);
+  delete psd2.thumbnail;
+  for (const child of psd2.children ?? []) {
+    releaseLayer(child);
+  }
 }
 function sanitizeId(name) {
   return name.trim().replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, "");
@@ -17406,6 +17457,9 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname$1, "../dist/index.html"));
   }
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
 }
 app.whenReady().then(() => {
   createWindow();

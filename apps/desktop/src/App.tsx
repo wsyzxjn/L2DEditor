@@ -91,6 +91,17 @@ export function App() {
     }
   };
 
+  const beginCommandTransaction = () => {
+    if (bus.isTransactionActive()) return;
+    bus.beginTransaction();
+  };
+
+  const commitCommandTransaction = () => {
+    if (!bus.isTransactionActive()) return;
+    bus.commitTransaction();
+    setProject({ ...bus.getProject() });
+  };
+
   const handleUndo = () => {
     if (bus.undo()) {
       setProject({ ...bus.getProject() });
@@ -181,6 +192,8 @@ export function App() {
         project={project}
         selectedNodeId={selectedNodeId}
         onExecuteCommand={executeCommand}
+        onChangeStart={beginCommandTransaction}
+        onChangeEnd={commitCommandTransaction}
       />
     ),
   };

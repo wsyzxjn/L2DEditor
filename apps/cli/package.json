@@ -6,6 +6,7 @@
     "l2d": "./dist/index.js"
   },
   "scripts": {
+    "dev": "tsc -w",
     "build": "tsc"
   },
   "dependencies": {

@@ -13,6 +13,7 @@
     "./wasm-web": "./wasm-web/l2d_wasm.js"
   },
   "scripts": {
+    "dev": "tsc -w",
     "build": "tsc"
   },
   "devDependencies": {

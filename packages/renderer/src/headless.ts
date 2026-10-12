@@ -1,5 +1,5 @@
 export { createCanvas } from '@napi-rs/canvas';
-import { createCanvas, Image, type SKRSContext2D } from '@napi-rs/canvas';
+import { clearAllCache, createCanvas, Image, type SKRSContext2D } from '@napi-rs/canvas';
 import type { Project, EvaluatedFrameJs, EvaluatedMeshJs } from '@l2d/schema';
 
 export interface TextureResolver {
@@ -27,45 +27,67 @@ export function renderFrameToCanvas(
   // Texture image cache
   const imgCache = new Map<string, Image>();
 
-  for (const mesh of frame.meshes) {
-    if (mesh.opacity <= 0.001) continue;
+  try {
+    for (const mesh of frame.meshes) {
+      if (mesh.opacity <= 0.001) continue;
 
-    let img = imgCache.get(mesh.texture_id);
-    if (!img) {
-      const buf = textureResolver(mesh.texture_id);
-      if (buf) {
-        const image = new Image();
-        image.src = buf;
-        img = image;
-        imgCache.set(mesh.texture_id, image);
+      let img = imgCache.get(mesh.texture_id);
+      if (!img) {
+        const buf = textureResolver(mesh.texture_id);
+        if (buf) {
+          const image = new Image();
+          image.src = buf;
+          img = image;
+          imgCache.set(mesh.texture_id, image);
+        }
+      }
+
+      if (!img) continue;
+
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, mesh.opacity));
+
+      switch (mesh.blend_mode) {
+        case 'multiply':
+          ctx.globalCompositeOperation = 'multiply';
+          break;
+        case 'screen':
+          ctx.globalCompositeOperation = 'screen';
+          break;
+        case 'additive':
+          ctx.globalCompositeOperation = 'lighter';
+          break;
+        default:
+          ctx.globalCompositeOperation = 'source-over';
+          break;
+      }
+
+      drawTexturedMesh(ctx, mesh, img);
+      ctx.restore();
+    }
+
+    return canvas.toBuffer('image/png');
+  } finally {
+    releaseCanvas(canvas);
+    for (const image of imgCache.values()) {
+      try {
+        image.src = '';
+      } catch {
+        // Ignore cleanup failures from alternate Image implementations.
       }
     }
-
-    if (!img) continue;
-
-    ctx.save();
-    ctx.globalAlpha = Math.max(0, Math.min(1, mesh.opacity));
-
-    switch (mesh.blend_mode) {
-      case 'multiply':
-        ctx.globalCompositeOperation = 'multiply';
-        break;
-      case 'screen':
-        ctx.globalCompositeOperation = 'screen';
-        break;
-      case 'additive':
-        ctx.globalCompositeOperation = 'lighter';
-        break;
-      default:
-        ctx.globalCompositeOperation = 'source-over';
-        break;
-    }
-
-    drawTexturedMesh(ctx, mesh, img);
-    ctx.restore();
+    imgCache.clear();
+    clearAllCache();
   }
+}
 
-  return canvas.toBuffer('image/png');
+function releaseCanvas(canvas: { width: number; height: number }): void {
+  try {
+    canvas.width = 0;
+    canvas.height = 0;
+  } catch {
+    // Keep rendering compatible with canvas implementations with read-only sizes.
+  }
 }
 
 function drawTexturedMesh(ctx: SKRSContext2D, mesh: EvaluatedMeshJs, img: Image) {

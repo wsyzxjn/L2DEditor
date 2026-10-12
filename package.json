@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "pnpm --filter l2d-desktop dev",
+    "dev:desktop": "pnpm --filter l2d-desktop dev",
     "build:core": "cargo build --workspace",
     "build:wasm": "wasm-pack build crates/l2d-wasm --target web --out-dir ../../packages/schema/wasm-web",
     "build:wasm:node": "wasm-pack build crates/l2d-wasm --target nodejs --out-dir ../../packages/schema/wasm-node",

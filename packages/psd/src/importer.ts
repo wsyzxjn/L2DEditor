@@ -1,9 +1,7 @@
 import { readPsd, initializeCanvas } from 'ag-psd';
-import { createCanvas, Image } from '@napi-rs/canvas';
+import { clearAllCache, createCanvas } from '@napi-rs/canvas';
 import type { Project, Node, ArtMeshData, TextureMeta } from '@l2d/schema';
 import { generateGridMesh } from './mesh.js';
-import * as fs from 'fs';
-import * as path from 'path';
 
 // Initialize ag-psd canvas factory using @napi-rs/canvas
 initializeCanvas(createCanvas as any);
@@ -23,7 +21,14 @@ export async function importPsdBuffer(
   options: ImportPsdOptions = {}
 ): Promise<ImportedPsdResult> {
   const density = options.meshDensity ?? 2;
-  const psd = readPsd(psdBuffer, { skipThumbnail: true });
+  // The importer only needs individual layer pixels. Decoding the composite
+  // image as well doubles the largest allocation for many PSDs.
+  const psd = readPsd(psdBuffer, {
+    skipThumbnail: true,
+    skipCompositeImageData: true,
+  });
+
+  try {
 
   const canvasWidth = psd.width;
   const canvasHeight = psd.height;
@@ -78,17 +83,29 @@ export async function importPsdBuffer(
       const textureId = `tex_${layerId}`;
       const filename = `${layerId}.png`;
 
-      // Extract texture buffer
+      // Extract texture buffer. Release the native canvas as soon as its PNG
+      // bytes have been copied; keeping it on the ag-psd layer tree makes
+      // repeated imports retain all layer-sized Skia surfaces until GC.
       let pngBuffer: Buffer;
       if (layer.canvas && typeof layer.canvas.toBuffer === 'function') {
-        pngBuffer = layer.canvas.toBuffer('image/png');
+        const sourceCanvas = layer.canvas;
+        try {
+          pngBuffer = sourceCanvas.toBuffer('image/png');
+        } finally {
+          releaseCanvas(sourceCanvas);
+          delete layer.canvas;
+        }
       } else {
         const tempCanvas = createCanvas(lw, lh);
-        const ctx = tempCanvas.getContext('2d');
-        if (layer.canvas) {
-          ctx.drawImage(layer.canvas, 0, 0);
+        try {
+          const ctx = tempCanvas.getContext('2d');
+          if (layer.canvas) {
+            ctx.drawImage(layer.canvas, 0, 0);
+          }
+          pngBuffer = tempCanvas.toBuffer('image/png');
+        } finally {
+          releaseCanvas(tempCanvas);
         }
-        pngBuffer = tempCanvas.toBuffer('image/png');
       }
 
       textures.push({
@@ -171,7 +188,51 @@ export async function importPsdBuffer(
     textures,
   };
 
-  return { project, extractedTextures };
+    return { project, extractedTextures };
+  } finally {
+    releasePsdResources(psd);
+    // @napi-rs/canvas keeps a process-wide Skia cache. Clear it after an
+    // import so opening several large PSDs does not look like a leak.
+    clearAllCache();
+  }
+}
+
+function releaseCanvas(canvas: any): void {
+  if (!canvas) return;
+  try {
+    // @napi-rs/canvas frees the backing surface when dimensions are reset.
+    canvas.width = 0;
+    canvas.height = 0;
+  } catch {
+    // Some browser-compatible canvas implementations expose read-only sizes.
+  }
+}
+
+function releasePsdResources(psd: any): void {
+  const releaseLayer = (layer: any): void => {
+    releaseCanvas(layer.canvas);
+    delete layer.canvas;
+    releaseCanvas(layer.thumbnail);
+    delete layer.thumbnail;
+
+    for (const mask of [layer.mask, layer.realMask]) {
+      if (!mask) continue;
+      releaseCanvas(mask.canvas);
+      delete mask.canvas;
+    }
+
+    for (const child of layer.children ?? []) {
+      releaseLayer(child);
+    }
+  };
+
+  releaseCanvas(psd.canvas);
+  delete psd.canvas;
+  releaseCanvas(psd.thumbnail);
+  delete psd.thumbnail;
+  for (const child of psd.children ?? []) {
+    releaseLayer(child);
+  }
 }
 
 function sanitizeId(name: string): string {

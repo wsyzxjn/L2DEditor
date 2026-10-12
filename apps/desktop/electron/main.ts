@@ -29,6 +29,13 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // Do not retain a destroyed BrowserWindow across macOS hide/activate
+  // cycles. Keeping this reference alive also keeps its renderer graph alive
+  // until the next window is created.
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 app.whenReady().then(() => {

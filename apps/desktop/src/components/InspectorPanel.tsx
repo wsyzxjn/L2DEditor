@@ -7,12 +7,16 @@ interface InspectorPanelProps {
   project: Project;
   selectedNodeId: string | null;
   onExecuteCommand: (cmd: any) => void;
+  onChangeStart?: () => void;
+  onChangeEnd?: () => void;
 }
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   project,
   selectedNodeId,
   onExecuteCommand,
+  onChangeStart,
+  onChangeEnd,
 }) => {
   const selectedNode = project.nodes.find((n) => n.id === selectedNodeId);
 
@@ -38,6 +42,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               }
               step={10}
               min={100}
+              onChangeStart={onChangeStart}
+              onChangeEnd={onChangeEnd}
             />
           </div>
           <div>
@@ -53,6 +59,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               }
               step={10}
               min={100}
+              onChangeStart={onChangeStart}
+              onChangeEnd={onChangeEnd}
             />
           </div>
         </div>
@@ -158,6 +166,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               step={0.05}
               min={0}
               max={1}
+              onChangeStart={onChangeStart}
+              onChangeEnd={onChangeEnd}
             />
           </div>
         </div>
