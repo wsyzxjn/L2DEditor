@@ -23,6 +23,8 @@ pub struct Project {
     pub physics: Vec<PhysicsGroup>,
     #[serde(default)]
     pub animations: Vec<Animation>,
+    #[serde(default)]
+    pub parameter_groups: Vec<ParameterGroup>,
 }
 
 impl Default for Project {
@@ -37,6 +39,7 @@ impl Default for Project {
             glues: Vec::new(),
             physics: Vec::new(),
             animations: Vec::new(),
+            parameter_groups: Vec::new(),
         }
     }
 }
@@ -70,6 +73,14 @@ impl Default for Canvas {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ParameterGroup {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Parameter {
     pub id: String,
     pub name: String,
@@ -78,6 +89,8 @@ pub struct Parameter {
     pub default: f32,
     #[serde(default)]
     pub repeats: bool,
+    #[serde(default)]
+    pub group_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -202,6 +215,10 @@ pub struct ArtMeshData {
     pub is_mask_inverted: bool,
     #[serde(default)]
     pub morph_targets: Vec<MorphTarget>,
+    #[serde(default)]
+    pub hit_area_name: Option<String>,
+    #[serde(default)]
+    pub user_data: Option<String>,
 }
 
 fn default_opacity() -> f32 {

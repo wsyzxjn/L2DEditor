@@ -147,6 +147,16 @@ export function exportRuntimePackage(
   }
 
   // 5. Generate model3.json root manifest
+  const hitAreas: { Id: string; Name: string }[] = [];
+  for (const node of project.nodes) {
+    if (node.kind.type === 'ArtMesh' && node.kind.hit_area_name) {
+      hitAreas.push({
+        Id: node.id,
+        Name: node.kind.hit_area_name,
+      });
+    }
+  }
+
   const model3Json = {
     Version: 3,
     FileReferences: {
@@ -172,6 +182,7 @@ export function exportRuntimePackage(
         ),
       },
     ],
+    HitAreas: hitAreas,
   };
 
   const model3Path = path.join(outDir, `${modelName}.model3.json`);

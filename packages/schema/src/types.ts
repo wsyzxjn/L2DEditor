@@ -8,6 +8,12 @@ export interface Canvas {
   background_color: string;
 }
 
+export interface ParameterGroup {
+  id: string;
+  name: string;
+  collapsed?: boolean;
+}
+
 export interface Parameter {
   id: string;
   name: string;
@@ -15,6 +21,7 @@ export interface Parameter {
   max: number;
   default: number;
   repeats?: boolean;
+  group_id?: string;
 }
 
 export interface TextureMeta {
@@ -62,7 +69,10 @@ export interface ArtMeshData {
   screen_color?: [number, number, number, number];
   draw_order: number;
   mask_ids: string[];
+  is_mask_inverted?: boolean;
   morph_targets?: MorphTarget[];
+  hit_area_name?: string;
+  user_data?: string;
 }
 
 export type NodeKind =
@@ -187,6 +197,7 @@ export interface Project {
   glues?: GlueBinding[];
   physics?: PhysicsGroup[];
   animations?: Animation[];
+  parameter_groups?: ParameterGroup[];
 }
 
 export type DiagnosticSeverity = 'error' | 'warning' | 'info';

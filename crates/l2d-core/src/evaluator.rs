@@ -397,6 +397,7 @@ mod tests {
                 max: 30.0,
                 default: 0.0,
                 repeats: false,
+                group_id: None,
             }],
             nodes: vec![
                 Node {
@@ -431,6 +432,8 @@ mod tests {
                         mask_ids: vec![],
                         is_mask_inverted: false,
                         morph_targets: vec![],
+                        hit_area_name: None,
+                        user_data: None,
                     }),
                 },
             ],
@@ -456,6 +459,7 @@ mod tests {
             glues: vec![],
             physics: vec![],
             animations: vec![],
+            parameter_groups: vec![],
         };
 
         let mut params = HashMap::new();
@@ -499,6 +503,8 @@ mod tests {
                         mask_ids: vec![],
                         is_mask_inverted: false,
                         morph_targets: vec![],
+                        hit_area_name: None,
+                        user_data: None,
                     }),
                 },
                 Node {
@@ -520,6 +526,8 @@ mod tests {
                         mask_ids: vec![],
                         is_mask_inverted: false,
                         morph_targets: vec![],
+                        hit_area_name: None,
+                        user_data: None,
                     }),
                 },
             ],
@@ -539,6 +547,7 @@ mod tests {
             }],
             physics: vec![],
             animations: vec![],
+            parameter_groups: vec![],
         };
 
         let frame = evaluate_project(&project, &HashMap::new());
@@ -566,6 +575,7 @@ mod tests {
                 max: 30.0,
                 default: 0.0,
                 repeats: false,
+                group_id: None,
             }],
             nodes: vec![
                 Node {
@@ -598,6 +608,8 @@ mod tests {
                         mask_ids: vec![],
                         is_mask_inverted: false,
                         morph_targets: vec![],
+                        hit_area_name: None,
+                        user_data: None,
                     }),
                 },
             ],
@@ -623,6 +635,7 @@ mod tests {
             glues: vec![],
             physics: vec![],
             animations: vec![],
+            parameter_groups: vec![],
         };
 
         let mut params = HashMap::new();

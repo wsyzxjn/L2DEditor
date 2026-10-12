@@ -43,6 +43,13 @@
         "$ref": "#/definitions/Node"
       }
     },
+    "parameter_groups": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ParameterGroup"
+      }
+    },
     "parameters": {
       "default": [],
       "type": "array",
@@ -678,6 +685,13 @@
               "type": "integer",
               "format": "int32"
             },
+            "hit_area_name": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "indices": {
               "type": "array",
               "items": {
@@ -746,6 +760,13 @@
               "type": "string",
               "enum": [
                 "ArtMesh"
+              ]
+            },
+            "user_data": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
               ]
             },
             "uvs": {
@@ -821,6 +842,13 @@
           "type": "number",
           "format": "float"
         },
+        "group_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -838,6 +866,25 @@
         "repeats": {
           "default": false,
           "type": "boolean"
+        }
+      }
+    },
+    "ParameterGroup": {
+      "type": "object",
+      "required": [
+        "id",
+        "name"
+      ],
+      "properties": {
+        "collapsed": {
+          "default": false,
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
         }
       }
     },

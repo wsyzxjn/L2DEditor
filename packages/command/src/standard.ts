@@ -36,6 +36,51 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  // Parameter Groups
+  bus.register<any>('parameter_group.add', (draft, group) => {
+    if (!draft.parameter_groups) draft.parameter_groups = [];
+    draft.parameter_groups = draft.parameter_groups.filter((g) => g.id !== group.id);
+    draft.parameter_groups.push(group);
+  });
+
+  bus.register<{ id: string }>('parameter_group.delete', (draft, { id }) => {
+    if (draft.parameter_groups) {
+      draft.parameter_groups = draft.parameter_groups.filter((g) => g.id !== id);
+    }
+    for (const p of draft.parameters) {
+      if (p.group_id === id) p.group_id = undefined;
+    }
+  });
+
+  bus.register<{ id: string }>('parameter_group.toggle_collapse', (draft, { id }) => {
+    const group = draft.parameter_groups?.find((g) => g.id === id);
+    if (group) {
+      group.collapsed = !group.collapsed;
+    }
+  });
+
+  bus.register<{ param_id: string; group_id: string | null }>('parameter.set_group', (draft, { param_id, group_id }) => {
+    const p = draft.parameters.find((param) => param.id === param_id);
+    if (p) {
+      p.group_id = group_id || undefined;
+    }
+  });
+
+  // Hit Areas & User Data
+  bus.register<{ mesh_id: string; hit_area_name: string | null }>('mesh.set_hit_area', (draft, { mesh_id, hit_area_name }) => {
+    const node = draft.nodes.find((n) => n.id === mesh_id);
+    if (node && node.kind.type === 'ArtMesh') {
+      node.kind.hit_area_name = hit_area_name || undefined;
+    }
+  });
+
+  bus.register<{ mesh_id: string; user_data: string | null }>('mesh.set_user_data', (draft, { mesh_id, user_data }) => {
+    const node = draft.nodes.find((n) => n.id === mesh_id);
+    if (node && node.kind.type === 'ArtMesh') {
+      node.kind.user_data = user_data || undefined;
+    }
+  });
+
   // Nodes (Deformers, ArtMeshes, Parts)
   bus.register<Node>('node.add', (draft, node) => {
     if (draft.nodes.some((n) => n.id === node.id)) {
