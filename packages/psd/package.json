@@ -1,0 +1,26 @@
+{
+  "name": "@l2d/psd",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@l2d/schema": "workspace:*",
+    "@napi-rs/canvas": "^1.0.11",
+    "ag-psd": "^31.0.3",
+    "earcut": "^3.2.4"
+  },
+  "devDependencies": {
+    "@types/earcut": "^3.2.0",
+    "typescript": "^5.7.0"
+  }
+}

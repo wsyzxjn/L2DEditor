@@ -1,0 +1,544 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Project",
+  "type": "object",
+  "required": [
+    "canvas",
+    "format_version"
+  ],
+  "properties": {
+    "canvas": {
+      "$ref": "#/definitions/Canvas"
+    },
+    "format_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "keyforms": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/KeyformBinding"
+      }
+    },
+    "nodes": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Node"
+      }
+    },
+    "parameters": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Parameter"
+      }
+    },
+    "textures": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TextureMeta"
+      }
+    }
+  },
+  "definitions": {
+    "BlendMode": {
+      "type": "string",
+      "enum": [
+        "normal",
+        "multiply",
+        "screen",
+        "additive"
+      ]
+    },
+    "Canvas": {
+      "type": "object",
+      "required": [
+        "height",
+        "width"
+      ],
+      "properties": {
+        "background_color": {
+          "default": "#18181b",
+          "type": "string"
+        },
+        "height": {
+          "type": "number",
+          "format": "float"
+        },
+        "origin_x": {
+          "default": 0.0,
+          "type": "number",
+          "format": "float"
+        },
+        "origin_y": {
+          "default": 0.0,
+          "type": "number",
+          "format": "float"
+        },
+        "width": {
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
+    "KeyformBinding": {
+      "type": "object",
+      "required": [
+        "dimensions",
+        "keyforms",
+        "target_node_id"
+      ],
+      "properties": {
+        "dimensions": {
+          "description": "One or more parameters driving this node (e.g. ParamAngleX, ParamAngleY)",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ParamDimension"
+          }
+        },
+        "keyforms": {
+          "description": "Keyform entries for each combination of key values across dimensions",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/KeyformState"
+          }
+        },
+        "target_node_id": {
+          "type": "string"
+        }
+      }
+    },
+    "KeyformPayload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "control_points",
+            "kind"
+          ],
+          "properties": {
+            "control_points": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "maxItems": 2,
+                "minItems": 2
+              }
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "Warp"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "angle_deg",
+            "kind",
+            "origin",
+            "scale"
+          ],
+          "properties": {
+            "angle_deg": {
+              "type": "number",
+              "format": "float"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "Rotation"
+              ]
+            },
+            "origin": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "scale": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 2,
+              "minItems": 2
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "vertex_offsets"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "ArtMesh"
+              ]
+            },
+            "opacity": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "vertex_offsets": {
+              "description": "Vertex positions or offsets",
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "maxItems": 2,
+                "minItems": 2
+              }
+            }
+          }
+        }
+      ]
+    },
+    "KeyformState": {
+      "type": "object",
+      "required": [
+        "coordinates",
+        "payload"
+      ],
+      "properties": {
+        "coordinates": {
+          "description": "Key values per dimension corresponding to this state, e.g. [-30.0, 0.0]",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        },
+        "payload": {
+          "$ref": "#/definitions/KeyformPayload"
+        }
+      }
+    },
+    "Node": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/NodeKind"
+        },
+        "locked": {
+          "default": false,
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "visible": {
+          "default": true,
+          "type": "boolean"
+        }
+      }
+    },
+    "NodeKind": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "collapsed": {
+              "default": false,
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "Part"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "bounds",
+            "cols",
+            "control_points",
+            "rows",
+            "type"
+          ],
+          "properties": {
+            "bounds": {
+              "description": "[min_x, min_y, width, height]",
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 4,
+              "minItems": 4
+            },
+            "cols": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "control_points": {
+              "description": "(cols + 1) * (rows + 1) control points in canvas space",
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "maxItems": 2,
+                "minItems": 2
+              }
+            },
+            "rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "WarpDeformer"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "origin",
+            "type"
+          ],
+          "properties": {
+            "angle_deg": {
+              "default": 0.0,
+              "type": "number",
+              "format": "float"
+            },
+            "origin": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "scale": {
+              "default": [
+                1.0,
+                1.0
+              ],
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "RotationDeformer"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "indices",
+            "texture_id",
+            "type",
+            "uvs",
+            "vertices"
+          ],
+          "properties": {
+            "blend_mode": {
+              "default": "normal",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BlendMode"
+                }
+              ]
+            },
+            "draw_order": {
+              "default": 0,
+              "type": "integer",
+              "format": "int32"
+            },
+            "indices": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              }
+            },
+            "mask_ids": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "opacity": {
+              "default": 1.0,
+              "type": "number",
+              "format": "float"
+            },
+            "texture_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "ArtMesh"
+              ]
+            },
+            "uvs": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "maxItems": 2,
+                "minItems": 2
+              }
+            },
+            "vertices": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "maxItems": 2,
+                "minItems": 2
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ParamDimension": {
+      "type": "object",
+      "required": [
+        "keys",
+        "param_id"
+      ],
+      "properties": {
+        "keys": {
+          "description": "Monotonically increasing key values, e.g. [-30.0, 0.0, 30.0]",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        },
+        "param_id": {
+          "type": "string"
+        }
+      }
+    },
+    "Parameter": {
+      "type": "object",
+      "required": [
+        "default",
+        "id",
+        "max",
+        "min",
+        "name"
+      ],
+      "properties": {
+        "default": {
+          "type": "number",
+          "format": "float"
+        },
+        "id": {
+          "type": "string"
+        },
+        "max": {
+          "type": "number",
+          "format": "float"
+        },
+        "min": {
+          "type": "number",
+          "format": "float"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "TextureMeta": {
+      "type": "object",
+      "required": [
+        "height",
+        "id",
+        "path",
+        "width"
+      ],
+      "properties": {
+        "height": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}

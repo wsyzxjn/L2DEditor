@@ -1,0 +1,21 @@
+{
+  "name": "l2d-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "l2d": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@l2d/command": "workspace:*",
+    "@l2d/psd": "workspace:*",
+    "@l2d/renderer": "workspace:*",
+    "@l2d/schema": "workspace:*",
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

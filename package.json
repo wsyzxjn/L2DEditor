@@ -1,0 +1,20 @@
+{
+  "name": "l2deditor-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:core": "cargo build --workspace",
+    "build:wasm": "wasm-pack build crates/l2d-wasm --target web --out-dir ../../packages/schema/wasm-web",
+    "build:wasm:node": "wasm-pack build crates/l2d-wasm --target nodejs --out-dir ../../packages/schema/wasm-node",
+    "test:core": "cargo test --workspace",
+    "build": "pnpm -r build",
+    "test": "pnpm test:core && vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.7"
+  },
+  "packageManager": "pnpm@11.21.0+sha512.521705bce689924eac72f5a3587122f362689ef6571e55ba80076fd637c11132ecffada26fad4ea79c485bfddbfd3d5a2a5b05805a77e893de71ec8a6cca3bb1"
+}

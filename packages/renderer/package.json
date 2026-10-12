@@ -1,0 +1,24 @@
+{
+  "name": "@l2d/renderer",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@l2d/schema": "workspace:*",
+    "@napi-rs/canvas": "^1.0.11",
+    "pixi.js": "^8.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

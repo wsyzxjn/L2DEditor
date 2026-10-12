@@ -1,0 +1,24 @@
+{
+  "name": "@l2d/command",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@l2d/schema": "workspace:*",
+    "immer": "^11.1.21",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

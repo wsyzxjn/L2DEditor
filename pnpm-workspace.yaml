@@ -1,0 +1,13 @@
+packages:
+  - 'packages/*'
+  - 'apps/*'
+
+onlyBuiltDependencies:
+  - electron
+  - esbuild
+  - '@napi-rs/canvas'
+allowBuilds:
+  electron: true
+  esbuild: true
+minimumReleaseAgeExclude:
+  - zod@4.6.6

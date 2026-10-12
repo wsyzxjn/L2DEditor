@@ -1,0 +1,21 @@
+{
+  "name": "@l2d/schema",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./wasm-node": "./wasm-node/l2d_wasm.js",
+    "./wasm-web": "./wasm-web/l2d_wasm.js"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

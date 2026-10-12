@@ -1,0 +1,21 @@
+# Build & dependency targets
+target/
+node_modules/
+/.pnpm-store/
+dist/
+out/
+.turbo/
+
+# OS and Editor
+.DS_Store
+*.swp
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# Rust / Wasm artifacts
+pkg/
+
+# Project temp caches
+*.l2dproj/.l2d/
