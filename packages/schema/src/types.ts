@@ -14,6 +14,7 @@ export interface Parameter {
   min: number;
   max: number;
   default: number;
+  repeats?: boolean;
 }
 
 export interface TextureMeta {
@@ -38,6 +39,18 @@ export interface RotationDeformerData {
   scale: [number, number];
 }
 
+export interface DeformPathData {
+  control_points: [number, number][];
+  target_mesh_ids: string[];
+}
+
+export interface MorphTarget {
+  id: string;
+  name: string;
+  param_id: string;
+  vertex_offsets: [number, number][];
+}
+
 export interface ArtMeshData {
   texture_id: string;
   vertices: [number, number][];
@@ -45,14 +58,18 @@ export interface ArtMeshData {
   indices: number[];
   blend_mode: BlendMode;
   opacity: number;
+  multiply_color?: [number, number, number, number];
+  screen_color?: [number, number, number, number];
   draw_order: number;
   mask_ids: string[];
+  morph_targets?: MorphTarget[];
 }
 
 export type NodeKind =
   | { type: 'Part'; collapsed?: boolean }
   | { type: 'WarpDeformer'; cols: number; rows: number; bounds: [number, number, number, number]; control_points: [number, number][] }
   | { type: 'RotationDeformer'; origin: [number, number]; angle_deg: number; scale: [number, number] }
+  | { type: 'DeformPath'; control_points: [number, number][]; target_mesh_ids: string[] }
   | ({ type: 'ArtMesh' } & ArtMeshData);
 
 export interface Node {
@@ -72,7 +89,14 @@ export interface ParamDimension {
 export type KeyformPayload =
   | { kind: 'Warp'; control_points: [number, number][] }
   | { kind: 'Rotation'; origin: [number, number]; angle_deg: number; scale: [number, number] }
-  | { kind: 'ArtMesh'; vertex_offsets: [number, number][]; opacity?: number };
+  | { kind: 'DeformPath'; control_points: [number, number][] }
+  | {
+      kind: 'ArtMesh';
+      vertex_offsets: [number, number][];
+      opacity?: number;
+      multiply_color?: [number, number, number, number];
+      screen_color?: [number, number, number, number];
+    };
 
 export interface KeyformState {
   coordinates: number[];
@@ -85,6 +109,48 @@ export interface KeyformBinding {
   keyforms: KeyformState[];
 }
 
+export interface GluePair {
+  index_a: number;
+  index_b: number;
+  weight_a: number;
+  weight_b: number;
+}
+
+export interface GlueBinding {
+  id: string;
+  name: string;
+  mesh_a_id: string;
+  mesh_b_id: string;
+  vertex_pairs: GluePair[];
+}
+
+export interface PhysicsInput {
+  param_id: string;
+  weight: number;
+  reflect?: boolean;
+}
+
+export interface PhysicsOutput {
+  param_id: string;
+  pendulum_index: number;
+  angle_scale: number;
+  weight: number;
+}
+
+export interface PhysicsPendulum {
+  length: number;
+  damping: number;
+  mass: number;
+}
+
+export interface PhysicsGroup {
+  id: string;
+  name: string;
+  inputs: PhysicsInput[];
+  outputs: PhysicsOutput[];
+  pendulums: PhysicsPendulum[];
+}
+
 export interface Project {
   format_version: number;
   canvas: Canvas;
@@ -92,6 +158,8 @@ export interface Project {
   nodes: Node[];
   keyforms: KeyformBinding[];
   textures: TextureMeta[];
+  glues?: GlueBinding[];
+  physics?: PhysicsGroup[];
 }
 
 export type DiagnosticSeverity = 'error' | 'warning' | 'info';
@@ -112,6 +180,8 @@ export interface EvaluatedMeshJs {
   indices: number[];
   blend_mode: string;
   opacity: number;
+  multiply_color: [number, number, number, number];
+  screen_color: [number, number, number, number];
   draw_order: number;
   mask_ids: string[];
 }

@@ -97,6 +97,32 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  // Glue
+  bus.register<any>('glue.add', (draft, glue) => {
+    if (!draft.glues) draft.glues = [];
+    draft.glues = draft.glues.filter((g) => g.id !== glue.id);
+    draft.glues.push(glue);
+  });
+
+  bus.register<{ id: string }>('glue.delete', (draft, { id }) => {
+    if (draft.glues) {
+      draft.glues = draft.glues.filter((g) => g.id !== id);
+    }
+  });
+
+  // Physics
+  bus.register<any>('physics.add_group', (draft, group) => {
+    if (!draft.physics) draft.physics = [];
+    draft.physics = draft.physics.filter((p) => p.id !== group.id);
+    draft.physics.push(group);
+  });
+
+  bus.register<{ id: string }>('physics.delete_group', (draft, { id }) => {
+    if (draft.physics) {
+      draft.physics = draft.physics.filter((p) => p.id !== id);
+    }
+  });
+
   // Macro: setup_turn_xy (Creates ParamAngleX & ParamAngleY if missing, and binds 3x3 grid keyforms)
   bus.register<{
     target_node_id: string;

@@ -15,6 +15,13 @@
       "format": "uint32",
       "minimum": 0.0
     },
+    "glues": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GlueBinding"
+      }
+    },
     "keyforms": {
       "default": [],
       "type": "array",
@@ -34,6 +41,13 @@
       "type": "array",
       "items": {
         "$ref": "#/definitions/Parameter"
+      }
+    },
+    "physics": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PhysicsGroup"
       }
     },
     "textures": {
@@ -80,6 +94,65 @@
           "format": "float"
         },
         "width": {
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
+    "GlueBinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "mesh_a_id",
+        "mesh_b_id",
+        "name",
+        "vertex_pairs"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "mesh_a_id": {
+          "type": "string"
+        },
+        "mesh_b_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "vertex_pairs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GluePair"
+          }
+        }
+      }
+    },
+    "GluePair": {
+      "type": "object",
+      "required": [
+        "index_a",
+        "index_b",
+        "weight_a",
+        "weight_b"
+      ],
+      "properties": {
+        "index_a": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "index_b": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "weight_a": {
+          "type": "number",
+          "format": "float"
+        },
+        "weight_b": {
           "type": "number",
           "format": "float"
         }
@@ -183,6 +256,33 @@
         {
           "type": "object",
           "required": [
+            "control_points",
+            "kind"
+          ],
+          "properties": {
+            "control_points": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "maxItems": 2,
+                "minItems": 2
+              }
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "DeformPath"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "kind",
             "vertex_offsets"
           ],
@@ -193,12 +293,36 @@
                 "ArtMesh"
               ]
             },
+            "multiply_color": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 4,
+              "minItems": 4
+            },
             "opacity": {
               "type": [
                 "number",
                 "null"
               ],
               "format": "float"
+            },
+            "screen_color": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 4,
+              "minItems": 4
             },
             "vertex_offsets": {
               "description": "Vertex positions or offsets",
@@ -234,6 +358,38 @@
         },
         "payload": {
           "$ref": "#/definitions/KeyformPayload"
+        }
+      }
+    },
+    "MorphTarget": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "param_id",
+        "vertex_offsets"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "param_id": {
+          "type": "string"
+        },
+        "vertex_offsets": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            },
+            "maxItems": 2,
+            "minItems": 2
+          }
         }
       }
     },
@@ -386,6 +542,40 @@
         {
           "type": "object",
           "required": [
+            "control_points",
+            "type"
+          ],
+          "properties": {
+            "control_points": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "maxItems": 2,
+                "minItems": 2
+              }
+            },
+            "target_mesh_ids": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "DeformPath"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "indices",
             "texture_id",
             "type",
@@ -421,10 +611,47 @@
                 "type": "string"
               }
             },
+            "morph_targets": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/MorphTarget"
+              }
+            },
+            "multiply_color": {
+              "default": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 4,
+              "minItems": 4
+            },
             "opacity": {
               "default": 1.0,
               "type": "number",
               "format": "float"
+            },
+            "screen_color": {
+              "default": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 4,
+              "minItems": 4
             },
             "texture_id": {
               "type": "string"
@@ -510,6 +737,115 @@
         },
         "name": {
           "type": "string"
+        },
+        "repeats": {
+          "default": false,
+          "type": "boolean"
+        }
+      }
+    },
+    "PhysicsGroup": {
+      "type": "object",
+      "required": [
+        "id",
+        "inputs",
+        "name",
+        "outputs",
+        "pendulums"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PhysicsInput"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PhysicsOutput"
+          }
+        },
+        "pendulums": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PhysicsPendulum"
+          }
+        }
+      }
+    },
+    "PhysicsInput": {
+      "type": "object",
+      "required": [
+        "param_id",
+        "weight"
+      ],
+      "properties": {
+        "param_id": {
+          "type": "string"
+        },
+        "reflect": {
+          "default": false,
+          "type": "boolean"
+        },
+        "weight": {
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
+    "PhysicsOutput": {
+      "type": "object",
+      "required": [
+        "angle_scale",
+        "param_id",
+        "pendulum_index",
+        "weight"
+      ],
+      "properties": {
+        "angle_scale": {
+          "type": "number",
+          "format": "float"
+        },
+        "param_id": {
+          "type": "string"
+        },
+        "pendulum_index": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "weight": {
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
+    "PhysicsPendulum": {
+      "type": "object",
+      "required": [
+        "damping",
+        "length",
+        "mass"
+      ],
+      "properties": {
+        "damping": {
+          "type": "number",
+          "format": "float"
+        },
+        "length": {
+          "type": "number",
+          "format": "float"
+        },
+        "mass": {
+          "type": "number",
+          "format": "float"
         }
       }
     },

@@ -28,6 +28,8 @@ pub struct EvaluatedMeshJs {
     pub indices: Vec<u32>,
     pub blend_mode: String,
     pub opacity: f32,
+    pub multiply_color: [f32; 4],
+    pub screen_color: [f32; 4],
     pub draw_order: i32,
     pub mask_ids: Vec<String>,
 }
@@ -107,6 +109,8 @@ impl WasmModel {
                     indices: m.indices,
                     blend_mode: blend_str.into(),
                     opacity: m.opacity,
+                    multiply_color: m.multiply_color,
+                    screen_color: m.screen_color,
                     draw_order: m.draw_order,
                     mask_ids: m.mask_ids,
                 }

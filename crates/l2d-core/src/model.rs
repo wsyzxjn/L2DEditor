@@ -16,6 +16,10 @@ pub struct Project {
     pub keyforms: Vec<KeyformBinding>,
     #[serde(default)]
     pub textures: Vec<TextureMeta>,
+    #[serde(default)]
+    pub glues: Vec<GlueBinding>,
+    #[serde(default)]
+    pub physics: Vec<PhysicsGroup>,
 }
 
 impl Default for Project {
@@ -27,6 +31,8 @@ impl Default for Project {
             nodes: Vec::new(),
             keyforms: Vec::new(),
             textures: Vec::new(),
+            glues: Vec::new(),
+            physics: Vec::new(),
         }
     }
 }
@@ -66,6 +72,8 @@ pub struct Parameter {
     pub min: f32,
     pub max: f32,
     pub default: f32,
+    #[serde(default)]
+    pub repeats: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -101,6 +109,7 @@ pub enum NodeKind {
     },
     WarpDeformer(WarpDeformerData),
     RotationDeformer(RotationDeformerData),
+    DeformPath(DeformPathData),
     ArtMesh(ArtMeshData),
 }
 
@@ -127,6 +136,13 @@ fn default_scale() -> [f32; 2] {
     [1.0, 1.0]
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct DeformPathData {
+    pub control_points: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub target_mesh_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum BlendMode {
@@ -142,6 +158,22 @@ impl Default for BlendMode {
     }
 }
 
+fn default_multiply_color() -> [f32; 4] {
+    [1.0, 1.0, 1.0, 1.0]
+}
+
+fn default_screen_color() -> [f32; 4] {
+    [0.0, 0.0, 0.0, 0.0]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MorphTarget {
+    pub id: String,
+    pub name: String,
+    pub param_id: String,
+    pub vertex_offsets: Vec<[f32; 2]>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ArtMeshData {
     pub texture_id: String,
@@ -152,10 +184,16 @@ pub struct ArtMeshData {
     pub blend_mode: BlendMode,
     #[serde(default = "default_opacity")]
     pub opacity: f32,
+    #[serde(default = "default_multiply_color")]
+    pub multiply_color: [f32; 4],
+    #[serde(default = "default_screen_color")]
+    pub screen_color: [f32; 4],
     #[serde(default)]
     pub draw_order: i32,
     #[serde(default)]
     pub mask_ids: Vec<String>,
+    #[serde(default)]
+    pub morph_targets: Vec<MorphTarget>,
 }
 
 fn default_opacity() -> f32 {
@@ -196,9 +234,63 @@ pub enum KeyformPayload {
         angle_deg: f32,
         scale: [f32; 2],
     },
+    DeformPath {
+        control_points: Vec<[f32; 2]>,
+    },
     ArtMesh {
         /// Vertex positions or offsets
         vertex_offsets: Vec<[f32; 2]>,
         opacity: Option<f32>,
+        multiply_color: Option<[f32; 4]>,
+        screen_color: Option<[f32; 4]>,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct GlueBinding {
+    pub id: String,
+    pub name: String,
+    pub mesh_a_id: String,
+    pub mesh_b_id: String,
+    pub vertex_pairs: Vec<GluePair>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct GluePair {
+    pub index_a: u32,
+    pub index_b: u32,
+    pub weight_a: f32,
+    pub weight_b: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct PhysicsGroup {
+    pub id: String,
+    pub name: String,
+    pub inputs: Vec<PhysicsInput>,
+    pub outputs: Vec<PhysicsOutput>,
+    pub pendulums: Vec<PhysicsPendulum>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct PhysicsInput {
+    pub param_id: String,
+    pub weight: f32,
+    #[serde(default)]
+    pub reflect: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct PhysicsOutput {
+    pub param_id: String,
+    pub pendulum_index: usize,
+    pub angle_scale: f32,
+    pub weight: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct PhysicsPendulum {
+    pub length: f32,
+    pub damping: f32,
+    pub mass: f32,
 }

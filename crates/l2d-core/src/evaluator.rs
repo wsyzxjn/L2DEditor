@@ -13,6 +13,8 @@ pub struct EvaluatedMesh {
     pub indices: Vec<u32>,
     pub blend_mode: BlendMode,
     pub opacity: f32,
+    pub multiply_color: [f32; 4],
+    pub screen_color: [f32; 4],
     pub draw_order: i32,
     pub mask_ids: Vec<String>,
 }
@@ -137,8 +139,10 @@ pub fn evaluate_project(
         if let NodeKind::ArtMesh(mesh_data) = &node.kind {
             let mut vertices = mesh_data.vertices.clone();
             let mut opacity = mesh_data.opacity;
+            let mut multiply_color = mesh_data.multiply_color;
+            let mut screen_color = mesh_data.screen_color;
 
-            // Apply ArtMesh keyforms (vertex offsets and opacity)
+            // Apply ArtMesh keyforms (vertex offsets, opacity, colors)
             if let Some(kf) = keyform_map.get(node.id.as_str()) {
                 let (dim_keys, query_coords, kf_coords) = extract_keyform_coords(kf, params, project);
                 let weights = compute_multidim_weights(&dim_keys, &query_coords, &kf_coords);
@@ -148,7 +152,7 @@ pub fn evaluate_project(
                 let mut has_op_kf = false;
 
                 for (state, &w) in kf.keyforms.iter().zip(weights.iter()) {
-                    if let KeyformPayload::ArtMesh { vertex_offsets, opacity: op } = &state.payload {
+                    if let KeyformPayload::ArtMesh { vertex_offsets, opacity: op, multiply_color: mc, screen_color: sc } = &state.payload {
                         has_offsets = true;
                         for (idx, off) in vertex_offsets.iter().enumerate().take(vertices.len()) {
                             offset_acc[idx][0] += off[0] * w;
@@ -157,6 +161,16 @@ pub fn evaluate_project(
                         if let Some(o) = op {
                             has_op_kf = true;
                             opacity_acc += o * w;
+                        }
+                        if let Some(c) = mc {
+                            for ch in 0..4 {
+                                multiply_color[ch] = multiply_color[ch] * (1.0 - w) + c[ch] * w;
+                            }
+                        }
+                        if let Some(c) = sc {
+                            for ch in 0..4 {
+                                screen_color[ch] = screen_color[ch] * (1.0 - w) + c[ch] * w;
+                            }
                         }
                     }
                 }
@@ -168,6 +182,17 @@ pub fn evaluate_project(
                 }
                 if has_op_kf {
                     opacity = opacity_acc;
+                }
+            }
+
+            // Apply MorphTargets / BlendShapes (additive shape offsets)
+            for morph in &mesh_data.morph_targets {
+                let weight = params.get(&morph.param_id).copied().unwrap_or(0.0);
+                if weight.abs() > 1e-5 {
+                    for (v, off) in vertices.iter_mut().zip(morph.vertex_offsets.iter()) {
+                        v[0] += off[0] * weight;
+                        v[1] += off[1] * weight;
+                    }
                 }
             }
 
@@ -216,9 +241,38 @@ pub fn evaluate_project(
                 indices: mesh_data.indices.clone(),
                 blend_mode: mesh_data.blend_mode,
                 opacity,
+                multiply_color,
+                screen_color,
                 draw_order: mesh_data.draw_order,
                 mask_ids: mesh_data.mask_ids.clone(),
             });
+        }
+    }
+
+    // 3. Apply Glue constraints across pairs of meshes
+    for glue in &project.glues {
+        let pos_a = evaluated_meshes.iter().position(|m| m.id == glue.mesh_a_id);
+        let pos_b = evaluated_meshes.iter().position(|m| m.id == glue.mesh_b_id);
+        if let (Some(idx_a), Some(idx_b)) = (pos_a, pos_b) {
+            if idx_a != idx_b {
+                for pair in &glue.vertex_pairs {
+                    let ia = pair.index_a as usize;
+                    let ib = pair.index_b as usize;
+                    if ia < evaluated_meshes[idx_a].vertices.len() && ib < evaluated_meshes[idx_b].vertices.len() {
+                        let pa = evaluated_meshes[idx_a].vertices[ia];
+                        let pb = evaluated_meshes[idx_b].vertices[ib];
+                        let total_w = pair.weight_a + pair.weight_b;
+                        if total_w > 1e-5 {
+                            let blended = [
+                                (pa[0] * pair.weight_a + pb[0] * pair.weight_b) / total_w,
+                                (pa[1] * pair.weight_a + pb[1] * pair.weight_b) / total_w,
+                            ];
+                            evaluated_meshes[idx_a].vertices[ia] = blended;
+                            evaluated_meshes[idx_b].vertices[ib] = blended;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -265,7 +319,6 @@ mod tests {
     fn test_evaluator_hierarchical_warp_and_artmesh() {
         let warp_bounds = [0.0, 0.0, 100.0, 100.0];
         let default_grid = generate_default_grid(1, 1, warp_bounds);
-        // Shift warp right by 20 at ParamAngleX = 30
         let mut deformed_grid = default_grid.clone();
         for pt in &mut deformed_grid {
             pt[0] += 20.0;
@@ -280,6 +333,7 @@ mod tests {
                 min: 0.0,
                 max: 30.0,
                 default: 0.0,
+                repeats: false,
             }],
             nodes: vec![
                 Node {
@@ -308,8 +362,11 @@ mod tests {
                         indices: vec![0],
                         blend_mode: BlendMode::Normal,
                         opacity: 1.0,
+                        multiply_color: [1.0, 1.0, 1.0, 1.0],
+                        screen_color: [0.0, 0.0, 0.0, 0.0],
                         draw_order: 0,
                         mask_ids: vec![],
+                        morph_targets: vec![],
                     }),
                 },
             ],
@@ -331,23 +388,96 @@ mod tests {
                 ],
             }],
             textures: vec![],
+            glues: vec![],
+            physics: vec![],
         };
 
-        // At ParamAngleX = 0, vertex should be at 50, 50
         let mut params = HashMap::new();
         params.insert("ParamAngleX".into(), 0.0);
         let frame0 = evaluate_project(&project, &params);
         assert_eq!(frame0.meshes.len(), 1);
         assert!((frame0.meshes[0].vertices[0][0] - 50.0).abs() < 1e-4);
 
-        // At ParamAngleX = 15, vertex should shift by +10 -> 60
         params.insert("ParamAngleX".into(), 15.0);
         let frame15 = evaluate_project(&project, &params);
         assert!((frame15.meshes[0].vertices[0][0] - 60.0).abs() < 1e-4);
 
-        // At ParamAngleX = 30, vertex should shift by +20 -> 70
         params.insert("ParamAngleX".into(), 30.0);
         let frame30 = evaluate_project(&project, &params);
         assert!((frame30.meshes[0].vertices[0][0] - 70.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_evaluator_glue_constraint() {
+        let project = Project {
+            format_version: 1,
+            canvas: Canvas::default(),
+            parameters: vec![],
+            nodes: vec![
+                Node {
+                    id: "meshA".into(),
+                    name: "Mesh A".into(),
+                    parent_id: None,
+                    visible: true,
+                    locked: false,
+                    kind: NodeKind::ArtMesh(ArtMeshData {
+                        texture_id: "tex1".into(),
+                        vertices: vec![[10.0, 10.0]],
+                        uvs: vec![[0.0, 0.0]],
+                        indices: vec![0],
+                        blend_mode: BlendMode::Normal,
+                        opacity: 1.0,
+                        multiply_color: [1.0, 1.0, 1.0, 1.0],
+                        screen_color: [0.0, 0.0, 0.0, 0.0],
+                        draw_order: 0,
+                        mask_ids: vec![],
+                        morph_targets: vec![],
+                    }),
+                },
+                Node {
+                    id: "meshB".into(),
+                    name: "Mesh B".into(),
+                    parent_id: None,
+                    visible: true,
+                    locked: false,
+                    kind: NodeKind::ArtMesh(ArtMeshData {
+                        texture_id: "tex1".into(),
+                        vertices: vec![[20.0, 20.0]],
+                        uvs: vec![[0.0, 0.0]],
+                        indices: vec![0],
+                        blend_mode: BlendMode::Normal,
+                        opacity: 1.0,
+                        multiply_color: [1.0, 1.0, 1.0, 1.0],
+                        screen_color: [0.0, 0.0, 0.0, 0.0],
+                        draw_order: 1,
+                        mask_ids: vec![],
+                        morph_targets: vec![],
+                    }),
+                },
+            ],
+            keyforms: vec![],
+            textures: vec![],
+            glues: vec![GlueBinding {
+                id: "glue1".into(),
+                name: "Glue 1".into(),
+                mesh_a_id: "meshA".into(),
+                mesh_b_id: "meshB".into(),
+                vertex_pairs: vec![GluePair {
+                    index_a: 0,
+                    index_b: 0,
+                    weight_a: 0.5,
+                    weight_b: 0.5,
+                }],
+            }],
+            physics: vec![],
+        };
+
+        let frame = evaluate_project(&project, &HashMap::new());
+        assert_eq!(frame.meshes.len(), 2);
+        // Both vertices should now be exactly at midpoint (15.0, 15.0)
+        assert!((frame.meshes[0].vertices[0][0] - 15.0).abs() < 1e-4);
+        assert!((frame.meshes[0].vertices[0][1] - 15.0).abs() < 1e-4);
+        assert!((frame.meshes[1].vertices[0][0] - 15.0).abs() < 1e-4);
+        assert!((frame.meshes[1].vertices[0][1] - 15.0).abs() < 1e-4);
     }
 }
