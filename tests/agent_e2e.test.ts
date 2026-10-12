@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CommandBus, registerStandardCommands } from '../packages/command/dist/index.js';
-import { WasmModel, lintProjectJson } from '../packages/schema/wasm-node/l2d_wasm.js';
+import { WasmModel, lintProjectJson, getProjectStats } from '../packages/schema/wasm-node/l2d_wasm.js';
 import { renderFrameToCanvas, createCanvas, generateTextureAtlas, exportRuntimePackage, createSyntheticWavBuffer, analyzeWavForLipSync, renderAnimationSequence } from '../packages/renderer/dist/index.js';
 import { startCubismWebSocketServer, WebSocket } from '../packages/mcp-server/dist/index.js';
 import type { Project } from '../packages/schema/dist/index.js';
@@ -1070,6 +1070,64 @@ describe('Agent-First Full Feature Pipeline', () => {
     if (reversedNode.kind.type === 'ArtMesh') {
       expect(reversedNode.kind.indices).toEqual([0, 2, 1]);
     }
+  });
+
+
+  it('should verify getProjectStats VRAM/triangle accounting and parameter.reorder', () => {
+    const statsProject: Project = {
+      format_version: 1,
+      canvas: { width: 1000, height: 1000, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [
+        { id: 'Param_A', name: 'A', min: 0, max: 1, default: 0 },
+        { id: 'Param_B', name: 'B', min: 0, max: 1, default: 0 },
+        { id: 'Param_C', name: 'C', min: 0, max: 1, default: 0 },
+      ],
+      nodes: [
+        {
+          id: 'mesh_1',
+          name: 'Mesh 1',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_1',
+            vertices: [[0, 0], [100, 0], [0, 100]],
+            uvs: [[0, 0], [1, 0], [0, 1]],
+            indices: [0, 1, 2], // 1 triangle
+            blend_mode: 'normal',
+            opacity: 1.0,
+            draw_order: 1,
+            mask_ids: [],
+          },
+        },
+      ],
+      keyforms: [],
+      textures: [{ id: 'tex_1', path: 'textures/t1.png', width: 1024, height: 1024 }],
+    };
+
+    // 1. Verify getProjectStats
+    const stats = getProjectStats(JSON.stringify(statsProject)) as any;
+    expect(stats.total_vertices).toBe(3);
+    expect(stats.total_triangles).toBe(1);
+    expect(stats.artmesh_count).toBe(1);
+    expect(stats.parameter_count).toBe(3);
+    // 1024 * 1024 * 4 bytes RGBA = 4,194,304 bytes VRAM
+    expect(stats.estimated_texture_vram_bytes).toBe(1024 * 1024 * 4);
+
+    // 2. Verify parameter.reorder: move Param_C to index 0
+    const bus = new CommandBus(statsProject);
+    registerStandardCommands(bus);
+    bus.execute({
+      id: 'cmd_reorder',
+      name: 'parameter.reorder',
+      params: { param_id: 'Param_C', target_index: 0 },
+    });
+
+    const paramsAfter = bus.getProject().parameters;
+    expect(paramsAfter[0].id).toBe('Param_C');
+    expect(paramsAfter[1].id).toBe('Param_A');
+    expect(paramsAfter[2].id).toBe('Param_B');
   });
 
 });

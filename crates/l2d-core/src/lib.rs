@@ -8,7 +8,7 @@ pub mod physics;
 pub use animation::{Animation, AnimationTrack, CurveType, TimelineKeyframe};
 pub use evaluator::{evaluate_project, EvaluatedFrame, EvaluatedMesh};
 pub use lint::{lint_project, Diagnostic, DiagnosticSeverity};
-pub use model::*;
+pub use model::{CURRENT_FORMAT_VERSION, BlendMode, Canvas, DeformPathData, Expression, ExpressionBlendType, ExpressionParameter, ExtendedInterpolationType, GlueBinding, GluePair, KeyformBinding, KeyformPayload, KeyformState, ModelStats, MorphTarget, Node, NodeKind, ParamDimension, Parameter, ParameterGroup, PhysicsGroup, PhysicsInput, PhysicsOutput, PhysicsPendulum, Project, RotationDeformerData, TextureMeta, WarpDeformerData};
 pub use physics::{PhysicsSimulator, PendulumState};
 
 /// Exports JSON Schema for Project and Diagnostics.

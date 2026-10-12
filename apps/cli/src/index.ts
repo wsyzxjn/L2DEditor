@@ -12,7 +12,7 @@ import {
   renderAnimationSequence,
 } from '@l2d/renderer';
 import type { Project } from '@l2d/schema';
-import { WasmModel, lintProjectJson } from '@l2d/schema/wasm-node';
+import { WasmModel, lintProjectJson, getProjectStats } from '@l2d/schema/wasm-node';
 
 const program = new Command();
 
@@ -453,6 +453,16 @@ program
     if (addedNodes.length > 0) console.log(`  + Added nodes:`, addedNodes.join(', '));
     if (removedNodes.length > 0) console.log(`  - Removed nodes:`, removedNodes.join(', '));
     console.log(`Keyforms: ${a.keyforms.length} -> ${b.keyforms.length}`);
+  });
+
+program
+  .command('stats <project>')
+  .description('Inspect detailed geometry, polygon count, and estimated VRAM budget of a project')
+  .action((projectInput) => {
+    const file = resolveProjectPath(projectInput);
+    const raw = fs.readFileSync(file, 'utf-8');
+    const stats = getProjectStats(raw);
+    console.log(JSON.stringify(stats, null, 2));
   });
 
 program.parse();

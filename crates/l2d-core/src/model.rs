@@ -388,3 +388,58 @@ pub struct Expression {
     pub fade_out_time: f32,
     pub parameters: Vec<ExpressionParameter>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ModelStats {
+    pub total_vertices: usize,
+    pub total_triangles: usize,
+    pub artmesh_count: usize,
+    pub warp_count: usize,
+    pub rotation_count: usize,
+    pub deform_path_count: usize,
+    pub parameter_count: usize,
+    pub keyform_count: usize,
+    pub estimated_texture_vram_bytes: usize,
+}
+
+impl Project {
+    pub fn compute_stats(&self) -> ModelStats {
+        let mut total_vertices = 0;
+        let mut total_triangles = 0;
+        let mut artmesh_count = 0;
+        let mut warp_count = 0;
+        let mut rotation_count = 0;
+        let mut deform_path_count = 0;
+
+        for node in &self.nodes {
+            match &node.kind {
+                NodeKind::ArtMesh(mesh) => {
+                    artmesh_count += 1;
+                    total_vertices += mesh.vertices.len();
+                    total_triangles += mesh.indices.len() / 3;
+                }
+                NodeKind::WarpDeformer(_) => warp_count += 1,
+                NodeKind::RotationDeformer(_) => rotation_count += 1,
+                NodeKind::DeformPath(_) => deform_path_count += 1,
+                _ => {}
+            }
+        }
+
+        let mut vram = 0;
+        for tex in &self.textures {
+            vram += (tex.width as usize) * (tex.height as usize) * 4;
+        }
+
+        ModelStats {
+            total_vertices,
+            total_triangles,
+            artmesh_count,
+            warp_count,
+            rotation_count,
+            deform_path_count,
+            parameter_count: self.parameters.len(),
+            keyform_count: self.keyforms.iter().map(|k| k.keyforms.len()).sum(),
+            estimated_texture_vram_bytes: vram,
+        }
+    }
+}

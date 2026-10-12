@@ -66,6 +66,15 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  bus.register<{ param_id: string; target_index: number }>('parameter.reorder', (draft, { param_id, target_index }) => {
+    const idx = draft.parameters.findIndex((p) => p.id === param_id);
+    if (idx >= 0) {
+      const [p] = draft.parameters.splice(idx, 1);
+      const clamped = Math.max(0, Math.min(draft.parameters.length, target_index));
+      draft.parameters.splice(clamped, 0, p);
+    }
+  });
+
   // Hit Areas & User Data
   bus.register<{ mesh_id: string; hit_area_name: string | null }>('mesh.set_hit_area', (draft, { mesh_id, hit_area_name }) => {
     const node = draft.nodes.find((n) => n.id === mesh_id);
@@ -119,6 +128,15 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
     draft.nodes = draft.nodes.filter((n) => n.id !== id);
     draft.keyforms = draft.keyforms.filter((k) => k.target_node_id !== id);
+  });
+
+  bus.register<{ node_id: string; target_index: number }>('node.reorder', (draft, { node_id, target_index }) => {
+    const idx = draft.nodes.findIndex((n) => n.id === node_id);
+    if (idx >= 0) {
+      const [n] = draft.nodes.splice(idx, 1);
+      const clamped = Math.max(0, Math.min(draft.nodes.length, target_index));
+      draft.nodes.splice(clamped, 0, n);
+    }
   });
 
   // Keyforms

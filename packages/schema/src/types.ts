@@ -264,3 +264,15 @@ export interface CompileReport {
   num_nodes: number;
   num_parameters: number;
 }
+
+export interface ModelStats {
+  total_vertices: number;
+  total_triangles: number;
+  artmesh_count: number;
+  warp_count: number;
+  rotation_count: number;
+  deform_path_count: number;
+  parameter_count: number;
+  keyform_count: number;
+  estimated_texture_vram_bytes: number;
+}

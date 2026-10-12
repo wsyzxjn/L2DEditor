@@ -16,7 +16,7 @@ import {
 } from '@l2d/renderer';
 import type { Project } from '@l2d/schema';
 // Wasm node bindings
-import { WasmModel, lintProjectJson } from '@l2d/schema/wasm-node';
+import { WasmModel, lintProjectJson, getProjectStats } from '@l2d/schema/wasm-node';
 
 export function createMcpServer(): Server {
   const server = new Server(
@@ -239,6 +239,20 @@ export function createMcpServer(): Server {
               },
             },
             required: ['projectPathA', 'projectPathB'],
+          },
+        },
+        {
+          name: 'l2d_stats',
+          description: 'Calculate detailed polygon count, vertex count, deformers count, and estimated texture VRAM memory budget for a project.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: {
+                type: 'string',
+                description: 'Path to .l2dproj directory or project.json',
+              },
+            },
+            required: ['projectPath'],
           },
         },
       ],
@@ -592,6 +606,15 @@ export function createMcpServer(): Server {
 
         return {
           content: [{ type: 'text', text: JSON.stringify(diffReport, null, 2) }],
+        };
+      }
+
+      if (name === 'l2d_stats') {
+        const projectPath = resolveProjectJsonPath(args?.projectPath as string);
+        const raw = fs.readFileSync(projectPath, 'utf-8');
+        const stats = getProjectStats(raw);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(stats, null, 2) }],
         };
       }
 

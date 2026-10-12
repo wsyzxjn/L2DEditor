@@ -145,6 +145,13 @@ impl WasmModel {
         serde_wasm_bindgen::to_value(&diags)
             .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
     }
+
+    #[wasm_bindgen(js_name = getStats)]
+    pub fn get_stats(&self) -> Result<JsValue, JsValue> {
+        let stats = self.project.compute_stats();
+        serde_wasm_bindgen::to_value(&stats)
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+    }
 }
 
 #[wasm_bindgen(js_name = lintProjectJson)]
@@ -195,4 +202,13 @@ pub fn compile_project(project_json: &str) -> Result<JsValue, JsValue> {
                 .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
         }
     }
+}
+
+#[wasm_bindgen(js_name = getProjectStats)]
+pub fn get_project_stats(project_json: &str) -> Result<JsValue, JsValue> {
+    let project: Project = serde_json::from_str(project_json)
+        .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+    let stats = project.compute_stats();
+    serde_wasm_bindgen::to_value(&stats)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
 }
