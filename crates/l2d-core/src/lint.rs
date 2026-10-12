@@ -163,6 +163,26 @@ pub fn lint_project(project: &Project) -> Vec<Diagnostic> {
             }
         }
 
+        // Check clipping mask references (`CUB3-1999`)
+        if let NodeKind::ArtMesh(mesh) = &node.kind {
+            for mask_id in &mesh.mask_ids {
+                if let Some((_, mask_node)) = node_map.get(mask_id.as_str()) {
+                    if !mask_node.visible {
+                        diags.push(Diagnostic {
+                            code: "MASK_TARGET_HIDDEN".into(),
+                            severity: DiagnosticSeverity::Warning,
+                            message: format!(
+                                "ArtMesh '{}' references hidden mask node '{}' (CUB3-1999)",
+                                node.id, mask_id
+                            ),
+                            target_id: Some(node.id.clone()),
+                            json_path: format!("/nodes/{}/mask_ids", idx),
+                        });
+                    }
+                }
+            }
+        }
+
         // Kind specific checks
         match &node.kind {
             NodeKind::WarpDeformer(warp) => {

@@ -868,6 +868,21 @@ export function lintProjectJs(project: Project): Diagnostic[] {
         }
       }
     }
+
+    if (n.kind.type === 'ArtMesh' && n.kind.mask_ids) {
+      for (const maskId of n.kind.mask_ids) {
+        const maskNode = nodeMap.get(maskId);
+        if (maskNode && !maskNode.visible) {
+          diags.push({
+            code: 'MASK_TARGET_HIDDEN',
+            severity: 'warning',
+            message: `ArtMesh '${n.id}' references hidden mask node '${maskId}' (CUB3-1999)`,
+            target_id: n.id,
+            json_path: `/nodes/${idx}/mask_ids`,
+          });
+        }
+      }
+    }
   });
 
   return diags;

@@ -11,6 +11,7 @@ export interface RenderSequenceOptions {
   fps?: number;
   format?: 'png' | 'mp4' | 'webm' | 'gif';
   videoOutputPath?: string;
+  audioWavPath?: string;
 }
 
 export function renderAnimationSequence(
@@ -68,6 +69,7 @@ export function renderAnimationSequence(
     if (ffmpegBin) {
       const framePattern = path.join(outFramesDir, 'frame_%04d.png');
       const isGif = options.format === 'gif' || finalVideo.endsWith('.gif');
+      const hasAudio = !isGif && options.audioWavPath && fs.existsSync(options.audioWavPath);
       const args = isGif
         ? ['-y', '-r', String(fps), '-i', framePattern, finalVideo]
         : [
@@ -76,6 +78,7 @@ export function renderAnimationSequence(
             String(fps),
             '-i',
             framePattern,
+            ...(hasAudio ? ['-i', options.audioWavPath!, '-c:a', 'aac', '-b:a', '192k', '-shortest'] : []),
             '-c:v',
             options.format === 'webm'
               ? 'libvpx-vp9'

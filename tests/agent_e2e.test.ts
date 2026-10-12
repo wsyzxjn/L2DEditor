@@ -15,6 +15,7 @@ import {
   serializeMoc3Container,
   parseMoc3ToProject,
   applyCubismAiFaceRig,
+  unpackAtlasTextures,
 } from '../packages/renderer/dist/index.js';
 import { importPsdBuffer, exportModelToPsdBuffer } from '../packages/psd/dist/index.js';
 import { startCubismWebSocketServer, WebSocket } from '../packages/mcp-server/dist/index.js';
@@ -2087,6 +2088,87 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(exportedPsd.toString('ascii', 0, 4)).toBe('8BPS'); // Official Adobe PSD magic signature
     const reimported = await importPsdBuffer(exportedPsd);
     expect(reimported.project.nodes.some((n) => n.id === 'Face_Layer')).toBe(true);
+  });
+
+  it('should support DeformPath Auto-Skinning (CUB3-1677), Atlas Unpacking, and Mask Target Hidden Warning (CUB3-1999)', () => {
+    const bus = new CommandBus(initialProject);
+    registerStandardCommands(bus);
+
+    // 1. Create a DeformPath and run deform_path.auto_skinning
+    bus.execute({
+      id: 'p_ribbon',
+      name: 'deform_path.create',
+      params: {
+        id: 'path_ribbon',
+        name: 'Ribbon Path',
+        control_points: [[100, 100], [150, 180], [200, 260], [250, 340]],
+        target_mesh_ids: ['mesh_ribbon'],
+      },
+    });
+    bus.execute({
+      id: 'skin_1',
+      name: 'deform_path.auto_skinning',
+      params: { path_id: 'path_ribbon' },
+    });
+    const nodes = bus.getProject().nodes;
+    expect(nodes.some((n) => n.id === 'rot_skin_path_ribbon_1')).toBe(true);
+    expect(nodes.some((n) => n.id === 'rot_skin_path_ribbon_2')).toBe(true);
+    expect(bus.getProject().parameters.some((p) => p.id === 'ParamSkinning_path_ribbon_1')).toBe(true);
+
+    // 2. Test MASK_TARGET_HIDDEN warning
+    bus.execute({
+      id: 'm_masked',
+      name: 'node.add',
+      params: {
+        id: 'mesh_pupil',
+        name: 'Pupil',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'ArtMesh',
+          texture_id: 't1',
+          vertices: [[50, 50], [60, 50], [50, 60]],
+          uvs: [[0, 0], [1, 0], [0, 1]],
+          indices: [0, 1, 2],
+          blend_mode: 'normal',
+          opacity: 1,
+          draw_order: 1,
+          mask_ids: ['mesh_hidden_sclera'],
+        },
+      },
+    });
+    bus.execute({
+      id: 'm_hidden_mask',
+      name: 'node.add',
+      params: {
+        id: 'mesh_hidden_sclera',
+        name: 'Hidden Sclera Mask',
+        parent_id: null,
+        visible: false, // Hidden!
+        locked: false,
+        kind: {
+          type: 'ArtMesh',
+          texture_id: 't1',
+          vertices: [[40, 40], [70, 40], [40, 70]],
+          uvs: [[0, 0], [1, 0], [0, 1]],
+          indices: [0, 1, 2],
+          blend_mode: 'normal',
+          opacity: 1,
+          draw_order: 0,
+          mask_ids: [],
+        },
+      },
+    });
+    const diags = lintProjectJson(JSON.stringify(bus.getProject())) as any[];
+    expect(diags.some((d) => d.code === 'MASK_TARGET_HIDDEN')).toBe(true);
+
+    // 3. Test unpackAtlasTextures
+    const dummyAtlasCanvas = createCanvas(512, 512);
+    const dummyAtlasBuf = dummyAtlasCanvas.toBuffer('image/png');
+    const unpacked = unpackAtlasTextures(bus.getProject(), dummyAtlasBuf);
+    expect(unpacked.length).toBeGreaterThanOrEqual(1);
+    expect(unpacked[0].buffer.subarray(0, 4).toString('hex')).toBe('89504e47');
   });
 
 });

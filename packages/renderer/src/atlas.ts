@@ -161,3 +161,44 @@ export function generateTextureAtlas(
     ],
   };
 }
+
+/**
+ * Reconstructs individual cropped ArtMesh texture PNGs from a packed atlas image
+ * and mesh UV coordinates (`CMD_GENERATE_RAW_IMAGE_FROM_TEXTURE_ATLAS`).
+ */
+export function unpackAtlasTextures(
+  project: Project,
+  atlasBuffer: Buffer
+): { textureId: string; filename: string; buffer: Buffer }[] {
+  const atlasImg = new Image();
+  atlasImg.src = atlasBuffer;
+  const atlasW = atlasImg.width;
+  const atlasH = atlasImg.height;
+  const results: { textureId: string; filename: string; buffer: Buffer }[] = [];
+
+  for (const node of project.nodes) {
+    if (node.kind.type !== 'ArtMesh' || node.kind.uvs.length === 0) continue;
+    let minU = Infinity, minV = Infinity, maxU = -Infinity, maxV = -Infinity;
+    for (const [u, v] of node.kind.uvs) {
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+    const sx = Math.max(0, Math.floor(minU * atlasW));
+    const sy = Math.max(0, Math.floor(minV * atlasH));
+    const sw = Math.max(1, Math.ceil((maxU - minU) * atlasW));
+    const sh = Math.max(1, Math.ceil((maxV - minV) * atlasH));
+
+    const canvas = createCanvas(sw, sh);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(atlasImg, sx, sy, sw, sh, 0, 0, sw, sh);
+
+    results.push({
+      textureId: `tex_unpacked_${node.id}`,
+      filename: `${node.id}_unpacked.png`,
+      buffer: canvas.toBuffer('image/png'),
+    });
+  }
+  return results;
+}

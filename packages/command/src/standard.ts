@@ -2201,4 +2201,78 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  // 15. Deform Path Skinning (`CMD_DEFORM_PATH_SKINNING` / `CUB3-1677`: 沿变形路径自动蒙皮生成骨骼链)
+  bus.register<{
+    path_id: string;
+    mesh_id?: string;
+  }>('deform_path.auto_skinning', (draft, { path_id, mesh_id }) => {
+    const pathNode = draft.nodes.find((n) => n.id === path_id);
+    if (!pathNode || pathNode.kind.type !== 'DeformPath') {
+      throw new Error(`DeformPath node '${path_id}' not found`);
+    }
+    const pts = pathNode.kind.control_points;
+    if (pts.length < 2) return;
+
+    let prevRotId: string | null = pathNode.parent_id;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const rotId = `rot_skin_${path_id}_${i + 1}`;
+      const paramId = `ParamSkinning_${path_id}_${i + 1}`;
+      const origin = pts[i];
+      const nextPt = pts[i + 1];
+      const dx = nextPt[0] - origin[0];
+      const dy = nextPt[1] - origin[1];
+      const restAngleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+
+      if (!draft.parameters.some((p) => p.id === paramId)) {
+        draft.parameters.push({
+          id: paramId,
+          name: `Skinning Angle #${i + 1}`,
+          min: -45,
+          max: 45,
+          default: 0,
+        });
+      }
+
+      if (!draft.nodes.some((n) => n.id === rotId)) {
+        draft.nodes.push({
+          id: rotId,
+          name: `Skinning Rot #${i + 1}`,
+          parent_id: prevRotId,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'RotationDeformer',
+            origin,
+            angle_deg: 0,
+            scale: [1, 1],
+          },
+        });
+      }
+
+      // Bind keyforms for this bone rotation
+      const keybinding = {
+        target_node_id: rotId,
+        dimensions: [{ param_id: paramId, keys: [-45, 0, 45] }],
+        keyforms: [
+          { coordinates: [-45], payload: { kind: 'Rotation' as const, origin, angle_deg: -45, scale: [1, 1] as [number, number] } },
+          { coordinates: [0], payload: { kind: 'Rotation' as const, origin, angle_deg: 0, scale: [1, 1] as [number, number] } },
+          { coordinates: [45], payload: { kind: 'Rotation' as const, origin, angle_deg: 45, scale: [1, 1] as [number, number] } },
+        ],
+      };
+      const kfIdx = draft.keyforms.findIndex((k) => k.target_node_id === rotId);
+      if (kfIdx >= 0) draft.keyforms[kfIdx] = keybinding;
+      else draft.keyforms.push(keybinding);
+
+      prevRotId = rotId;
+    }
+
+    // Reparent target mesh to root of skinning chain
+    const targetMesh = mesh_id
+      ? draft.nodes.find((n) => n.id === mesh_id)
+      : draft.nodes.find((n) => pathNode.kind.type === 'DeformPath' && pathNode.kind.target_mesh_ids.includes(n.id));
+    if (targetMesh && prevRotId) {
+      targetMesh.parent_id = `rot_skin_${path_id}_1`;
+    }
+  });
+
 }
