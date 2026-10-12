@@ -23,6 +23,9 @@ export interface EditorContextValue {
   // Physics Mode
   isPhysicsEnabled: boolean;
   setIsPhysicsEnabled: (val: boolean) => void;
+  // Auto Idle / Natural Breathing Mode
+  isAutoIdleEnabled: boolean;
+  setIsAutoIdleEnabled: (val: boolean) => void;
   // Animation / Timeline Mode
   isPlayingAnimation: boolean;
   setIsPlayingAnimation: (val: boolean) => void;

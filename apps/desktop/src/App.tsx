@@ -80,6 +80,7 @@ export function App() {
 
   // Physics state
   const [isPhysicsEnabled, setIsPhysicsEnabled] = useState(false);
+  const [isAutoIdleEnabled, setIsAutoIdleEnabled] = useState(false);
 
   // Animation timeline state
   const [isPlayingAnimation, setIsPlayingAnimation] = useState(false);
@@ -176,6 +177,36 @@ export function App() {
     animHandle = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animHandle);
   }, [isPlayingAnimation, project.animations, activeAnimationId, currentPlayheadFrame]);
+
+  // Auto Idle / Natural Breathing Loop
+  useEffect(() => {
+    if (!isAutoIdleEnabled) return;
+    let animHandle: number;
+    const start = performance.now();
+
+    const tick = (now: number) => {
+      const t = (now - start) / 1000;
+      const angleX = Math.sin(t * 0.7) * 8.0 + Math.sin(t * 0.25) * 3.0;
+      const angleY = Math.cos(t * 0.5) * 5.0;
+      const breath = Math.sin(t * 1.5) * 0.5 + 0.5;
+      const blinkCycle = t % 3.5;
+      const eyeOpen = blinkCycle > 3.35 ? 0.0 : 1.0;
+
+      setParameterValues((prev) => ({
+        ...prev,
+        ParamAngleX: angleX,
+        ParamAngleY: angleY,
+        ParamBreath: breath,
+        ParamEyeLOpen: eyeOpen,
+        ParamEyeROpen: eyeOpen,
+      }));
+
+      animHandle = requestAnimationFrame(tick);
+    };
+
+    animHandle = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animHandle);
+  }, [isAutoIdleEnabled]);
 
   const executeCommand = (cmd: any) => {
     const res = bus.execute(cmd);
@@ -383,6 +414,9 @@ export function App() {
     // Physics
     isPhysicsEnabled,
     setIsPhysicsEnabled,
+    // Auto Idle
+    isAutoIdleEnabled,
+    setIsAutoIdleEnabled,
     // Animation
     isPlayingAnimation,
     setIsPlayingAnimation,

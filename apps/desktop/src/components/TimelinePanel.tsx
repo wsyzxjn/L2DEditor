@@ -1,6 +1,16 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
-import { Play, Pause, Square, Repeat, Key, Plus, Film } from 'lucide-react';
+import {
+  Play,
+  Pause,
+  Square,
+  Repeat,
+  Key,
+  Plus,
+  Film,
+  TrendingUp,
+  List,
+} from 'lucide-react';
 import type { Animation } from '@l2d/schema';
 
 export const TimelinePanel: React.FC = () => {
@@ -18,8 +28,11 @@ export const TimelinePanel: React.FC = () => {
   } = useEditor();
 
   const rulerRef = useRef<HTMLDivElement | null>(null);
+  const [viewMode, setViewMode] = useState<'dopesheet' | 'graph'>('dopesheet');
+  const [selectedTrackParamId, setSelectedTrackParamId] = useState<string>(
+    project.parameters[0]?.id || 'ParamAngleX'
+  );
 
-  // Active animation or fallback to first
   const activeAnim: Animation = project.animations?.find((a) => a.id === activeAnimationId) || {
     id: 'anim_default',
     name: 'Idle Motion',
@@ -30,12 +43,16 @@ export const TimelinePanel: React.FC = () => {
   };
 
   const duration = Math.max(30, activeAnim.duration_frames || 60);
+  const selectedTrack = activeAnim.tracks.find((t) => t.target_param_id === selectedTrackParamId);
+  const selectedParamMeta = project.parameters.find((p) => p.id === selectedTrackParamId);
+  const paramMin = selectedParamMeta ? selectedParamMeta.min : -30;
+  const paramMax = selectedParamMeta ? selectedParamMeta.max : 30;
 
   const handleCreateAnimation = () => {
     const id = `anim_${Date.now()}`;
     const newAnim: Animation = {
       id,
-      name: `Motion ${ (project.animations?.length || 0) + 1 }`,
+      name: `Motion ${(project.animations?.length || 0) + 1}`,
       duration_frames: 60,
       fps: 30,
       loop_playback: true,
@@ -80,6 +97,18 @@ export const TimelinePanel: React.FC = () => {
     const pct = Math.max(0, Math.min(1, clickX / rect.width));
     const targetFrame = Math.round(pct * duration);
     setCurrentPlayheadFrame(targetFrame);
+  };
+
+  // Convert frame & value to Graph Editor SVG coords
+  const frameToSvgX = (f: number, width: number) => (f / duration) * width;
+  const valueToSvgY = (v: number, height: number) => {
+    const pct = (v - paramMin) / (paramMax - paramMin || 1);
+    return (1.0 - pct) * (height - 20) + 10;
+  };
+
+  const svgYToValue = (y: number, height: number) => {
+    const pct = 1.0 - (y - 10) / (height - 20);
+    return paramMin + pct * (paramMax - paramMin);
   };
 
   return (
@@ -139,6 +168,28 @@ export const TimelinePanel: React.FC = () => {
           <span className="text-dcc-sm text-zinc-500 font-mono">@{activeAnim.fps || 30}fps</span>
         </div>
 
+        {/* View Mode Toggle: Dope Sheet vs Graph Editor */}
+        <div className="flex items-center space-x-1 bg-dcc-bg p-0.5 rounded border border-dcc-border">
+          <button
+            className={`flex items-center px-1.5 py-0.5 text-dcc-sm rounded transition-colors ${
+              viewMode === 'dopesheet' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+            onClick={() => setViewMode('dopesheet')}
+            title="Dope Sheet Mode (摄影表)"
+          >
+            <List className="w-3 h-3 mr-1" /> Dope Sheet
+          </button>
+          <button
+            className={`flex items-center px-1.5 py-0.5 text-dcc-sm rounded transition-colors ${
+              viewMode === 'graph' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+            onClick={() => setViewMode('graph')}
+            title="Graph / Curve Editor (曲线编辑器)"
+          >
+            <TrendingUp className="w-3 h-3 mr-1" /> Graph Editor
+          </button>
+        </div>
+
         {/* Right Action: Motion Selector / Add Motion */}
         <div className="flex items-center space-x-2">
           {project.animations && project.animations.length > 0 ? (
@@ -169,34 +220,42 @@ export const TimelinePanel: React.FC = () => {
         {/* Left Track Headers */}
         <div className="w-48 border-r border-dcc-border bg-dcc-panel/60 overflow-y-auto shrink-0">
           <div className="h-6 border-b border-dcc-border bg-dcc-header/40 px-2 flex items-center text-dcc-sm text-dcc-muted uppercase font-semibold">
-            Track Parameters
+            Parameters
           </div>
-          {project.parameters.map((param) => (
-            <div
-              key={param.id}
-              className="h-6 px-2 border-b border-dcc-border/40 flex items-center justify-between text-dcc hover:bg-dcc-hover cursor-pointer"
-            >
-              <span className="truncate text-dcc-text">{param.name || param.id}</span>
-              <button
-                className="p-0.5 text-zinc-500 hover:text-emerald-400 transition-colors"
-                onClick={() => handleAddKeyframeAtPlayhead(param.id)}
-                title="Add Keyframe at current frame"
+          {project.parameters.map((param) => {
+            const isSelected = selectedTrackParamId === param.id;
+            return (
+              <div
+                key={param.id}
+                className={`h-6 px-2 border-b border-dcc-border/40 flex items-center justify-between text-dcc hover:bg-dcc-hover cursor-pointer ${
+                  isSelected ? 'bg-blue-950/40 text-blue-300 font-medium' : 'text-dcc-text'
+                }`}
+                onClick={() => setSelectedTrackParamId(param.id)}
               >
-                <Key className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
+                <span className="truncate">{param.name || param.id}</span>
+                <button
+                  className="p-0.5 text-zinc-500 hover:text-emerald-400 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAddKeyframeAtPlayhead(param.id);
+                  }}
+                  title="Add Keyframe at playhead"
+                >
+                  <Key className="w-3 h-3" />
+                </button>
+              </div>
+            );
+          })}
         </div>
 
-        {/* Right Timeline Canvas & Tracks */}
-        <div className="flex-1 flex flex-col overflow-x-auto relative">
+        {/* Right Content View */}
+        <div className="flex-1 flex flex-col overflow-hidden relative">
           {/* Ruler */}
           <div
             ref={rulerRef}
-            className="h-6 border-b border-dcc-border bg-dcc-header/40 relative cursor-pointer"
+            className="h-6 border-b border-dcc-border bg-dcc-header/40 relative cursor-pointer shrink-0"
             onClick={handleRulerClick}
           >
-            {/* Frame ticks */}
             {Array.from({ length: Math.floor(duration / 5) + 1 }).map((_, i) => {
               const frameNum = i * 5;
               const pct = (frameNum / duration) * 100;
@@ -212,7 +271,7 @@ export const TimelinePanel: React.FC = () => {
               );
             })}
 
-            {/* Red Playhead on Ruler */}
+            {/* Red Playhead Triangle & Line */}
             <div
               className="absolute top-0 bottom-0 w-2.5 -translate-x-1/2 pointer-events-none z-20 flex flex-col items-center"
               style={{ left: `${(currentPlayheadFrame / duration) * 100}%` }}
@@ -222,44 +281,100 @@ export const TimelinePanel: React.FC = () => {
             </div>
           </div>
 
-          {/* Track lanes */}
-          <div className="flex-1 overflow-y-auto relative">
-            {/* Vertical Playhead Guide Line */}
-            <div
-              className="absolute top-0 bottom-0 w-px bg-rose-500/80 pointer-events-none z-10"
-              style={{ left: `${(currentPlayheadFrame / duration) * 100}%` }}
-            />
+          {/* Dope Sheet View vs Graph Editor View */}
+          {viewMode === 'dopesheet' ? (
+            <div className="flex-1 overflow-y-auto relative">
+              {/* Vertical Playhead Guide Line */}
+              <div
+                className="absolute top-0 bottom-0 w-px bg-rose-500/80 pointer-events-none z-10"
+                style={{ left: `${(currentPlayheadFrame / duration) * 100}%` }}
+              />
 
-            {project.parameters.map((param) => {
-              const track = activeAnim.tracks.find((t) => t.target_param_id === param.id);
-              const keyframes = track?.keyframes || [];
+              {project.parameters.map((param) => {
+                const track = activeAnim.tracks.find((t) => t.target_param_id === param.id);
+                const keyframes = track?.keyframes || [];
 
-              return (
-                <div
-                  key={param.id}
-                  className="h-6 border-b border-dcc-border/40 relative bg-dcc-bg/20 hover:bg-dcc-bg/40 cursor-pointer"
-                  onClick={(e) => {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const pct = (e.clientX - rect.left) / rect.width;
-                    setCurrentPlayheadFrame(Math.round(pct * duration));
-                  }}
-                >
-                  {/* Keyframe diamonds */}
-                  {keyframes.map((kf, kidx) => {
-                    const pct = (kf.frame / duration) * 100;
-                    return (
-                      <div
-                        key={kidx}
-                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-amber-400 border border-zinc-900 z-10 hover:scale-125 transition-transform"
-                        style={{ left: `${pct}%` }}
-                        title={`Keyframe at frame ${kf.frame}: value ${kf.value}`}
-                      />
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
+                return (
+                  <div
+                    key={param.id}
+                    className="h-6 border-b border-dcc-border/40 relative bg-dcc-bg/20 hover:bg-dcc-bg/40 cursor-pointer"
+                    onClick={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const pct = (e.clientX - rect.left) / rect.width;
+                      setCurrentPlayheadFrame(Math.round(pct * duration));
+                    }}
+                  >
+                    {keyframes.map((kf, kidx) => {
+                      const pct = (kf.frame / duration) * 100;
+                      return (
+                        <div
+                          key={kidx}
+                          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-amber-400 border border-zinc-900 z-10 hover:scale-125 transition-transform"
+                          style={{ left: `${pct}%` }}
+                          title={`Keyframe at frame ${kf.frame}: value ${kf.value}`}
+                        />
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* Graph / Curve Editor View */
+            <div className="flex-1 relative bg-dcc-bg overflow-hidden flex flex-col">
+              {/* Playhead Guide Line in Graph */}
+              <div
+                className="absolute top-0 bottom-0 w-px bg-rose-500/80 pointer-events-none z-10"
+                style={{ left: `${(currentPlayheadFrame / duration) * 100}%` }}
+              />
+
+              {/* Zero-line indicator */}
+              <div
+                className="absolute left-0 right-0 h-px bg-zinc-700/60 pointer-events-none"
+                style={{ top: '50%' }}
+              />
+
+              <svg className="w-full h-full">
+                {selectedTrack && selectedTrack.keyframes.length >= 2 && (
+                  <polyline
+                    fill="none"
+                    stroke="#38bdf8"
+                    strokeWidth="2"
+                    points={selectedTrack.keyframes
+                      .map((kf) => {
+                        const x = (kf.frame / duration) * 1000;
+                        const y = valueToSvgY(kf.value, 150);
+                        return `${x},${y}`;
+                      })
+                      .join(' ')}
+                  />
+                )}
+
+                {selectedTrack?.keyframes.map((kf, kidx) => {
+                  const x = (kf.frame / duration) * 1000;
+                  const y = valueToSvgY(kf.value, 150);
+                  return (
+                    <circle
+                      key={kidx}
+                      cx={x}
+                      cy={y}
+                      r="4"
+                      fill="#f59e0b"
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
+                      className="cursor-ns-resize hover:scale-150 transition-transform"
+                    >
+                      <title>{`Frame ${kf.frame}: ${kf.value}`}</title>
+                    </circle>
+                  );
+                })}
+              </svg>
+
+              <div className="absolute top-2 right-2 px-2 py-1 bg-black/60 rounded text-dcc-sm font-mono text-zinc-400">
+                Curve: {selectedTrackParamId} ({paramMin} ~ {paramMax})
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

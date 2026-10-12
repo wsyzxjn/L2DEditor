@@ -7,6 +7,7 @@ import {
   Check,
   Sparkles,
   Zap,
+  Smile,
 } from 'lucide-react';
 import earcut from 'earcut';
 
@@ -24,6 +25,8 @@ export const ViewportPanel: React.FC = () => {
     setSelectedVertexIndex,
     isPhysicsEnabled,
     setIsPhysicsEnabled,
+    isAutoIdleEnabled,
+    setIsAutoIdleEnabled,
     notify,
   } = useEditor();
 
@@ -473,6 +476,23 @@ export const ViewportPanel: React.FC = () => {
         >
           <Zap className="w-3 h-3 mr-1" />
           Physics
+        </button>
+
+        {/* Auto Idle Natural Posing Toggle */}
+        <button
+          className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
+            isAutoIdleEnabled
+              ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/50'
+              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
+          }`}
+          onClick={() => {
+            setIsAutoIdleEnabled(!isAutoIdleEnabled);
+            notify(`Auto Idle posing ${!isAutoIdleEnabled ? 'ENABLED' : 'DISABLED'}`, 'info');
+          }}
+          title="Toggle automatic natural breathing and posing"
+        >
+          <Smile className="w-3 h-3 mr-1" />
+          Auto Idle
         </button>
       </div>
 
