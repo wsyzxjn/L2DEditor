@@ -20,7 +20,7 @@
 | `packages/renderer` | PixiJS v8 WebGL2 viewport adapter, `@napi-rs/canvas` headless deterministic PNG/GIF/WebM/MP4 renderer, WAV lip-sync analyzer (`analyzeWavForLipSync`), texture atlas composer (`generateTextureAtlas`), and runtime bundle exporter (`exportRuntimePackage`). |
 | `apps/cli` | Headless `l2d` CLI tool providing 100% terminal parity with GUI operations. |
 | `packages/mcp-server` | Official Model Context Protocol (MCP) stdio server + WebSocket External Integration server (port `22033`, compatible with Cubism 5.1–5.4 JSON-RPC actions). |
-| `apps/desktop` | Electron + `coss` (24px high-density DCC dark theme) + `dockview-react` 4-pane desktop editor. |
+| `apps/desktop` | Electron + `coss` (24px high-density DCC dark theme) + `dockview-react` 4-pane desktop editor + trilingual i18n (`zh-CN`, `ja`, `en`) with automatic system language detection. |
 
 ---
 
