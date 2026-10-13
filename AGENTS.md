@@ -15,7 +15,7 @@
 | `crates/l2d-core` | Pure-Rust kernel: hierarchical `WarpDeformer` / `RotationDeformer` / `DeformPath` / `ArtMesh` / `ArtPath` / `Glue` evaluation (`evaluator.rs`), multi-dimensional keyform interpolation (`ExtendedInterpolationType`: Linear, Circle, Bezier), spec-compliant Live2D `.moc3` v1–v5 binary serializer & parser (`moc3.rs`), full runtime bundle & 2D Shelf Atlas packer (`exporter.rs`), 3-layer MLP (`Gemm + ReLU`) & 13-class `PredClass` classifier (`neural.rs`), pendulum physics & track baking (`physics.rs`), `.mtn` parser with `IdConverter` & `$fadein`/`$fadeout` (`animation.rs`), and topology/protrusion/mask linter (`lint.rs`). |
 | `crates/l2d-wasm` | WebAssembly bindings compiled via `wasm-pack` to `packages/schema/wasm-web` (Browser/Electron) and `packages/schema/wasm-node` (Node/CLI/MCP). |
 | `packages/schema` | TypeScript contract types (`Project`, `Node`, `Parameter`, `KeyformBinding`, `PhysicsGroup`, `Animation`, `Expression`, `PoseGroup`), JSON Schema, and JS fallback evaluator. |
-| `packages/command` | `immer` (`produceWithPatches`) + `zod` Command Bus with RFC 6902 JSON patches, atomic transactions (`beginTransaction` / `commitTransaction` / `rollbackTransaction`), dry-run preview, Undo/Redo stack, and 45+ editing commands & macros. |
+| `packages/command` | `immer` (`produceWithPatches`) + `zod` Command Bus with RFC 6902 JSON patches, atomic transactions (`beginTransaction` / `commitTransaction` / `rollbackTransaction`), dry-run preview, Undo/Redo stack, and 50+ editing commands & macros (`macro.synthesize_4_corners`, `deform.soft_brush`, `mesh.add_vertex`, `mesh.flip_edge`, `glue.paint_weights`, etc.). |
 | `packages/psd` | Layered PSD import (`importPsdBuffer`), non-destructive artwork reload, `earcut` Delaunay mesh generation, and layered PSD export (`exportModelToPsdBuffer`). |
 | `packages/renderer` | PixiJS v8 WebGL2 viewport adapter, `@napi-rs/canvas` headless deterministic PNG/GIF/WebM/MP4 renderer, WAV lip-sync analyzer (`analyzeWavForLipSync`), texture atlas composer (`generateTextureAtlas`), and runtime bundle exporter (`exportRuntimePackage`). |
 | `apps/cli` | Headless `l2d` CLI tool providing 100% terminal parity with GUI operations. |
@@ -34,7 +34,7 @@ All runtime and exchange formats are generated in pure Rust (`crates/l2d-core/sr
 - **`.cdi3.json`**: Display info for `Parameters`, `ParameterGroups`, `Parts`, and 2D `CombinedParameters`.
 - **`motions/*.motion3.json`**: Parameter curves (`Linear`, `Bezier` with custom tangent handles, `Stepped`), per-track `FadeInTime`/`FadeOutTime`, and timeline `UserData` events from `anim.markers`.
 - **`expressions/*.exp3.json`**, **`.pose3.json`**, **`.userdata3.json`**, **`.motionsync3.json`**: Full runtime auxiliary manifests.
-- **`.psd` & Modeling Templates (`.json`)**: Multi-layer evaluated PSD round-trip (`export-psd`) and reusable rig template export/apply (`export-template` / `template.apply`).
+- **`.psd` & Modeling Templates (`.json`)**: Multi-layer evaluated PSD round-trip (`export-psd`), runtime package bidirectional import (`import-bundle` / `importRuntimePackage`), and reusable rig template export/apply (`export-template` / `template.apply`).
 
 ---
 
@@ -50,6 +50,7 @@ Agents can drive the entire 2D puppet rigging lifecycle without opening a GUI wi
    - MCP: `l2d_exec` (`macro.auto_rig` / `macro.ai_full_body_deformers`) + `l2d_ai_face_rig`
 3. **Fine-Grained Command Execution & Dry-Run**:
    - CLI: `node apps/cli/dist/index.js exec ./char.l2dproj '{"id":"1","name":"keyform.reflect_horizontal","params":{"node_id":"FACE","param_id":"ParamAngleX"}}' --dry-run`
+   - Mesh Editing & 4-Corner Synthesis: `macro.synthesize_4_corners`, `deform.soft_brush`, `mesh.add_vertex`, `mesh.flip_edge`, `glue.paint_weights`
    - MCP: `l2d_exec`, `l2d_batch_exec`
 4. **Dual-Loop Verification (Numerical Lint + Visual Snapshot)**:
    - Numerical Lint: `node apps/cli/dist/index.js lint ./char.l2dproj` (`l2d_lint`)
@@ -58,6 +59,7 @@ Agents can drive the entire 2D puppet rigging lifecycle without opening a GUI wi
    - Full Runtime Bundle: `node apps/cli/dist/index.js export ./char.l2dproj -o ./dist -n haru -s 2048` (`l2d_export`)
    - Standalone `.moc3`: `node apps/cli/dist/index.js export-moc3 ./char.l2dproj -o ./haru.moc3 -v 5` (`l2d_export_moc3`)
    - Import `.moc3`: `node apps/cli/dist/index.js import-moc3 ./haru.moc3 -o ./imported.l2dproj` (`l2d_import_moc3`)
+   - Import Full Runtime Package: `node apps/cli/dist/index.js import-bundle ./dist/model.model3.json -o ./imported_pkg.l2dproj` (`l2d_import_bundle`)
 
 ---
 
