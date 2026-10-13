@@ -74,6 +74,8 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'parameters.lock_param': '锁定参数',
     'parameters.unlock_param': '解锁参数',
     'parameters.keyform_dot': '键形位置',
+    'parameters.xy_pad': '2D 摇杆控制 (XY Pad)',
+    'parameters.xy_pad_reset': '双击复位默认值',
 
     // Inspector Panel
     'inspector.title': '属性检查器',
@@ -249,6 +251,8 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'parameters.lock_param': 'パラメータをロック',
     'parameters.unlock_param': 'パラメータのロック解除',
     'parameters.keyform_dot': 'キーフォーム位置',
+    'parameters.xy_pad': '2Dコントローラー (XY Pad)',
+    'parameters.xy_pad_reset': 'ダブルクリックでリセット',
 
     // Inspector Panel
     'inspector.title': 'インスペクタ',
@@ -424,6 +428,8 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'parameters.lock_param': 'Lock Parameter',
     'parameters.unlock_param': 'Unlock Parameter',
     'parameters.keyform_dot': 'Keyform position',
+    'parameters.xy_pad': '2D Joystick Pad (XY)',
+    'parameters.xy_pad_reset': 'Double-click to reset',
 
     // Inspector Panel
     'inspector.title': 'Inspector',

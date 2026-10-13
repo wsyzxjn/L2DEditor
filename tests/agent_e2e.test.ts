@@ -2431,4 +2431,99 @@ describe('Agent-First Full Feature Pipeline', () => {
     }
   });
 
+  it('should support automatic mesh generation presets (fine, standard, coarse) and batch node reparent/update', () => {
+    const bus = new CommandBus(initialProject);
+    registerStandardCommands(bus);
+
+    bus.execute({
+      id: 'm1',
+      name: 'node.add',
+      params: {
+        id: 'mesh_auto_test',
+        name: 'Auto Mesh Test',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'ArtMesh',
+          texture_id: 't0',
+          vertices: [[100, 100], [300, 100], [300, 300], [100, 300]],
+          uvs: [[0, 0], [1, 0], [1, 1], [0, 1]],
+          indices: [0, 1, 2, 0, 2, 3],
+          blend_mode: 'normal',
+          opacity: 1,
+          draw_order: 10,
+          mask_ids: [],
+        },
+      },
+    });
+
+    // 1. Auto generate with 'coarse' preset (1x1 = 4 vertices, 2 triangles = 6 indices)
+    bus.execute({
+      id: 'gen_coarse',
+      name: 'mesh.auto_generate_mesh',
+      params: { node_id: 'mesh_auto_test', density_preset: 'coarse' },
+    });
+    let m = bus.getProject().nodes.find((n) => n.id === 'mesh_auto_test')!;
+    if (m.kind.type === 'ArtMesh') {
+      expect(m.kind.vertices.length).toBe(4);
+      expect(m.kind.indices.length).toBe(6);
+    }
+
+    // 2. Auto generate with 'standard' preset (3x3 grid = 16 vertices, 18 triangles = 54 indices)
+    bus.execute({
+      id: 'gen_std',
+      name: 'mesh.auto_generate_mesh',
+      params: { node_id: 'mesh_auto_test', density_preset: 'standard' },
+    });
+    m = bus.getProject().nodes.find((n) => n.id === 'mesh_auto_test')!;
+    if (m.kind.type === 'ArtMesh') {
+      expect(m.kind.vertices.length).toBe(16);
+      expect(m.kind.indices.length).toBe(54);
+    }
+
+    // 3. Auto generate with 'fine' preset (6x6 grid = 49 vertices, 72 triangles = 216 indices)
+    bus.execute({
+      id: 'gen_fine',
+      name: 'mesh.auto_generate_mesh',
+      params: { node_id: 'mesh_auto_test', density_preset: 'fine' },
+    });
+    m = bus.getProject().nodes.find((n) => n.id === 'mesh_auto_test')!;
+    if (m.kind.type === 'ArtMesh') {
+      expect(m.kind.vertices.length).toBe(49);
+      expect(m.kind.indices.length).toBe(216);
+    }
+
+    // 4. Batch reparent and batch update
+    bus.execute({
+      id: 'm2',
+      name: 'node.add',
+      params: {
+        id: 'mesh_sibling',
+        name: 'Sibling',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: { type: 'Part', collapsed: false, opacity: 1 },
+      },
+    });
+    bus.execute({
+      id: 'batch_p',
+      name: 'node.batch_reparent',
+      params: { node_ids: ['mesh_auto_test', 'mesh_sibling'], new_parent_id: 'root_warp' },
+    });
+    expect(bus.getProject().nodes.find((n) => n.id === 'mesh_auto_test')!.parent_id).toBe('root_warp');
+    expect(bus.getProject().nodes.find((n) => n.id === 'mesh_sibling')!.parent_id).toBe('root_warp');
+
+    bus.execute({
+      id: 'batch_u',
+      name: 'node.batch_update',
+      params: { node_ids: ['mesh_auto_test', 'mesh_sibling'], changes: { visible: false, locked: true } },
+    });
+    expect(bus.getProject().nodes.find((n) => n.id === 'mesh_auto_test')!.visible).toBe(false);
+    expect(bus.getProject().nodes.find((n) => n.id === 'mesh_auto_test')!.locked).toBe(true);
+    expect(bus.getProject().nodes.find((n) => n.id === 'mesh_sibling')!.visible).toBe(false);
+    expect(bus.getProject().nodes.find((n) => n.id === 'mesh_sibling')!.locked).toBe(true);
+  });
+
 });

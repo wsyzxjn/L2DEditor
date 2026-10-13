@@ -2600,4 +2600,111 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  // 21. Automatic Mesh Generation with Density Presets (CMD_AUTOMATIC_MESH_GENERATOR / CUB3-1125: メッシュの自動生成)
+  bus.register<{
+    node_id: string;
+    density_preset?: 'fine' | 'standard' | 'coarse' | number;
+  }>('mesh.auto_generate_mesh', (draft, { node_id, density_preset = 'standard' }) => {
+    const node = draft.nodes.find((n) => n.id === node_id);
+    if (!node || node.kind.type !== 'ArtMesh') {
+      throw new Error(`ArtMesh node '${node_id}' not found`);
+    }
+    const mesh = node.kind;
+    if (mesh.vertices.length === 0) return;
+
+    // Compute bounding box
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of mesh.vertices) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    const w = Math.max(10, maxX - minX);
+    const h = Math.max(10, maxY - minY);
+
+    let cols = 3;
+    let rows = 3;
+    if (density_preset === 'fine' || density_preset === 4) {
+      cols = 6;
+      rows = 6;
+    } else if (density_preset === 'coarse' || density_preset === 1) {
+      cols = 1;
+      rows = 1;
+    } else if (typeof density_preset === 'number') {
+      cols = Math.max(1, Math.min(16, Math.round(density_preset)));
+      rows = cols;
+    }
+
+    const newVertices: [number, number][] = [];
+    const newUvs: [number, number][] = [];
+    const newIndices: number[] = [];
+    const cw = draft.canvas.width || 1920;
+    const ch = draft.canvas.height || 1080;
+
+    for (let r = 0; r <= rows; r++) {
+      const vy = minY + (h * r) / rows;
+      for (let c = 0; c <= cols; c++) {
+        const vx = minX + (w * c) / cols;
+        newVertices.push([vx, vy]);
+        newUvs.push([
+          Math.max(0, Math.min(1, vx / cw)),
+          Math.max(0, Math.min(1, vy / ch)),
+        ]);
+      }
+    }
+
+    const stride = cols + 1;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i0 = r * stride + c;
+        const i1 = i0 + 1;
+        const i2 = (r + 1) * stride + c;
+        const i3 = i2 + 1;
+        if ((r + c) % 2 === 0) {
+          newIndices.push(i0, i1, i2);
+          newIndices.push(i1, i3, i2);
+        } else {
+          newIndices.push(i0, i1, i3);
+          newIndices.push(i0, i3, i2);
+        }
+      }
+    }
+
+    mesh.vertices = newVertices;
+    mesh.uvs = newUvs;
+    mesh.indices = newIndices;
+  });
+
+  // 22. Batch Node Reparenting (`CMD_BATCH_REPARENT` / `CUB3-1250`: 親デフォーマ一括設定)
+  bus.register<{
+    node_ids: string[];
+    new_parent_id: string | null;
+  }>('node.batch_reparent', (draft, { node_ids, new_parent_id }) => {
+    for (const nid of node_ids) {
+      const node = draft.nodes.find((n) => n.id === nid);
+      if (node && nid !== new_parent_id) {
+        node.parent_id = new_parent_id;
+      }
+    }
+  });
+
+  // 23. Batch Node Update (visibility, locked, opacity)
+  bus.register<{
+    node_ids: string[];
+    changes: { visible?: boolean; locked?: boolean; opacity?: number };
+  }>('node.batch_update', (draft, { node_ids, changes }) => {
+    for (const nid of node_ids) {
+      const node = draft.nodes.find((n) => n.id === nid);
+      if (node) {
+        if (changes.visible !== undefined) node.visible = changes.visible;
+        if (changes.locked !== undefined) node.locked = changes.locked;
+        if (changes.opacity !== undefined) {
+          if (node.kind.type === 'ArtMesh') node.kind.opacity = changes.opacity;
+          else if (node.kind.type === 'Part') node.kind.opacity = changes.opacity;
+        }
+      }
+    }
+  });
+
 }

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
 import { ScrubInput } from './ScrubInput.js';
-import { Plus, SlidersHorizontal, Folder, ChevronDown, ChevronRight, FolderPlus, RotateCcw, Lock, Unlock } from 'lucide-react';
+import { Plus, SlidersHorizontal, Folder, ChevronDown, ChevronRight, FolderPlus, RotateCcw, Lock, Unlock, Compass } from 'lucide-react';
 import type { Parameter } from '@l2d/schema';
 
 export const ParametersPanel: React.FC = () => {
@@ -129,6 +129,25 @@ export const ParametersPanel: React.FC = () => {
   const groupedParamIds = new Set(project.parameters.filter((p) => p.group_id).map((p) => p.id));
   const ungroupedParams = project.parameters.filter((p) => !p.group_id);
 
+  // Find standard 2D XY parameter pairs (e.g. Angle X & Angle Y, EyeBall X & EyeBall Y)
+  const pAngleX = project.parameters.find((p) => p.id === 'ParamAngleX');
+  const pAngleY = project.parameters.find((p) => p.id === 'ParamAngleY');
+  const hasAngle2D = pAngleX && pAngleY;
+
+  const valX = pAngleX ? parameterValues[pAngleX.id] ?? pAngleX.default : 0;
+  const valY = pAngleY ? parameterValues[pAngleY.id] ?? pAngleY.default : 0;
+
+  const handlePadPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pAngleX || !pAngleY) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const newX = pAngleX.min + normX * (pAngleX.max - pAngleX.min);
+    const newY = pAngleY.max - normY * (pAngleY.max - pAngleY.min);
+    setParameterValue(pAngleX.id, Math.round(newX * 10) / 10);
+    setParameterValue(pAngleY.id, Math.round(newY * 10) / 10);
+  };
+
   return (
     <div className="flex flex-col h-full bg-dcc-panel border-l border-dcc-border">
       {/* Header */}
@@ -183,6 +202,52 @@ export const ParametersPanel: React.FC = () => {
 
       {/* Parameter List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
+        {/* 2D XY Joystick Pad (ParamAngleX / ParamAngleY) */}
+        {hasAngle2D && (
+          <div className="p-2 bg-dcc-bg/60 border border-dcc-border rounded space-y-1.5">
+            <div className="flex items-center justify-between text-dcc-sm text-dcc-muted">
+              <div className="flex items-center space-x-1 font-semibold uppercase">
+                <Compass className="w-3.5 h-3.5 text-blue-400" />
+                <span>{t('parameters.xy_pad')}</span>
+              </div>
+              <span className="font-mono text-[10px] text-zinc-400">
+                ({valX.toFixed(1)}, {valY.toFixed(1)})
+              </span>
+            </div>
+
+            <div
+              className="relative w-full h-24 bg-zinc-950 border border-zinc-700/60 rounded cursor-crosshair overflow-hidden select-none"
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId);
+                handlePadPointer(e);
+              }}
+              onPointerMove={(e) => {
+                if (e.buttons === 1) handlePadPointer(e);
+              }}
+              onDoubleClick={() => {
+                if (pAngleX && pAngleY) {
+                  setParameterValue(pAngleX.id, pAngleX.default);
+                  setParameterValue(pAngleY.id, pAngleY.default);
+                }
+              }}
+              title={t('parameters.xy_pad_reset')}
+            >
+              {/* Crosshair lines */}
+              <div className="absolute top-1/2 left-0 right-0 h-px bg-zinc-800" />
+              <div className="absolute left-1/2 top-0 bottom-0 w-px bg-zinc-800" />
+
+              {/* Indicator dot */}
+              <div
+                className="absolute w-3 h-3 rounded-full bg-blue-500 border-2 border-white shadow -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-transform"
+                style={{
+                  left: `${((valX - pAngleX.min) / (pAngleX.max - pAngleX.min)) * 100}%`,
+                  top: `${((pAngleY.max - valY) / (pAngleY.max - pAngleY.min)) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {project.parameters.length === 0 ? (
           <div className="p-4 text-center text-dcc text-dcc-muted">{t('parameters.no_params')}</div>
         ) : (
