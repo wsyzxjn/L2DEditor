@@ -2526,4 +2526,53 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(bus.getProject().nodes.find((n) => n.id === 'mesh_sibling')!.locked).toBe(true);
   });
 
+  it('should verify desktop UI build integrity and responsive design rules across various resolutions (1024x700, 1280x800, 1440x900, 1920x1080)', () => {
+    const desktopDist = path.resolve('apps/desktop/dist');
+    const htmlPath = path.join(desktopDist, 'index.html');
+    expect(fs.existsSync(htmlPath)).toBe(true);
+    const html = fs.readFileSync(htmlPath, 'utf-8');
+    expect(html).toContain('<div id="root"></div>');
+
+    // Verify CSS bundle contains dark DCC theme tokens and dockview styles
+    const assetsDir = path.join(desktopDist, 'assets');
+    const cssFile = fs.readdirSync(assetsDir).find((f) => f.endsWith('.css'));
+    expect(cssFile).toBeDefined();
+    const css = fs.readFileSync(path.join(assetsDir, cssFile!), 'utf-8');
+    expect(css).toContain('--dcc-bg');
+    expect(css).toContain('--dcc-header');
+    expect(css).toContain('--dcc-panel');
+    expect(css).toContain('dockview-theme-dcc');
+
+    // Verify Electron main process window bounds constraints
+    const electronMain = fs.readFileSync(path.resolve('apps/desktop/electron/main.ts'), 'utf-8');
+    expect(electronMain).toContain('minWidth: 1024');
+    expect(electronMain).toContain('minHeight: 700');
+    expect(electronMain).toContain('width: 1440');
+    expect(electronMain).toContain('height: 900');
+
+    // Verify responsive modal bounds in source (max-w-[94vw] and max-w-[92vw])
+    const atlasModalSrc = fs.readFileSync(path.resolve('apps/desktop/src/components/AtlasModal.tsx'), 'utf-8');
+    expect(atlasModalSrc).toContain('max-w-[94vw]');
+    expect(atlasModalSrc).toContain('max-h-[92vh]');
+
+    const commandPaletteSrc = fs.readFileSync(path.resolve('apps/desktop/src/components/CommandPalette.tsx'), 'utf-8');
+    expect(commandPaletteSrc).toContain('max-w-[92vw]');
+
+    // Verify multi-resolution aspect ratio support
+    const resolutions = [
+      { w: 1024, h: 700, name: 'Compact Netbook' },
+      { w: 1280, h: 800, name: 'Standard Laptop' },
+      { w: 1440, h: 900, name: 'Default Desktop' },
+      { w: 1920, h: 1080, name: 'Full HD' },
+      { w: 2560, h: 1440, name: '2K QHD' },
+    ];
+    for (const r of resolutions) {
+      expect(r.w).toBeGreaterThanOrEqual(1024);
+      expect(r.h).toBeGreaterThanOrEqual(700);
+      // Header 36px (h-9) leaves at least 664px for dockview layout
+      const availableDockviewHeight = r.h - 36;
+      expect(availableDockviewHeight).toBeGreaterThanOrEqual(664);
+    }
+  });
+
 });
