@@ -487,6 +487,12 @@ export function registerStandardCommands(bus: CommandBus): void {
     draft.glues.push(glue);
   });
 
+  bus.register<any>('glue.bind', (draft, glue) => {
+    if (!draft.glues) draft.glues = [];
+    draft.glues = draft.glues.filter((g) => g.id !== glue.id);
+    draft.glues.push(glue);
+  });
+
   bus.register<{ id: string }>('glue.delete', (draft, { id }) => {
     if (draft.glues) {
       draft.glues = draft.glues.filter((g) => g.id !== id);
@@ -2461,6 +2467,136 @@ export function registerStandardCommands(bus: CommandBus): void {
         const w = computeWeight(px, py);
         return [px + dx * w, py + dy * w];
       });
+    }
+  });
+
+  // 18. Manual Mesh Vertex Insertion (`CMD_TOOL_MODE_MESH_ADD_VERTEX` / `CUB3-1120`: メッシュ頂点追加)
+  bus.register<{
+    node_id: string;
+    pos: [number, number];
+    uv?: [number, number];
+  }>('mesh.add_vertex', (draft, { node_id, pos, uv }) => {
+    const node = draft.nodes.find((n) => n.id === node_id);
+    if (!node || node.kind.type !== 'ArtMesh') {
+      throw new Error(`ArtMesh node '${node_id}' not found`);
+    }
+    const mesh = node.kind;
+    const newIdx = mesh.vertices.length;
+    mesh.vertices.push(pos);
+    mesh.uvs.push(uv || [
+      Math.max(0, Math.min(1, pos[0] / (draft.canvas.width || 1))),
+      Math.max(0, Math.min(1, pos[1] / (draft.canvas.height || 1))),
+    ]);
+
+    // If we have existing triangles, find closest triangle and subdivide into 3 triangles
+    if (mesh.indices.length >= 3) {
+      let bestTriIdx = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < mesh.indices.length; i += 3) {
+        const i0 = mesh.indices[i];
+        const i1 = mesh.indices[i + 1];
+        const i2 = mesh.indices[i + 2];
+        const p0 = mesh.vertices[i0] || pos;
+        const p1 = mesh.vertices[i1] || pos;
+        const p2 = mesh.vertices[i2] || pos;
+        const cx = (p0[0] + p1[0] + p2[0]) / 3.0;
+        const cy = (p0[1] + p1[1] + p2[1]) / 3.0;
+        const d = Math.hypot(pos[0] - cx, pos[1] - cy);
+        if (d < bestDist) {
+          bestDist = d;
+          bestTriIdx = i;
+        }
+      }
+      const origI0 = mesh.indices[bestTriIdx];
+      const origI1 = mesh.indices[bestTriIdx + 1];
+      const origI2 = mesh.indices[bestTriIdx + 2];
+      // Replace original triangle with (origI0, origI1, newIdx) and append other 2
+      mesh.indices[bestTriIdx] = origI0;
+      mesh.indices[bestTriIdx + 1] = origI1;
+      mesh.indices[bestTriIdx + 2] = newIdx;
+      mesh.indices.push(origI1, origI2, newIdx);
+      mesh.indices.push(origI2, origI0, newIdx);
+    }
+  });
+
+  // 19. Delaunay Edge Flip / Swap (`CMD_MESH_FLIP_EDGE` / `CUB3-1122`: 辺の反転)
+  bus.register<{
+    node_id: string;
+    edge: [number, number];
+  }>('mesh.flip_edge', (draft, { node_id, edge }) => {
+    const node = draft.nodes.find((n) => n.id === node_id);
+    if (!node || node.kind.type !== 'ArtMesh') {
+      throw new Error(`ArtMesh node '${node_id}' not found`);
+    }
+    const mesh = node.kind;
+    const [vA, vB] = edge;
+
+    // Find the two triangles sharing edge (vA, vB)
+    let t0 = -1;
+    let t1 = -1;
+    let c0 = -1;
+    let c1 = -1;
+
+    for (let i = 0; i < mesh.indices.length; i += 3) {
+      const tri = [mesh.indices[i], mesh.indices[i + 1], mesh.indices[i + 2]];
+      const hasA = tri.includes(vA);
+      const hasB = tri.includes(vB);
+      if (hasA && hasB) {
+        const other = tri.find((idx) => idx !== vA && idx !== vB)!;
+        if (t0 === -1) {
+          t0 = i;
+          c0 = other;
+        } else if (t1 === -1) {
+          t1 = i;
+          c1 = other;
+          break;
+        }
+      }
+    }
+
+    if (t0 >= 0 && t1 >= 0 && c0 >= 0 && c1 >= 0) {
+      // Flip edge: replace (vA, vB, c0) and (vB, vA, c1) with (c0, c1, vA) and (c1, c0, vB)
+      mesh.indices[t0] = c0;
+      mesh.indices[t0 + 1] = c1;
+      mesh.indices[t0 + 2] = vA;
+      mesh.indices[t1] = c1;
+      mesh.indices[t1 + 1] = c0;
+      mesh.indices[t1 + 2] = vB;
+    }
+  });
+
+  // 20. Glue Weight Paint Brush (`CMD_TOOL_MODE_GLUE_WEIGHT_PAINT` / `CUB3-1784`: グルーのウェイト調整)
+  bus.register<{
+    glue_id: string;
+    center: [number, number];
+    radius: number;
+    weight_delta: number; // positive increases weight_a, negative increases weight_b
+    falloff?: 'smooth' | 'linear';
+  }>('glue.paint_weights', (draft, { glue_id, center, radius, weight_delta, falloff = 'smooth' }) => {
+    const glue = (draft.glues || []).find((g) => g.id === glue_id);
+    if (!glue) throw new Error(`Glue binding '${glue_id}' not found`);
+    const meshA = draft.nodes.find((n) => n.id === glue.mesh_a_id);
+    const meshB = draft.nodes.find((n) => n.id === glue.mesh_b_id);
+    if (!meshA || !meshB || meshA.kind.type !== 'ArtMesh' || meshB.kind.type !== 'ArtMesh') {
+      return;
+    }
+    const r = Math.max(1, radius);
+    const [cx, cy] = center;
+
+    for (const pair of glue.vertex_pairs) {
+      const pA = meshA.kind.vertices[pair.index_a];
+      const pB = meshB.kind.vertices[pair.index_b];
+      if (!pA || !pB) continue;
+      const midX = (pA[0] + pB[0]) * 0.5;
+      const midY = (pA[1] + pB[1]) * 0.5;
+      const dist = Math.hypot(midX - cx, midY - cy);
+      if (dist < r) {
+        const t = dist / r;
+        const wFactor = falloff === 'linear' ? 1.0 - t : 1.0 - 3.0 * t * t + 2.0 * t * t * t;
+        const step = weight_delta * wFactor;
+        pair.weight_a = Math.max(0.0, Math.min(1.0, pair.weight_a + step));
+        pair.weight_b = Math.max(0.0, Math.min(1.0, 1.0 - pair.weight_a));
+      }
     }
   });
 

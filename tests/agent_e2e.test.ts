@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CommandBus, registerStandardCommands } from '../packages/command/dist/index.js';
-import { WasmModel, lintProjectJson, getProjectStats, importMtnMotion, bakePhysicsToAnimation } from '../packages/schema/wasm-node/l2d_wasm.js';
+import { WasmModel, lintProjectJson, getProjectStats, importMtnMotion, bakePhysicsToAnimation, autoSmoothAnimationTrackTangents } from '../packages/schema/wasm-node/l2d_wasm.js';
 import {
   renderFrameToCanvas,
   createCanvas,
@@ -2293,6 +2293,112 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(imported.mocVersion).toBe(5);
     expect(imported.project.nodes.length).toBe(bus.getProject().nodes.length);
     expect(imported.project.parameters.length).toBe(bus.getProject().parameters.length);
+  });
+
+  it('should support manual mesh edit (mesh.add_vertex, mesh.flip_edge), glue weight painting, physics ground clamping, and animation auto-smoothing', async () => {
+    const bus = new CommandBus(initialProject);
+    registerStandardCommands(bus);
+
+    // 1. Manual mesh edit: add vertex and flip edge
+    bus.execute({
+      id: 'm_quad',
+      name: 'node.add',
+      params: {
+        id: 'mesh_edit_target',
+        name: 'Editable Mesh',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'ArtMesh',
+          texture_id: 't0',
+          vertices: [[0, 0], [100, 0], [100, 100], [0, 100]],
+          uvs: [[0, 0], [1, 0], [1, 1], [0, 1]],
+          indices: [0, 1, 2, 0, 2, 3], // Two triangles sharing edge (0, 2)
+          blend_mode: 'normal',
+          opacity: 1,
+          draw_order: 10,
+          mask_ids: [],
+        },
+      },
+    });
+
+    // Flip edge between triangles: edge (0, 2) -> should flip to connect (1, 3)
+    bus.execute({
+      id: 'do_flip',
+      name: 'mesh.flip_edge',
+      params: { node_id: 'mesh_edit_target', edge: [0, 2] },
+    });
+    const flipped = bus.getProject().nodes.find((n) => n.id === 'mesh_edit_target')!;
+    if (flipped.kind.type === 'ArtMesh') {
+      expect(flipped.kind.indices.length).toBe(6);
+      // Triangles should now contain (1, 3)
+      const tri0 = [flipped.kind.indices[0], flipped.kind.indices[1], flipped.kind.indices[2]];
+      const tri1 = [flipped.kind.indices[3], flipped.kind.indices[4], flipped.kind.indices[5]];
+      expect(tri0.includes(1) && tri0.includes(3)).toBe(true);
+      expect(tri1.includes(1) && tri1.includes(3)).toBe(true);
+    }
+
+    // Add interior vertex at [50, 50]
+    bus.execute({
+      id: 'add_vert',
+      name: 'mesh.add_vertex',
+      params: { node_id: 'mesh_edit_target', pos: [50, 50] },
+    });
+    const withVert = bus.getProject().nodes.find((n) => n.id === 'mesh_edit_target')!;
+    if (withVert.kind.type === 'ArtMesh') {
+      expect(withVert.kind.vertices.length).toBe(5);
+      expect(withVert.kind.indices.length).toBe(12); // Subdivided: 2 + 2 = 4 triangles * 3 = 12 indices
+    }
+
+    // 2. Glue weight paint brush
+    bus.execute({
+      id: 'g_bind',
+      name: 'glue.bind',
+      params: {
+        id: 'glue_test',
+        name: 'Glue Test',
+        mesh_a_id: 'mesh_edit_target',
+        mesh_b_id: 'mesh_edit_target',
+        vertex_pairs: [
+          { index_a: 0, index_b: 1, weight_a: 0.5, weight_b: 0.5 },
+          { index_a: 2, index_b: 3, weight_a: 0.5, weight_b: 0.5 },
+        ],
+      },
+    });
+    // Paint weights around [0, 0] with +0.4 bias toward mesh A
+    bus.execute({
+      id: 'paint_glue',
+      name: 'glue.paint_weights',
+      params: {
+        glue_id: 'glue_test',
+        center: [50, 0], // exact midpoint of vertex pair [0, 0] and [100, 0]
+        radius: 100,
+        weight_delta: 0.4,
+      },
+    });
+    const glueAfter = bus.getProject().glues?.find((g) => g.id === 'glue_test');
+    expect(glueAfter).toBeDefined();
+    expect(glueAfter!.vertex_pairs[0].weight_a).toBeGreaterThan(0.7);
+    expect(glueAfter!.vertex_pairs[0].weight_b).toBeLessThan(0.3);
+
+    // 3. Animation Auto-Smoothing (Catmull-Rom Bézier handles)
+    const sampleTrack = {
+      target_param_id: 'ParamAngleX',
+      keyframes: [
+        { frame: 0, value: -30, curve: 'linear' as const },
+        { frame: 15, value: 0, curve: 'linear' as const },
+        { frame: 30, value: 30, curve: 'linear' as const },
+      ],
+      fade_in_ms: null,
+      fade_out_ms: null,
+      frozen: false,
+    };
+    const smoothed = autoSmoothAnimationTrackTangents(JSON.stringify(sampleTrack)) as any;
+    expect(smoothed.keyframes[0].curve).toBe('bezier');
+    expect(smoothed.keyframes[1].bezier_handles).toBeDefined();
+    // At midframe 15, slope is (30 - (-30)) / 30 = 2.0 -> handles should be non-trivial
+    expect(smoothed.keyframes[1].bezier_handles.length).toBe(4);
   });
 
 });

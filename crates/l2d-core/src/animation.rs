@@ -159,6 +159,38 @@ impl Animation {
     }
 }
 
+/// Automatically computes smooth cubic Bézier tangent handles for all keyframes in an animation track.
+/// Matches Cubism Animator "自動スムージング" / Catmull-Rom Hermite slope estimation.
+pub fn auto_smooth_track_tangents(track: &mut AnimationTrack) {
+    let n = track.keyframes.len();
+    if n < 2 {
+        return;
+    }
+    for i in 0..n {
+        track.keyframes[i].curve = CurveType::Bezier;
+        let t_curr = track.keyframes[i].frame;
+        let v_curr = track.keyframes[i].value;
+
+        let dt_prev = if i > 0 { t_curr - track.keyframes[i - 1].frame } else { 1.0 };
+        let dt_next = if i + 1 < n { track.keyframes[i + 1].frame - t_curr } else { 1.0 };
+
+        let slope = if i == 0 {
+            (track.keyframes[1].value - v_curr) / dt_next.max(1e-4)
+        } else if i == n - 1 {
+            (v_curr - track.keyframes[i - 1].value) / dt_prev.max(1e-4)
+        } else {
+            let total_dt = track.keyframes[i + 1].frame - track.keyframes[i - 1].frame;
+            (track.keyframes[i + 1].value - track.keyframes[i - 1].value) / total_dt.max(1e-4)
+        };
+
+        let cx1 = t_curr - dt_prev / 3.0;
+        let cy1 = v_curr - slope * (dt_prev / 3.0);
+        let cx2 = t_curr + dt_next / 3.0;
+        let cy2 = v_curr + slope * (dt_next / 3.0);
+        track.keyframes[i].bezier_handles = Some([cx1, cy1, cx2, cy2]);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,4 +1,5 @@
 use l2d_core::{
+    auto_smooth_track_tangents,
     bake_physics_to_animation, classify_artmesh_pure_rust, evaluate_mlp_forward, evaluate_project,
     export_moc3_binary, export_project_schema, export_runtime_bundle, import_moc3_binary,
     lint_project, Animation, Diagnostic, DiagnosticSeverity, Node, Project,
@@ -211,6 +212,15 @@ pub fn get_project_stats(project_json: &str) -> Result<JsValue, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
     let stats = project.compute_stats();
     serde_wasm_bindgen::to_value(&stats)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+}
+
+#[wasm_bindgen(js_name = autoSmoothAnimationTrackTangents)]
+pub fn auto_smooth_animation_track_tangents_wasm(track_json: &str) -> Result<JsValue, JsValue> {
+    let mut track: l2d_core::AnimationTrack = serde_json::from_str(track_json)
+        .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+    auto_smooth_track_tangents(&mut track);
+    serde_wasm_bindgen::to_value(&track)
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
 }
 

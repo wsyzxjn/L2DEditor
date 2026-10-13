@@ -185,6 +185,8 @@ export interface PhysicsGroup {
   inputs: PhysicsInput[];
   outputs: PhysicsOutput[];
   pendulums: PhysicsPendulum[];
+  ground_y?: number;
+  max_radius?: number;
 }
 
 export interface PoseGroup {

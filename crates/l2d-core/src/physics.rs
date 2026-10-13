@@ -96,6 +96,29 @@ impl PhysicsSimulator {
                     parent_pos[0] + sin_a * pendulum.length,
                     parent_pos[1] + cos_a * pendulum.length,
                 ];
+
+                // Ground line collision clamping (Cubism 5.0 地面判定)
+                if let Some(gy) = group.ground_y {
+                    if state.position[1] > gy {
+                        state.position[1] = gy;
+                        // Dampen angular velocity and bounce
+                        state.angular_velocity = -state.angular_velocity * 0.3;
+                        let dy = (gy - parent_pos[1]).max(0.0);
+                        let clamped_cos = (dy / pendulum.length.max(1.0)).clamp(0.0, 1.0);
+                        let sign = if state.angle >= 0.0 { 1.0 } else { -1.0 };
+                        state.angle = sign * clamped_cos.acos();
+                    }
+                }
+
+                // Radial boundary limit
+                if let Some(mr) = group.max_radius {
+                    let r = (state.position[0].powi(2) + state.position[1].powi(2)).sqrt();
+                    if r > mr && r > 1e-4 {
+                        state.position[0] = (state.position[0] / r) * mr;
+                        state.position[1] = (state.position[1] / r) * mr;
+                    }
+                }
+
                 parent_pos = state.position;
             }
 
@@ -238,6 +261,8 @@ mod tests {
                 damping: 0.8,
                 mass: 1.0,
             }],
+            ground_y: None,
+            max_radius: None,
         });
 
         let mut sim = PhysicsSimulator::new();
@@ -299,6 +324,8 @@ mod tests {
                 damping: 0.85,
                 mass: 1.0,
             }],
+            ground_y: None,
+            max_radius: None,
         });
         project.animations.push(Animation {
             id: "idle".into(),
@@ -345,5 +372,43 @@ mod tests {
             .expect("Expected baked ParamHairFront track");
         assert_eq!(hair_track.keyframes.len(), 11);
         assert!(hair_track.keyframes.iter().any(|k| k.value.abs() > 0.001));
+    }
+
+    #[test]
+    fn test_physics_ground_clamping() {
+        let mut project = Project::default();
+        project.physics.push(PhysicsGroup {
+            id: "skirt".into(),
+            name: "Skirt Physics".into(),
+            inputs: vec![PhysicsInput {
+                param_id: "ParamAngleX".into(),
+                weight: 1.0,
+                reflect: false,
+            }],
+            outputs: vec![PhysicsOutput {
+                param_id: "ParamSkirt".into(),
+                pendulum_index: 0,
+                angle_scale: 1.0,
+                weight: 1.0,
+            }],
+            pendulums: vec![PhysicsPendulum {
+                length: 100.0,
+                damping: 0.5,
+                mass: 1.0,
+            }],
+            ground_y: Some(50.0), // Ground at y = 50.0
+            max_radius: Some(80.0),
+        });
+
+        let mut sim = PhysicsSimulator::new();
+        let mut params = HashMap::new();
+        params.insert("ParamAngleX".into(), 30.0);
+
+        for _ in 0..10 {
+            sim.update(&project, &params, 0.016);
+        }
+        let states = sim.group_states.get("skirt").unwrap();
+        // Y position must not penetrate ground line 50.0
+        assert!(states[0].position[1] <= 50.001);
     }
 }

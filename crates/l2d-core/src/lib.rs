@@ -9,8 +9,8 @@ pub mod neural;
 pub mod physics;
 
 pub use animation::{
-    Animation, AnimationTrack, CurveType, FormAnimationKeyframe, FormAnimationTrack,
-    TimelineKeyframe, TimelineMarker,
+    auto_smooth_track_tangents, Animation, AnimationTrack, CurveType, FormAnimationKeyframe,
+    FormAnimationTrack, TimelineKeyframe, TimelineMarker,
 };
 pub use evaluator::{evaluate_project, EvaluatedFrame, EvaluatedMesh};
 pub use exporter::{

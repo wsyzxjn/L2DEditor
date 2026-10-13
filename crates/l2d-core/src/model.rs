@@ -362,6 +362,10 @@ pub struct PhysicsGroup {
     pub inputs: Vec<PhysicsInput>,
     pub outputs: Vec<PhysicsOutput>,
     pub pendulums: Vec<PhysicsPendulum>,
+    #[serde(default)]
+    pub ground_y: Option<f32>,
+    #[serde(default)]
+    pub max_radius: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
