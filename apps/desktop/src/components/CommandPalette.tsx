@@ -41,7 +41,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         }
       }}
     >
-      <div className="w-full max-w-lg bg-dcc-panel border border-dcc-border rounded-lg shadow-2xl overflow-hidden">
+      <div className="w-full max-w-[92vw] sm:max-w-lg bg-dcc-panel border border-dcc-border rounded-lg shadow-2xl overflow-hidden">
         <Command className="w-full text-dcc">
           <div className="flex items-center justify-between px-3 border-b border-dcc-border">
             <Command.Input

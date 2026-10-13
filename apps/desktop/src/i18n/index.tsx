@@ -62,6 +62,7 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'viewport.physics': '实时物理',
     'viewport.reset_camera': '重置视角',
     'viewport.selected_vertex': '选中顶点',
+    'viewport.grid_snap': '网格吸附',
 
     // Parameters Panel
     'parameters.title': '参数控制台',
@@ -76,6 +77,7 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'parameters.keyform_dot': '键形位置',
     'parameters.xy_pad': '2D 摇杆控制 (XY Pad)',
     'parameters.xy_pad_reset': '双击复位默认值',
+    'parameters.filter_placeholder': '过滤参数 (Ctrl+F)...',
 
     // Inspector Panel
     'inspector.title': '属性检查器',
@@ -239,6 +241,7 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'viewport.physics': 'リアルタイム物理演算',
     'viewport.reset_camera': 'カメラリセット',
     'viewport.selected_vertex': '選択頂点',
+    'viewport.grid_snap': 'グリッド吸着',
 
     // Parameters Panel
     'parameters.title': 'パラメータ',
@@ -253,6 +256,7 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'parameters.keyform_dot': 'キーフォーム位置',
     'parameters.xy_pad': '2Dコントローラー (XY Pad)',
     'parameters.xy_pad_reset': 'ダブルクリックでリセット',
+    'parameters.filter_placeholder': 'パラメータ検索 (Ctrl+F)...',
 
     // Inspector Panel
     'inspector.title': 'インスペクタ',
@@ -416,6 +420,7 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'viewport.physics': 'Physics',
     'viewport.reset_camera': 'Reset Camera',
     'viewport.selected_vertex': 'Selected Vertex',
+    'viewport.grid_snap': 'Grid Snap',
 
     // Parameters Panel
     'parameters.title': 'Parameters',
@@ -430,6 +435,7 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'parameters.keyform_dot': 'Keyform position',
     'parameters.xy_pad': '2D Joystick Pad (XY)',
     'parameters.xy_pad_reset': 'Double-click to reset',
+    'parameters.filter_placeholder': 'Filter parameters (Ctrl+F)...',
 
     // Inspector Panel
     'inspector.title': 'Inspector',

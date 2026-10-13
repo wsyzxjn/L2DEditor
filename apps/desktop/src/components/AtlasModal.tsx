@@ -67,7 +67,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm select-none">
-      <div className="flex flex-col w-[920px] h-[640px] bg-dcc-panel border border-dcc-border rounded-lg shadow-2xl overflow-hidden">
+      <div className="flex flex-col w-[920px] max-w-[94vw] h-[640px] max-h-[92vh] bg-dcc-panel border border-dcc-border rounded-lg shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between h-9 px-3 border-b border-dcc-border bg-dcc-header">
           <div className="flex items-center space-x-2 text-dcc font-semibold text-white">

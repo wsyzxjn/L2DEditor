@@ -79,6 +79,10 @@ export function App() {
   const [project, setProject] = useState<Project>(defaultInitialProject);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [parameterSearchQuery, setParameterSearchQuery] = useState<string>('');
+  const [isGridSnapEnabled, setIsGridSnapEnabled] = useState(false);
+  const [gridSize, setGridSize] = useState(50);
   const [parameterValues, setParameterValues] = useState<Record<string, number>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [atlasModalOpen, setAtlasModalOpen] = useState(false);
@@ -237,6 +241,7 @@ export function App() {
     setProject({ ...defaultInitialProject });
     setCurrentFilePath(null);
     setSelectedNodeId(null);
+    setSelectedNodeIds([]);
     setParameterValues({});
     notify(t('notify.new_project'), 'info');
   };
@@ -303,6 +308,7 @@ export function App() {
           setProject(parsed);
           setCurrentFilePath(res.path);
           setSelectedNodeId(null);
+          setSelectedNodeIds([]);
           notify(`${t('notify.opened')}: ${res.path}`, 'success');
         } catch (e: any) {
           notify(`Failed to parse project: ${e?.message || e}`, 'error');
@@ -323,6 +329,7 @@ export function App() {
           setProject(parsed);
           setCurrentFilePath(res.outputPath);
           setSelectedNodeId(null);
+          setSelectedNodeIds([]);
           notify(`${t('notify.psd_imported')} (${parsed.nodes.length})`, 'success');
         } catch (e: any) {
           notify(`Failed to import PSD: ${e?.message || e}`, 'error');
@@ -418,16 +425,41 @@ export function App() {
     });
   };
 
+  const toggleSelectNodeId = (id: string, multi: boolean = false) => {
+    if (!multi) {
+      setSelectedNodeId(id);
+      setSelectedNodeIds([id]);
+    } else {
+      setSelectedNodeIds((prev) => {
+        const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
+        setSelectedNodeId(next[next.length - 1] || null);
+        return next;
+      });
+    }
+  };
+
   const contextValue = {
     project,
     bus,
     frame,
     selectedNodeId,
+    selectedNodeIds,
     parameterValues,
     currentFilePath,
-    setSelectedNodeId,
+    setSelectedNodeId: (id: string | null) => {
+      setSelectedNodeId(id);
+      setSelectedNodeIds(id ? [id] : []);
+    },
+    setSelectedNodeIds,
+    toggleSelectNodeId,
     setParameterValue: (id: string, val: number) =>
       setParameterValues((prev) => ({ ...prev, [id]: val })),
+    parameterSearchQuery,
+    setParameterSearchQuery,
+    isGridSnapEnabled,
+    setIsGridSnapEnabled,
+    gridSize,
+    setGridSize,
     executeCommand,
     jumpToHistory,
     notify,
@@ -575,7 +607,7 @@ export function App() {
             )}
 
             {currentFilePath && (
-              <span className="text-dcc-sm text-dcc-muted font-mono truncate max-w-xs" title={currentFilePath}>
+              <span className="text-dcc-sm text-dcc-muted font-mono truncate max-w-[120px] lg:max-w-xs hidden sm:inline" title={currentFilePath}>
                 {currentFilePath.split('/').pop()}
               </span>
             )}

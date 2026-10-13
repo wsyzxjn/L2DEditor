@@ -18,6 +18,7 @@ import {
   FlipHorizontal,
   Shuffle,
   Maximize2,
+  Grid,
 } from 'lucide-react';
 import earcut from 'earcut';
 
@@ -44,6 +45,9 @@ export const ViewportPanel: React.FC = () => {
     setIsOnionSkinEnabled,
     isMotionPathEnabled,
     setIsMotionPathEnabled,
+    isGridSnapEnabled,
+    setIsGridSnapEnabled,
+    gridSize,
     notify,
   } = useEditor();
 
@@ -117,9 +121,9 @@ export const ViewportPanel: React.FC = () => {
 
     // Draw background grid lines (every 50px)
     ctx.save();
-    ctx.strokeStyle = '#27272a66';
-    ctx.lineWidth = 1 / zoom;
-    const gridStep = 50;
+    ctx.strokeStyle = isGridSnapEnabled ? '#38bdf844' : '#27272a66';
+    ctx.lineWidth = (isGridSnapEnabled ? 1.2 : 1) / zoom;
+    const gridStep = gridSize || 50;
     for (let gx = 0; gx <= project.canvas.width; gx += gridStep) {
       ctx.beginPath();
       ctx.moveTo(gx, 0);
@@ -608,13 +612,16 @@ export const ViewportPanel: React.FC = () => {
 
     // Dragging mesh vertex
     if (isMeshEditMode && selectedNode && selectedMesh && draggingVertexIndex !== null) {
+      const step = gridSize || 50;
+      const targetX = isGridSnapEnabled ? Math.round(wx / step) * step : wx;
+      const targetY = isGridSnapEnabled ? Math.round(wy / step) * step : wy;
       executeCommand({
         id: `cmd_${Date.now()}`,
         name: 'mesh.move_vertex',
         params: {
           mesh_id: selectedNode.id,
           vertex_index: draggingVertexIndex,
-          position: [wx, wy],
+          position: [targetX, targetY],
         },
       });
       return;
@@ -642,8 +649,11 @@ export const ViewportPanel: React.FC = () => {
 
     // Dragging warp control point (updates active keyform if bound, or base warp if unbound)
     if (selectedNode && selectedWarp && draggingCpIndex !== null) {
+      const step = gridSize || 50;
       const nextCps = [...selectedWarp.control_points];
-      nextCps[draggingCpIndex] = [wx, wy];
+      const targetX = isGridSnapEnabled ? Math.round(wx / step) * step : wx;
+      const targetY = isGridSnapEnabled ? Math.round(wy / step) * step : wy;
+      nextCps[draggingCpIndex] = [targetX, targetY];
       executeCommand({
         id: `cmd_${Date.now()}`,
         name: 'keyform.update_at_params',
@@ -900,6 +910,23 @@ export const ViewportPanel: React.FC = () => {
         >
           <Route className="w-3 h-3 mr-1" />
           {t('viewport.motion_path')}
+        </button>
+
+        {/* Grid Snap Toggle */}
+        <button
+          className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
+            isGridSnapEnabled
+              ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50'
+              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
+          }`}
+          onClick={() => {
+            setIsGridSnapEnabled(!isGridSnapEnabled);
+            notify(`Grid Snap ${!isGridSnapEnabled ? 'ENABLED' : 'DISABLED'} (${gridSize || 50}px)`, 'info');
+          }}
+          title="Toggle Grid Snapping"
+        >
+          <Grid className="w-3 h-3 mr-1" />
+          {t('viewport.grid_snap')}
         </button>
 
         {/* Solo Mode (`CMD_SOLO`, S) */}

@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import type { Node } from '@l2d/schema';
 import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
-import { Eye, EyeOff, Lock, Unlock, Grid, RotateCw, Image, Folder, Plus, PenTool, Sparkles, Search } from 'lucide-react';
+import { Eye, EyeOff, Lock, Unlock, Grid, RotateCw, Image, Folder, Plus, PenTool, Sparkles, Search, Trash2, FolderTree } from 'lucide-react';
 
 export const HierarchyPanel: React.FC = () => {
   const { t } = useI18n();
-  const { project, selectedNodeId, setSelectedNodeId, executeCommand, notify } = useEditor();
+  const { project, selectedNodeId, selectedNodeIds, setSelectedNodeId, toggleSelectNodeId, executeCommand, notify } = useEditor();
   const [searchQuery, setSearchQuery] = useState('');
 
   // Group nodes by parent_id
@@ -20,7 +20,7 @@ export const HierarchyPanel: React.FC = () => {
   }
 
   const renderNode = (node: Node, depth: number) => {
-    const isSelected = selectedNodeId === node.id;
+    const isSelected = selectedNodeIds.includes(node.id) || selectedNodeId === node.id;
     const children = childrenMap.get(node.id) || [];
 
     let KindIcon = Image;
@@ -36,7 +36,7 @@ export const HierarchyPanel: React.FC = () => {
             isSelected ? 'bg-dcc-accent/20 text-blue-300 font-medium' : 'text-dcc-text'
           }`}
           style={{ paddingLeft: `${8 + depth * 14}px` }}
-          onClick={() => setSelectedNodeId(node.id)}
+          onClick={(e) => toggleSelectNodeId(node.id, e.shiftKey || e.metaKey || e.ctrlKey)}
         >
           {/* Kind icon */}
           <KindIcon className="w-3.5 h-3.5 mr-1.5 text-dcc-muted shrink-0" />
@@ -238,6 +238,60 @@ export const HierarchyPanel: React.FC = () => {
           onChange={(e) => setSearchQuery(e.target.value)}
         />
       </div>
+
+      {/* Multi-Selection Batch Actions Bar */}
+      {selectedNodeIds.length > 1 && (
+        <div className="flex items-center justify-between px-2 py-1 bg-blue-950/40 border-b border-blue-900/50 text-dcc-sm">
+          <span className="text-blue-300 font-mono text-[11px]">
+            {selectedNodeIds.length} items
+          </span>
+          <div className="flex items-center space-x-1">
+            <button
+              className="p-1 text-zinc-400 hover:text-white rounded hover:bg-blue-900/40"
+              onClick={() => {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'node.batch_update',
+                  params: { node_ids: selectedNodeIds, changes: { visible: true } },
+                });
+                notify('Shown selected nodes', 'info');
+              }}
+              title="Show all selected"
+            >
+              <Eye className="w-3 h-3" />
+            </button>
+            <button
+              className="p-1 text-zinc-400 hover:text-white rounded hover:bg-blue-900/40"
+              onClick={() => {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'node.batch_update',
+                  params: { node_ids: selectedNodeIds, changes: { visible: false } },
+                });
+                notify('Hidden selected nodes', 'info');
+              }}
+              title="Hide all selected"
+            >
+              <EyeOff className="w-3 h-3" />
+            </button>
+            <button
+              className="p-1 text-rose-400 hover:text-rose-200 rounded hover:bg-rose-950/40"
+              onClick={() => {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'node.batch_delete',
+                  params: { node_ids: selectedNodeIds },
+                });
+                notify(`Deleted ${selectedNodeIds.length} nodes`, 'info');
+              }}
+              title="Delete all selected nodes"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto py-1">
         {project.nodes.length === 0 ? (
           <div className="p-4 text-center text-dcc text-dcc-muted">

@@ -2707,4 +2707,16 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  // 24. Batch Node Delete (`CMD_BATCH_DELETE` / `CUB3-1252`: 複数オブジェクト一括削除)
+  bus.register<{
+    node_ids: string[];
+  }>('node.batch_delete', (draft, { node_ids }) => {
+    const toDelete = new Set(node_ids);
+    draft.nodes = draft.nodes.filter((n) => !toDelete.has(n.id));
+    draft.keyforms = draft.keyforms.filter((k) => !toDelete.has(k.target_node_id));
+    if (draft.glues) {
+      draft.glues = draft.glues.filter((g) => !toDelete.has(g.mesh_a_id) && !toDelete.has(g.mesh_b_id));
+    }
+  });
+
 }

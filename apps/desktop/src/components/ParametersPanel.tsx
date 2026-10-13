@@ -2,12 +2,21 @@ import React, { useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
 import { ScrubInput } from './ScrubInput.js';
-import { Plus, SlidersHorizontal, Folder, ChevronDown, ChevronRight, FolderPlus, RotateCcw, Lock, Unlock, Compass } from 'lucide-react';
+import { Plus, SlidersHorizontal, Folder, ChevronDown, ChevronRight, FolderPlus, RotateCcw, Lock, Unlock, Compass, Search } from 'lucide-react';
 import type { Parameter } from '@l2d/schema';
 
 export const ParametersPanel: React.FC = () => {
   const { t } = useI18n();
-  const { project, parameterValues, setParameterValue, executeCommand, selectedNodeId, notify } = useEditor();
+  const {
+    project,
+    parameterValues,
+    setParameterValue,
+    parameterSearchQuery,
+    setParameterSearchQuery,
+    executeCommand,
+    selectedNodeId,
+    notify,
+  } = useEditor();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const handleAddParam = () => {
@@ -200,6 +209,18 @@ export const ParametersPanel: React.FC = () => {
         </div>
       </div>
 
+      {/* Parameter Search Filter */}
+      <div className="px-2 py-1 border-b border-dcc-border bg-dcc-bg/40 flex items-center space-x-1.5">
+        <Search className="w-3 h-3 text-zinc-500 shrink-0" />
+        <input
+          type="text"
+          placeholder={t('parameters.filter_placeholder')}
+          className="w-full h-5 bg-transparent text-dcc-sm text-dcc-text outline-none placeholder:text-zinc-600"
+          value={parameterSearchQuery}
+          onChange={(e) => setParameterSearchQuery(e.target.value)}
+        />
+      </div>
+
       {/* Parameter List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {/* 2D XY Joystick Pad (ParamAngleX / ParamAngleY) */}
@@ -254,8 +275,14 @@ export const ParametersPanel: React.FC = () => {
           <>
             {/* Render groups */}
             {groups.map((group) => {
-              const groupParams = project.parameters.filter((p) => p.group_id === group.id);
+              let groupParams = project.parameters.filter((p) => p.group_id === group.id);
+              if (parameterSearchQuery.trim()) {
+                groupParams = groupParams.filter((p) =>
+                  `${p.name} ${p.id}`.toLowerCase().includes(parameterSearchQuery.toLowerCase())
+                );
+              }
               const isCollapsed = collapsedGroups.has(group.id);
+              if (parameterSearchQuery.trim() && groupParams.length === 0) return null;
 
               return (
                 <div key={group.id} className="border border-dcc-border/60 rounded bg-dcc-panel/40 overflow-hidden">
@@ -285,7 +312,12 @@ export const ParametersPanel: React.FC = () => {
             })}
 
             {/* Render ungrouped parameters */}
-            {ungroupedParams.map(renderParamItem)}
+            {ungroupedParams
+              .filter((p) =>
+                !parameterSearchQuery.trim() ||
+                `${p.name} ${p.id}`.toLowerCase().includes(parameterSearchQuery.toLowerCase())
+              )
+              .map(renderParamItem)}
           </>
         )}
       </div>
