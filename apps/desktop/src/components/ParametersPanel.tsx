@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
+import { useI18n } from '../i18n/index.js';
 import { ScrubInput } from './ScrubInput.js';
 import { Plus, SlidersHorizontal, Folder, ChevronDown, ChevronRight, FolderPlus, RotateCcw, Lock, Unlock } from 'lucide-react';
 import type { Parameter } from '@l2d/schema';
 
 export const ParametersPanel: React.FC = () => {
+  const { t } = useI18n();
   const { project, parameterValues, setParameterValue, executeCommand, selectedNodeId, notify } = useEditor();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
@@ -70,7 +72,7 @@ export const ParametersPanel: React.FC = () => {
                   params: { param_id: param.id, locked: !param.locked },
                 });
               }}
-              title={param.locked ? 'Unlock Parameter' : 'Lock Parameter'}
+              title={param.locked ? t('parameters.unlock_param') : t('parameters.lock_param')}
             >
               {param.locked ? <Lock className="w-3 h-3 text-amber-500" /> : <Unlock className="w-3 h-3 text-zinc-600 hover:text-zinc-400" />}
             </button>
@@ -101,14 +103,14 @@ export const ParametersPanel: React.FC = () => {
             className={`w-full h-1 bg-zinc-700 rounded-lg appearance-none ${param.locked ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer accent-dcc-accent'}`}
           />
 
-          {ticks.map((t, idx) => {
-            const pct = ((t - param.min) / (param.max - param.min)) * 100;
+          {ticks.map((tickVal, idx) => {
+            const pct = ((tickVal - param.min) / (param.max - param.min)) * 100;
             return (
               <div
                 key={idx}
                 className="absolute w-1.5 h-1.5 rounded-full bg-emerald-400 pointer-events-none -translate-x-1/2"
                 style={{ left: `${pct}%`, top: '5px' }}
-                title={`Keyform at ${t}`}
+                title={`${t('parameters.keyform_dot')}: ${tickVal}`}
               />
             );
           })}
@@ -133,7 +135,7 @@ export const ParametersPanel: React.FC = () => {
       <div className="flex items-center justify-between h-7 px-2 border-b border-dcc-border bg-dcc-header">
         <div className="flex items-center space-x-1.5 text-dcc font-semibold uppercase tracking-wider text-dcc-muted">
           <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span>Parameters</span>
+          <span>{t('parameters.title')}</span>
         </div>
         <div className="flex items-center space-x-1">
           <button
@@ -142,18 +144,18 @@ export const ParametersPanel: React.FC = () => {
               for (const p of project.parameters) {
                 setParameterValue(p.id, p.default);
               }
-              notify('Reset all parameters to default values', 'info');
+              notify(t('parameters.reset_all'), 'info');
             }}
-            title="Reset All Parameters to Default (重置全部参数)"
+            title={t('parameters.reset_all')}
           >
-            <RotateCcw className="w-3 h-3 mr-0.5" /> Reset
+            <RotateCcw className="w-3 h-3 mr-0.5" /> {t('parameters.reset_all')}
           </button>
           <button
             className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
             onClick={handleAddGroup}
-            title="Add Parameter Group"
+            title={t('parameters.add_group')}
           >
-            <FolderPlus className="w-3 h-3 mr-0.5" /> Group
+            <FolderPlus className="w-3 h-3 mr-0.5" /> {t('parameters.add_group')}
           </button>
           <button
             className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded border border-blue-500/30 transition-colors"
@@ -163,18 +165,18 @@ export const ParametersPanel: React.FC = () => {
                 name: 'parameter.apply_standard_template',
                 params: {},
               });
-              notify('Applied Live2D Standard Parameter Template', 'success');
+              notify(t('parameters.preset'), 'success');
             }}
-            title="Apply Live2D Standard Parameter Dictionary (加载官方标准参数预设)"
+            title={t('parameters.preset')}
           >
-            + Preset
+            {t('parameters.preset')}
           </button>
           <button
             className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
             onClick={handleAddParam}
-            title="Add New Parameter"
+            title={t('parameters.add_param')}
           >
-            <Plus className="w-3 h-3 mr-0.5" /> Add
+            <Plus className="w-3 h-3 mr-0.5" /> {t('parameters.add_param')}
           </button>
         </div>
       </div>
@@ -182,7 +184,7 @@ export const ParametersPanel: React.FC = () => {
       {/* Parameter List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {project.parameters.length === 0 ? (
-          <div className="p-4 text-center text-dcc text-dcc-muted">No parameters. Click + Add to create one.</div>
+          <div className="p-4 text-center text-dcc text-dcc-muted">{t('parameters.no_params')}</div>
         ) : (
           <>
             {/* Render groups */}
@@ -207,7 +209,7 @@ export const ParametersPanel: React.FC = () => {
                   {!isCollapsed && (
                     <div className="p-1.5 space-y-1.5">
                       {groupParams.length === 0 ? (
-                        <div className="text-[10px] text-zinc-500 italic px-2 py-1">No parameters in this group</div>
+                        <div className="text-[10px] text-zinc-500 italic px-2 py-1">{t('parameters.no_params_in_group')}</div>
                       ) : (
                         groupParams.map(renderParamItem)
                       )}

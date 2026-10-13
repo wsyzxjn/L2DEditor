@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { Command } from 'cmdk';
+import { useI18n } from '../i18n/index.js';
 import { Sparkles, FileUp, Plus, ShieldCheck, Undo2, Redo2, Save } from 'lucide-react';
 
 interface CommandPaletteProps {
@@ -13,6 +14,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onOpenChange,
   onAction,
 }) => {
+  const { t } = useI18n();
+
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
@@ -43,7 +46,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           <div className="flex items-center justify-between px-3 border-b border-dcc-border">
             <Command.Input
               autoFocus
-              placeholder="Type a command or search..."
+              placeholder={t('palette.placeholder')}
               className="w-full h-10 bg-transparent text-dcc-text outline-none text-dcc"
               onKeyDown={(e) => {
                 if (e.key === 'Escape') {
@@ -61,9 +64,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             </button>
           </div>
           <Command.List className="max-h-72 overflow-y-auto p-1.5 space-y-0.5">
-            <Command.Empty className="py-6 text-center text-dcc-muted">No commands found.</Command.Empty>
+            <Command.Empty className="py-6 text-center text-dcc-muted">{t('palette.no_results')}</Command.Empty>
 
-            <Command.Group heading="Project & File" className="text-dcc-sm text-dcc-muted px-2 py-1 font-semibold uppercase">
+            <Command.Group heading={t('palette.group_file')} className="text-dcc-sm text-dcc-muted px-2 py-1 font-semibold uppercase">
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('atlas'); onOpenChange(false); }}
@@ -87,7 +90,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               </Command.Item>
             </Command.Group>
 
-            <Command.Group heading="Editing & Rigging" className="text-dcc-sm text-dcc-muted px-2 py-1 font-semibold uppercase">
+            <Command.Group heading={t('palette.group_edit')} className="text-dcc-sm text-dcc-muted px-2 py-1 font-semibold uppercase">
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('add_warp'); onOpenChange(false); }}

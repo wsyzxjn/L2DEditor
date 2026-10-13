@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
+import { useI18n } from '../i18n/index.js';
 import { Zap, Plus, Trash2, Sliders, Activity } from 'lucide-react';
 import { ScrubInput } from './ScrubInput.js';
 import type { PhysicsGroup } from '@l2d/schema';
 
 export const PhysicsPanel: React.FC = () => {
+  const { t } = useI18n();
   const { project, executeCommand, notify, isPhysicsEnabled, setIsPhysicsEnabled } = useEditor();
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
     project.physics?.[0]?.id || null
@@ -71,7 +73,7 @@ export const PhysicsPanel: React.FC = () => {
       <div className="flex items-center justify-between h-7 px-2 border-b border-dcc-border bg-dcc-header">
         <div className="flex items-center space-x-1.5 text-dcc font-semibold uppercase tracking-wider text-dcc-muted">
           <Zap className="w-3.5 h-3.5 text-amber-400" />
-          <span>Physics Setting</span>
+          <span>{t('physics.title')}</span>
         </div>
         <div className="flex items-center space-x-1">
           <button
@@ -85,16 +87,16 @@ export const PhysicsPanel: React.FC = () => {
           <button
             className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded"
             onClick={handleAddGroup}
-            title="Add Physics Group"
+            title={t('physics.add_group')}
           >
-            <Plus className="w-3 h-3 mr-0.5" /> Group
+            <Plus className="w-3 h-3 mr-0.5" /> {t('parameters.add_group')}
           </button>
         </div>
       </div>
 
       {/* Official Cubism 5.3 Physics Presets Bar (`default_physics_preset40.xml`) */}
       <div className="flex items-center justify-between px-2 py-1 border-b border-dcc-border bg-dcc-bg/60 space-x-1.5">
-        <span className="text-[10px] font-semibold uppercase text-zinc-400 shrink-0">Preset:</span>
+        <span className="text-[10px] font-semibold uppercase text-zinc-400 shrink-0">{t('physics.presets')}:</span>
         <select
           className="flex-1 h-5 px-1 text-dcc-sm bg-dcc-panel border border-dcc-border rounded text-dcc-text"
           defaultValue=""
@@ -130,7 +132,7 @@ export const PhysicsPanel: React.FC = () => {
 
       {groups.length === 0 ? (
         <div className="p-4 text-center text-dcc text-dcc-muted">
-          No physics groups. Click + Group to add hair/clothing sway physics.
+          {t('physics.no_groups')}
         </div>
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden">

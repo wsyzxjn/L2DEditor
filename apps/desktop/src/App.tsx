@@ -22,6 +22,7 @@ import { PhysicsPanel } from './components/PhysicsPanel.js';
 import { HistoryPanel } from './components/HistoryPanel.js';
 import { AtlasModal } from './components/AtlasModal.js';
 import { CommandPalette } from './components/CommandPalette.js';
+import { useI18n, type LanguageSetting } from './i18n/index.js';
 import {
   FilePlus,
   FolderOpen,
@@ -33,6 +34,7 @@ import {
   Check,
   AlertCircle,
   Layers,
+  Globe,
 } from 'lucide-react';
 
 const defaultInitialProject: Project = {
@@ -73,6 +75,7 @@ const dockviewComponents = {
 };
 
 export function App() {
+  const { t, localeSetting, effectiveLanguage, setLanguageSetting } = useI18n();
   const [project, setProject] = useState<Project>(defaultInitialProject);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -235,20 +238,20 @@ export function App() {
     setCurrentFilePath(null);
     setSelectedNodeId(null);
     setParameterValues({});
-    notify('Created new blank project', 'info');
+    notify(t('notify.new_project'), 'info');
   };
 
   const handleUndo = () => {
     if (bus.undo()) {
       setProject({ ...bus.getProject() });
-      notify('Undo', 'info');
+      notify(t('notify.undo'), 'info');
     }
   };
 
   const handleRedo = () => {
     if (bus.redo()) {
       setProject({ ...bus.getProject() });
-      notify('Redo', 'info');
+      notify(t('notify.redo'), 'info');
     }
   };
 
@@ -266,13 +269,13 @@ export function App() {
       }
       const success = await (window as any).l2dApi.saveProject(currentFilePath, json);
       if (success) {
-        notify(`Saved to ${currentFilePath}`, 'success');
+        notify(`${t('notify.saved')}: ${currentFilePath}`, 'success');
       } else {
-        notify(`Failed to save to ${currentFilePath}`, 'error');
+        notify(`${t('notify.save_failed')}: ${currentFilePath}`, 'error');
       }
     } else {
       downloadFile(json, 'project.json', 'application/json');
-      notify('Downloaded project.json', 'success');
+      notify(t('notify.saved'), 'success');
     }
   };
 
@@ -282,11 +285,11 @@ export function App() {
       const res = await (window as any).l2dApi.saveProjectAsDialog(json, 'project.json');
       if (res && res.success && res.path) {
         setCurrentFilePath(res.path);
-        notify(`Saved to ${res.path}`, 'success');
+        notify(`${t('notify.saved')}: ${res.path}`, 'success');
       }
     } else {
       downloadFile(json, 'project.json', 'application/json');
-      notify('Downloaded project.json', 'success');
+      notify(t('notify.saved'), 'success');
     }
   };
 
@@ -300,7 +303,7 @@ export function App() {
           setProject(parsed);
           setCurrentFilePath(res.path);
           setSelectedNodeId(null);
-          notify(`Opened project from ${res.path}`, 'success');
+          notify(`${t('notify.opened')}: ${res.path}`, 'success');
         } catch (e: any) {
           notify(`Failed to parse project: ${e?.message || e}`, 'error');
         }
@@ -320,7 +323,7 @@ export function App() {
           setProject(parsed);
           setCurrentFilePath(res.outputPath);
           setSelectedNodeId(null);
-          notify(`Imported PSD: ${parsed.nodes.length} nodes created`, 'success');
+          notify(`${t('notify.psd_imported')} (${parsed.nodes.length})`, 'success');
         } catch (e: any) {
           notify(`Failed to import PSD: ${e?.message || e}`, 'error');
         }
@@ -364,21 +367,21 @@ export function App() {
     const left = event.api.addPanel({
       id: 'hierarchy_panel',
       component: 'hierarchy',
-      title: 'Hierarchy',
+      title: t('hierarchy.title'),
       initialWidth: 260,
     });
 
     const center = event.api.addPanel({
       id: 'viewport_panel',
       component: 'viewport',
-      title: 'Viewport',
+      title: t('viewport.title'),
       position: { referencePanel: left, direction: 'right' },
     });
 
     const rightTop = event.api.addPanel({
       id: 'parameters_panel',
       component: 'parameters',
-      title: 'Parameters',
+      title: t('parameters.title'),
       position: { referencePanel: center, direction: 'right' },
       initialWidth: 320,
     });
@@ -387,7 +390,7 @@ export function App() {
     event.api.addPanel({
       id: 'physics_panel',
       component: 'physics',
-      title: 'Physics',
+      title: t('physics.title'),
       position: { referencePanel: rightTop, direction: 'within' },
     });
 
@@ -395,13 +398,13 @@ export function App() {
     event.api.addPanel({
       id: 'history_panel',
       component: 'history',
-      title: 'History',
+      title: t('history.title'),
       position: { referencePanel: rightTop, direction: 'within' },
     });
     event.api.addPanel({
       id: 'inspector_panel',
       component: 'inspector',
-      title: 'Inspector',
+      title: t('inspector.title'),
       position: { referencePanel: rightTop, direction: 'below' },
     });
 
@@ -409,7 +412,7 @@ export function App() {
     event.api.addPanel({
       id: 'timeline_panel',
       component: 'timeline',
-      title: 'Timeline & Animator',
+      title: t('timeline.title'),
       position: { referencePanel: center, direction: 'below' },
       initialHeight: 220,
     });
@@ -478,35 +481,35 @@ export function App() {
                 onClick={handleNew}
                 title="New Project (Ctrl+N)"
               >
-                <FilePlus className="w-3.5 h-3.5 mr-1" /> New
+                <FilePlus className="w-3.5 h-3.5 mr-1" /> {t('toolbar.new')}
               </button>
               <button
                 className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
                 onClick={handleOpen}
                 title="Open Project (Ctrl+O)"
               >
-                <FolderOpen className="w-3.5 h-3.5 mr-1" /> Open
+                <FolderOpen className="w-3.5 h-3.5 mr-1" /> {t('toolbar.open')}
               </button>
               <button
                 className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
                 onClick={handleSave}
                 title="Save Project (Ctrl+S)"
               >
-                <Save className="w-3.5 h-3.5 mr-1" /> Save
+                <Save className="w-3.5 h-3.5 mr-1" /> {t('toolbar.save')}
               </button>
               <button
                 className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
                 onClick={handleImportPsd}
                 title="Import PSD Document"
               >
-                <FileUp className="w-3.5 h-3.5 mr-1" /> Import PSD
+                <FileUp className="w-3.5 h-3.5 mr-1" /> {t('toolbar.import_psd')}
               </button>
             <button
               className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
               onClick={() => setAtlasModalOpen(true)}
               title="Edit Texture Atlas"
             >
-              <Layers className="w-3.5 h-3.5 mr-1 text-pink-400" /> Atlas
+              <Layers className="w-3.5 h-3.5 mr-1 text-pink-400" /> {t('toolbar.atlas')}
             </button>
             </div>
 
@@ -532,6 +535,26 @@ export function App() {
 
           {/* Right Info & Palette */}
           <div className="flex items-center space-x-3 app-no-drag">
+            {/* Language Switcher */}
+            <div className="flex items-center space-x-1 text-dcc-sm bg-zinc-800/80 px-2 py-0.5 rounded border border-dcc-border text-zinc-300">
+              <Globe className="w-3 h-3 text-cyan-400 shrink-0" />
+              <select
+                className="bg-transparent text-dcc-sm text-zinc-300 outline-none cursor-pointer"
+                value={localeSetting}
+                onChange={(e) => {
+                  setLanguageSetting(e.target.value as LanguageSetting);
+                  notify(t('notify.lang_changed'), 'info');
+                }}
+              >
+                <option value="auto" className="bg-zinc-900 text-zinc-200">
+                  {t('toolbar.lang_auto')} ({effectiveLanguage === 'zh-CN' ? '中文' : effectiveLanguage === 'ja' ? '日本語' : 'EN'})
+                </option>
+                <option value="zh-CN" className="bg-zinc-900 text-zinc-200">{t('toolbar.lang_zh')}</option>
+                <option value="ja" className="bg-zinc-900 text-zinc-200">{t('toolbar.lang_ja')}</option>
+                <option value="en" className="bg-zinc-900 text-zinc-200">{t('toolbar.lang_en')}</option>
+              </select>
+            </div>
+
             {statusMessage && (
               <span
                 className={`flex items-center text-dcc-sm px-2 py-0.5 rounded font-medium transition-all ${
@@ -562,7 +585,7 @@ export function App() {
               onClick={() => setCommandPaletteOpen(true)}
             >
               <CommandIcon className="w-3 h-3 text-blue-400" />
-              <span>Commands</span>
+              <span>{t('toolbar.commands')}</span>
               <kbd className="px-1 py-0.2 bg-zinc-900 text-zinc-400 rounded text-[9px] font-mono">⌘K</kbd>
             </button>
           </div>

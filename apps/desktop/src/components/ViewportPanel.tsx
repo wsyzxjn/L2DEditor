@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
+import { useI18n } from '../i18n/index.js';
 import { evaluateProjectJs } from '@l2d/schema';
 import {
   MousePointer,
@@ -21,6 +22,7 @@ import {
 import earcut from 'earcut';
 
 export const ViewportPanel: React.FC = () => {
+  const { t } = useI18n();
   const {
     project,
     frame,
@@ -712,7 +714,7 @@ export const ViewportPanel: React.FC = () => {
             onClick={() => setIsMeshEditMode(!isMeshEditMode)}
           >
             {isMeshEditMode ? <Check className="w-3 h-3 mr-1" /> : <Sparkles className="w-3 h-3 mr-1" />}
-            {isMeshEditMode ? 'Finish Mesh Edit' : 'Edit Mesh'}
+            {isMeshEditMode ? t('viewport.mesh_edit') + ' ✓' : t('viewport.mesh_edit')}
           </button>
         )}
 
@@ -728,7 +730,7 @@ export const ViewportPanel: React.FC = () => {
             title="Soft Selection Deform Brush (变形画笔)"
           >
             <Paintbrush className="w-3 h-3 mr-1" />
-            Brush
+            {t('inspector.artpath_stroke')}
           </button>
         )}
 
@@ -782,7 +784,7 @@ export const ViewportPanel: React.FC = () => {
                 meshEditTool === 'select' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:bg-zinc-700'
               }`}
               onClick={() => setMeshEditTool('select')}
-              title="Select / Move Vertex"
+              title={t('viewport.tool_select')}
             >
               <MousePointer className="w-3 h-3" />
             </button>
@@ -791,7 +793,7 @@ export const ViewportPanel: React.FC = () => {
                 meshEditTool === 'add' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:bg-zinc-700'
               }`}
               onClick={() => setMeshEditTool('add')}
-              title="Add Vertex"
+              title={t('viewport.tool_add_vertex')}
             >
               <Plus className="w-3 h-3" />
             </button>
@@ -800,7 +802,7 @@ export const ViewportPanel: React.FC = () => {
                 meshEditTool === 'delete' ? 'bg-rose-600 text-white' : 'text-zinc-400 hover:bg-zinc-700'
               }`}
               onClick={() => setMeshEditTool('delete')}
-              title="Delete Vertex"
+              title={t('viewport.tool_delete_vertex')}
             >
               <Trash2 className="w-3 h-3" />
             </button>
@@ -846,7 +848,7 @@ export const ViewportPanel: React.FC = () => {
           title="Toggle live physics simulation"
         >
           <Zap className="w-3 h-3 mr-1" />
-          Physics
+          {t('viewport.physics')}
         </button>
 
         {/* Auto Idle Natural Posing Toggle */}
@@ -863,7 +865,7 @@ export const ViewportPanel: React.FC = () => {
           title="Toggle automatic natural breathing and posing"
         >
           <Smile className="w-3 h-3 mr-1" />
-          Auto Idle
+          {t('viewport.auto_idle')}
         </button>
 
         {/* Onion Skin Toggle (CMD_PREVIEW_ONIONSKIN_MODELER) */}
@@ -880,7 +882,7 @@ export const ViewportPanel: React.FC = () => {
           title="Toggle Onion Skin Ghosting (洋葱皮前后关键帧重影)"
         >
           <Layers className="w-3 h-3 mr-1" />
-          Onion Skin
+          {t('viewport.onion_skin')}
         </button>
 
         {/* Motion Path Toggle (CMD_PREVIEW_MOTIONPATH_ANIMATION) */}
@@ -897,7 +899,7 @@ export const ViewportPanel: React.FC = () => {
           title="Toggle Motion Path Trajectory (运动轨迹预览)"
         >
           <Route className="w-3 h-3 mr-1" />
-          Motion Path
+          {t('viewport.motion_path')}
         </button>
 
         {/* Solo Mode (`CMD_SOLO`, S) */}

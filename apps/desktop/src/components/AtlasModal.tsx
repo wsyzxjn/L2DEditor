@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useEditor } from '../context/EditorContext.js';
+import { useI18n } from '../i18n/index.js';
 import { Layers, Check, X, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
 
 
@@ -9,6 +10,7 @@ interface AtlasModalProps {
 }
 
 export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) => {
+  const { t } = useI18n();
   const { project, executeCommand, currentFilePath, notify } = useEditor();
   const [atlasSize, setAtlasSize] = useState<number>(2048);
   const [padding, setPadding] = useState<number>(4);
@@ -70,7 +72,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
         <div className="flex items-center justify-between h-9 px-3 border-b border-dcc-border bg-dcc-header">
           <div className="flex items-center space-x-2 text-dcc font-semibold text-white">
             <Layers className="w-4 h-4 text-blue-400" />
-            <span>Texture Atlas Editor (编辑纹理集)</span>
+            <span>{t('atlas.title')}</span>
           </div>
           <button
             className="p-1 text-zinc-400 hover:text-white rounded hover:bg-zinc-700"
@@ -85,7 +87,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
           {/* Left Settings Sidebar */}
           <div className="w-72 border-r border-dcc-border bg-dcc-panel/80 p-3 flex flex-col space-y-4">
             <div>
-              <label className="text-dcc-sm text-dcc-muted uppercase font-semibold">Atlas Size</label>
+              <label className="text-dcc-sm text-dcc-muted uppercase font-semibold">{t('atlas.size')}</label>
               <select
                 className="w-full mt-1 h-7 px-2 text-dcc bg-dcc-bg border border-dcc-border rounded text-dcc-text outline-none"
                 value={atlasSize}
@@ -98,7 +100,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
             </div>
 
             <div>
-              <label className="text-dcc-sm text-dcc-muted uppercase font-semibold">Padding / Margin</label>
+              <label className="text-dcc-sm text-dcc-muted uppercase font-semibold">{t('atlas.padding')}</label>
               <div className="flex items-center space-x-2 mt-1">
                 <input
                   type="number"
@@ -141,13 +143,13 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
                 className="flex-1 flex items-center justify-center h-8 text-dcc bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded border border-dcc-border font-medium transition-colors"
                 onClick={runPackPreview}
               >
-                <RefreshCw className="w-3.5 h-3.5 mr-1" /> Re-pack
+                <RefreshCw className="w-3.5 h-3.5 mr-1" /> {t('atlas.pack_button')}
               </button>
               <button
                 className="flex-1 flex items-center justify-center h-8 text-dcc bg-blue-600 hover:bg-blue-500 text-white rounded font-medium shadow transition-colors"
                 onClick={handleApply}
               >
-                <Check className="w-3.5 h-3.5 mr-1" /> Apply
+                <Check className="w-3.5 h-3.5 mr-1" /> {t('atlas.apply_button')}
               </button>
             </div>
           </div>

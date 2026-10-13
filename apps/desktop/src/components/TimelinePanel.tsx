@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
+import { useI18n } from '../i18n/index.js';
 import {
   Play,
   Pause,
@@ -19,6 +20,7 @@ import {
 import { type Animation, analyzeWavForLipSync } from '@l2d/schema';
 
 export const TimelinePanel: React.FC = () => {
+  const { t } = useI18n();
   const {
     project,
     isPlayingAnimation,
@@ -126,14 +128,14 @@ export const TimelinePanel: React.FC = () => {
         <div className="flex items-center space-x-2">
           <div className="flex items-center space-x-1.5 text-dcc font-semibold uppercase tracking-wider text-dcc-muted mr-2">
             <Film className="w-3.5 h-3.5" />
-            <span>Timeline</span>
+            <span>{t('timeline.title')}</span>
           </div>
 
           {/* Transport buttons */}
           <button
             className="p-1 hover:bg-zinc-700 rounded text-zinc-300 hover:text-white transition-colors"
             onClick={() => setIsPlayingAnimation(!isPlayingAnimation)}
-            title={isPlayingAnimation ? 'Pause (Space)' : 'Play (Space)'}
+            title={isPlayingAnimation ? t('timeline.pause') : t('timeline.play')}
           >
             {isPlayingAnimation ? <Pause className="w-3.5 h-3.5 text-amber-400" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
           </button>
@@ -143,7 +145,7 @@ export const TimelinePanel: React.FC = () => {
               setIsPlayingAnimation(false);
               setCurrentPlayheadFrame(0);
             }}
-            title="Stop"
+            title={t('timeline.pause')}
           >
             <Square className="w-3.5 h-3.5" />
           </button>
@@ -158,7 +160,7 @@ export const TimelinePanel: React.FC = () => {
                 params: { ...activeAnim, loop_playback: !activeAnim.loop_playback },
               });
             }}
-            title="Toggle Loop"
+            title={t('timeline.loop')}
           >
             <Repeat className="w-3.5 h-3.5" />
           </button>
@@ -226,7 +228,7 @@ export const TimelinePanel: React.FC = () => {
             onClick={() => wavInputRef.current?.click()}
             title="Import speech WAV audio for automatic mouth opening lipsync"
           >
-            <Mic className="w-3 h-3 mr-1" /> LipSync Audio
+            <Mic className="w-3 h-3 mr-1" /> {t('timeline.lipsync')}
           </button>
 
           <button
@@ -241,7 +243,7 @@ export const TimelinePanel: React.FC = () => {
             }}
             title="Bake Physics Simulation into Animation Tracks (物理演算烘焙 CMD_BAKE_PHYSICS)"
           >
-            <Zap className="w-3 h-3 mr-1" /> Bake Physics
+            <Zap className="w-3 h-3 mr-1" /> {t('physics.bake_physics')}
           </button>
 
           <button

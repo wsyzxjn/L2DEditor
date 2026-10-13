@@ -1,8 +1,10 @@
 import React from 'react';
 import { useEditor } from '../context/EditorContext.js';
+import { useI18n } from '../i18n/index.js';
 import { History, RotateCcw, CheckCircle2, CircleDashed } from 'lucide-react';
 
 export const HistoryPanel: React.FC = () => {
+  const { t } = useI18n();
   const { bus, jumpToHistory, notify } = useEditor();
   const { entries, currentIndex } = bus.getHistory();
 
@@ -11,7 +13,7 @@ export const HistoryPanel: React.FC = () => {
       <div className="flex items-center justify-between h-7 px-2 border-b border-dcc-border bg-dcc-header">
         <div className="flex items-center space-x-1.5 text-dcc font-semibold uppercase tracking-wider text-dcc-muted">
           <History className="w-3.5 h-3.5 text-sky-400" />
-          <span>History (Undo Tree)</span>
+          <span>{t('history.title')}</span>
         </div>
         <span className="text-dcc-sm font-mono text-zinc-500">
           {currentIndex + 1} / {entries.length}
@@ -33,7 +35,7 @@ export const HistoryPanel: React.FC = () => {
         >
           <div className="flex items-center space-x-1.5">
             <RotateCcw className="w-3 h-3 text-zinc-500" />
-            <span>[Initial State]</span>
+            <span>[{t('history.initial_state')}]</span>
           </div>
           <span className="text-[10px] font-mono text-zinc-500">#0</span>
         </div>

@@ -21,6 +21,7 @@ import {
 import { importPsdBuffer, exportModelToPsdBuffer } from '../packages/psd/dist/index.js';
 import { startCubismWebSocketServer, WebSocket } from '../packages/mcp-server/dist/index.js';
 import { evaluateProjectJs, exportModelingTemplate, lintProjectJs, type Project } from '../packages/schema/dist/index.js';
+import { detectSystemLanguage, translations } from '../apps/desktop/src/i18n/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -2399,6 +2400,35 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(smoothed.keyframes[1].bezier_handles).toBeDefined();
     // At midframe 15, slope is (30 - (-30)) / 30 = 2.0 -> handles should be non-trivial
     expect(smoothed.keyframes[1].bezier_handles.length).toBe(4);
+  });
+
+  it('should support i18n with automatic system language detection and trilingual key parity', () => {
+    // 1. System Language Detection
+    expect(detectSystemLanguage('zh-CN')).toBe('zh-CN');
+    expect(detectSystemLanguage('zh-TW')).toBe('zh-CN');
+    expect(detectSystemLanguage('zh')).toBe('zh-CN');
+    expect(detectSystemLanguage('ja')).toBe('ja');
+    expect(detectSystemLanguage('ja-JP')).toBe('ja');
+    expect(detectSystemLanguage('en-US')).toBe('en');
+    expect(detectSystemLanguage('fr-FR')).toBe('en');
+    expect(detectSystemLanguage('')).toBe('en');
+
+    // 2. Trilingual Dictionary Parity (zh-CN, ja, en)
+    const enKeys = Object.keys(translations['en']);
+    const zhKeys = Object.keys(translations['zh-CN']);
+    const jaKeys = Object.keys(translations['ja']);
+
+    expect(enKeys.length).toBeGreaterThanOrEqual(70);
+    expect(zhKeys.length).toBe(enKeys.length);
+    expect(jaKeys.length).toBe(enKeys.length);
+
+    for (const key of enKeys) {
+      expect(translations['zh-CN'][key]).toBeDefined();
+      expect(translations['ja'][key]).toBeDefined();
+      expect(translations['en'][key].length).toBeGreaterThan(0);
+      expect(translations['zh-CN'][key].length).toBeGreaterThan(0);
+      expect(translations['ja'][key].length).toBeGreaterThan(0);
+    }
   });
 
 });

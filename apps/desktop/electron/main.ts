@@ -57,6 +57,10 @@ app.on('window-all-closed', () => {
 });
 
 // IPC Handlers
+ipcMain.handle('l2d:get-system-locale', () => {
+  return app.getLocale() || 'en';
+});
+
 ipcMain.handle('l2d:open-project-dialog', async () => {
   if (!mainWindow) return null;
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {

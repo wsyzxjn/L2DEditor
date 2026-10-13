@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import type { Node } from '@l2d/schema';
 import { useEditor } from '../context/EditorContext.js';
+import { useI18n } from '../i18n/index.js';
 import { Eye, EyeOff, Lock, Unlock, Grid, RotateCw, Image, Folder, Plus, PenTool, Sparkles, Search } from 'lucide-react';
 
 export const HierarchyPanel: React.FC = () => {
+  const { t } = useI18n();
   const { project, selectedNodeId, setSelectedNodeId, executeCommand, notify } = useEditor();
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -44,6 +46,7 @@ export const HierarchyPanel: React.FC = () => {
           {/* Visibility toggle */}
           <button
             className="p-1 hover:text-white text-dcc-muted"
+            title={node.visible ? t('hierarchy.visible_on') : t('hierarchy.visible_off')}
             onClick={(e) => {
               e.stopPropagation();
               executeCommand({
@@ -59,6 +62,7 @@ export const HierarchyPanel: React.FC = () => {
           {/* Lock toggle */}
           <button
             className="p-1 hover:text-white text-dcc-muted ml-0.5"
+            title={node.locked ? t('hierarchy.lock_on') : t('hierarchy.lock_off')}
             onClick={(e) => {
               e.stopPropagation();
               executeCommand({
@@ -101,7 +105,7 @@ export const HierarchyPanel: React.FC = () => {
       },
     });
     setSelectedNodeId(id);
-    notify(`Created Warp Deformer: ${name}`, 'success');
+    notify(`${t('hierarchy.warp')}: ${name}`, 'success');
   };
 
   const handleAddRotation = () => {
@@ -125,7 +129,7 @@ export const HierarchyPanel: React.FC = () => {
       },
     });
     setSelectedNodeId(id);
-    notify(`Created Rotation Deformer: ${name}`, 'success');
+    notify(`${t('hierarchy.rot')}: ${name}`, 'success');
   };
 
   const handleAddPart = () => {
@@ -147,7 +151,7 @@ export const HierarchyPanel: React.FC = () => {
       },
     });
     setSelectedNodeId(id);
-    notify(`Created Part folder: ${name}`, 'success');
+    notify(`${t('hierarchy.part')}: ${name}`, 'success');
   };
 
   const handleAddArtPath = () => {
@@ -169,42 +173,42 @@ export const HierarchyPanel: React.FC = () => {
       },
     });
     setSelectedNodeId(id);
-    notify(`Created ArtPath stroke: ${name}`, 'success');
+    notify(`${t('hierarchy.path')}: ${name}`, 'success');
   };
 
   return (
     <div className="flex flex-col h-full bg-dcc-panel border-r border-dcc-border">
       {/* Header bar */}
       <div className="flex items-center justify-between h-7 px-2 border-b border-dcc-border bg-dcc-header">
-        <span className="text-dcc font-semibold uppercase tracking-wider text-dcc-muted">Hierarchy</span>
+        <span className="text-dcc font-semibold uppercase tracking-wider text-dcc-muted">{t('hierarchy.title')}</span>
         <div className="flex items-center space-x-1">
           <button
             className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
             onClick={handleAddWarp}
-            title="Create Warp Deformer"
+            title={t('hierarchy.warp')}
           >
-            <Plus className="w-3 h-3 mr-0.5" /> Warp
+            <Plus className="w-3 h-3 mr-0.5" /> {t('hierarchy.warp')}
           </button>
           <button
             className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
             onClick={handleAddRotation}
-            title="Create Rotation Deformer"
+            title={t('hierarchy.rot')}
           >
-            <Plus className="w-3 h-3 mr-0.5" /> Rot
+            <Plus className="w-3 h-3 mr-0.5" /> {t('hierarchy.rot')}
           </button>
           <button
             className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
             onClick={handleAddPart}
-            title="Create Part Folder"
+            title={t('hierarchy.part')}
           >
-            <Plus className="w-3 h-3 mr-0.5" /> Part
+            <Plus className="w-3 h-3 mr-0.5" /> {t('hierarchy.part')}
           </button>
           <button
             className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded border border-purple-500/30 transition-colors"
             onClick={handleAddArtPath}
-            title="Create ArtPath Line Stroke (艺术路径)"
+            title={t('hierarchy.path')}
           >
-            <PenTool className="w-3 h-3 mr-0.5" /> Path
+            <PenTool className="w-3 h-3 mr-0.5" /> {t('hierarchy.path')}
           </button>
           <button
             className="p-1 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-zinc-400 hover:text-emerald-300 rounded transition-colors"
@@ -214,9 +218,9 @@ export const HierarchyPanel: React.FC = () => {
                 name: 'project.cleanup_empty',
                 params: {},
               });
-              notify('Cleaned up empty Parts, Deformers & unused Parameters', 'success');
+              notify(t('notify.cleaned_empty'), 'success');
             }}
-            title="Remove all empty Parts, Deformers & unused Parameters"
+            title={t('hierarchy.cleanup')}
           >
             <Sparkles className="w-3 h-3" />
           </button>
@@ -228,7 +232,7 @@ export const HierarchyPanel: React.FC = () => {
         <Search className="w-3 h-3 text-zinc-500 shrink-0" />
         <input
           type="text"
-          placeholder="Filter nodes (Ctrl+F)..."
+          placeholder={t('hierarchy.filter_placeholder')}
           className="w-full h-5 bg-transparent text-dcc-sm text-dcc-text outline-none placeholder:text-zinc-600"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
@@ -237,8 +241,8 @@ export const HierarchyPanel: React.FC = () => {
       <div className="flex-1 overflow-y-auto py-1">
         {project.nodes.length === 0 ? (
           <div className="p-4 text-center text-dcc text-dcc-muted">
-            <p>No nodes yet.</p>
-            <p className="mt-1 text-dcc-sm text-zinc-500">Click + Warp above or Import PSD.</p>
+            <p>{t('hierarchy.no_nodes')}</p>
+            <p className="mt-1 text-dcc-sm text-zinc-500">{t('hierarchy.click_add')}</p>
           </div>
         ) : searchQuery.trim() ? (
           project.nodes
