@@ -6,6 +6,7 @@ import {
   createCanvas,
   generateTextureAtlas,
   exportRuntimePackage,
+  importRuntimePackage,
   createSyntheticWavBuffer,
   analyzeWavForLipSync,
   renderAnimationSequence,
@@ -2172,6 +2173,126 @@ describe('Agent-First Full Feature Pipeline', () => {
     const unpacked = unpackAtlasTextures(bus.getProject(), dummyAtlasBuf);
     expect(unpacked.length).toBeGreaterThanOrEqual(1);
     expect(unpacked[0].buffer.subarray(0, 4).toString('hex')).toBe('89504e47');
+  });
+
+  it('should support four-corner synthesis, soft deform brush, and full runtime package import round-trip', async () => {
+    const bus = new CommandBus(initialProject);
+    registerStandardCommands(bus);
+
+    // 1. Test macro.synthesize_4_corners on a WarpDeformer
+    bus.execute({
+      id: 'warp_4c',
+      name: 'node.add',
+      params: {
+        id: 'warp_face_grid',
+        name: 'Face Grid',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'WarpDeformer',
+          cols: 1,
+          rows: 1,
+          bounds: [0, 0, 100, 100],
+          control_points: [[0, 0], [100, 0], [0, 100], [100, 100]],
+        },
+      },
+    });
+
+    // Set 5 axial keyforms
+    const pCenter = [[0, 0], [100, 0], [0, 100], [100, 100]];
+    const pLeft = [[-10, 0], [90, 0], [-10, 100], [90, 100]];
+    const pRight = [[10, 0], [110, 0], [10, 100], [110, 100]];
+    const pDown = [[0, -10], [100, -10], [0, 90], [100, 90]];
+    const pUp = [[0, 10], [100, 10], [0, 110], [100, 110]];
+
+    bus.execute({
+      id: 'kf_bind',
+      name: 'keyform.bind',
+      params: {
+        target_node_id: 'warp_face_grid',
+        dimensions: [
+          { param_id: 'ParamAngleX', keys: [-30, 0, 30] },
+          { param_id: 'ParamAngleY', keys: [-30, 0, 30] },
+        ],
+      },
+    });
+
+    // Set the 5 axial keys
+    const axials: [number, number, number[][]][] = [
+      [0, 0, pCenter],
+      [-30, 0, pLeft],
+      [30, 0, pRight],
+      [0, -30, pDown],
+      [0, 30, pUp],
+    ];
+    for (const [kx, ky, pts] of axials) {
+      bus.execute({
+        id: `set_kf_${kx}_${ky}`,
+        name: 'keyform.set',
+        params: {
+          target_node_id: 'warp_face_grid',
+          coordinates: [kx, ky],
+          payload: { kind: 'Warp', control_points: pts },
+        },
+      });
+    }
+
+    // Synthesize the 4 diagonal corners
+    bus.execute({
+      id: 'synth_4c',
+      name: 'macro.synthesize_4_corners',
+      params: { target_node_id: 'warp_face_grid' },
+    });
+
+    const kfBinding = bus.getProject().keyforms.find((k) => k.target_node_id === 'warp_face_grid')!;
+    expect(kfBinding.keyforms.length).toBe(9);
+    const topLeftKf = kfBinding.keyforms.find((k) => k.coordinates[0] === -30 && k.coordinates[1] === 30)!;
+    expect(topLeftKf).toBeDefined();
+    // Corner = Left (-10, 0) + Up (0, 10) -> (-10, 10)
+    const tlCps = (topLeftKf.payload as any).control_points;
+    expect(tlCps[0][0]).toBeCloseTo(-10, 3);
+    expect(tlCps[0][1]).toBeCloseTo(10, 3);
+
+    // 2. Test deform.soft_brush
+    bus.execute({
+      id: 'soft_deform',
+      name: 'deform.soft_brush',
+      params: {
+        node_id: 'warp_face_grid',
+        center: [0, 0],
+        radius: 50,
+        delta: [15, 20],
+        falloff: 'smooth',
+      },
+    });
+    const warpAfterBrush = bus.getProject().nodes.find((n) => n.id === 'warp_face_grid')!;
+    if (warpAfterBrush.kind.type === 'WarpDeformer') {
+      // Point [0, 0] at center receives 100% weight -> displaced by [15, 20]
+      expect(warpAfterBrush.kind.control_points[0][0]).toBeCloseTo(15, 3);
+      expect(warpAfterBrush.kind.control_points[0][1]).toBeCloseTo(20, 3);
+      // Point [100, 100] is outside radius 50 -> unmodified
+      expect(warpAfterBrush.kind.control_points[3][0]).toBe(100);
+      expect(warpAfterBrush.kind.control_points[3][1]).toBe(100);
+    }
+
+    // 3. Test exportRuntimePackage -> importRuntimePackage round-trip
+    const testExportDir = path.join('/tmp', `l2d_pkg_roundtrip_${Date.now()}`);
+    const dummyTexResolver = () => {
+      const canvas = createCanvas(128, 128);
+      return canvas.toBuffer('image/png');
+    };
+    const exportRes = exportRuntimePackage(bus.getProject(), dummyTexResolver, testExportDir, {
+      modelName: 'roundtrip_model',
+    });
+    expect(fs.existsSync(exportRes.model3JsonPath)).toBe(true);
+    expect(fs.existsSync(exportRes.moc3Path)).toBe(true);
+
+    const imported = importRuntimePackage(exportRes.model3JsonPath);
+    expect(imported.modelName).toBe('roundtrip_model');
+    expect(imported.mocVersion).toBe(5);
+    expect(imported.project.nodes.length).toBe(bus.getProject().nodes.length);
+    expect(imported.project.parameters.length).toBe(bus.getProject().parameters.length);
   });
 
 });

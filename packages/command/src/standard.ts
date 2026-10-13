@@ -257,11 +257,40 @@ export function registerStandardCommands(bus: CommandBus): void {
 
   // Keyforms
   bus.register<KeyformBinding>('keyform.set', (draft, binding) => {
+    if ((binding as any).coordinates && (binding as any).payload) {
+      const targetId = (binding as any).target_node_id;
+      const coords = (binding as any).coordinates as number[];
+      let existing = draft.keyforms.find((k) => k.target_node_id === targetId);
+      if (!existing) {
+        existing = { target_node_id: targetId, dimensions: [], keyforms: [] };
+        draft.keyforms.push(existing);
+      }
+      const stateIdx = existing.keyforms.findIndex(
+        (s) => s.coordinates.length === coords.length && s.coordinates.every((c, i) => Math.abs(c - coords[i]) < 1e-4)
+      );
+      const newState = { coordinates: coords, payload: (binding as any).payload };
+      if (stateIdx >= 0) existing.keyforms[stateIdx] = newState;
+      else existing.keyforms.push(newState);
+      return;
+    }
     const existingIdx = draft.keyforms.findIndex((k) => k.target_node_id === binding.target_node_id);
     if (existingIdx >= 0) {
       draft.keyforms[existingIdx] = binding;
     } else {
       draft.keyforms.push(binding);
+    }
+  });
+
+  bus.register<{
+    target_node_id: string;
+    dimensions: any[];
+  }>('keyform.bind', (draft, { target_node_id, dimensions }) => {
+    let existing = draft.keyforms.find((k) => k.target_node_id === target_node_id);
+    if (!existing) {
+      existing = { target_node_id, dimensions, keyforms: [] };
+      draft.keyforms.push(existing);
+    } else {
+      existing.dimensions = dimensions;
     }
   });
 
@@ -2272,6 +2301,166 @@ export function registerStandardCommands(bus: CommandBus): void {
       : draft.nodes.find((n) => pathNode.kind.type === 'DeformPath' && pathNode.kind.target_mesh_ids.includes(n.id));
     if (targetMesh && prevRotId) {
       targetMesh.parent_id = `rot_skin_${path_id}_1`;
+    }
+  });
+
+  // 16. Four-Corner Synthesis (`CMD_FOUR_CORNER_SYNTHESIS` / `CUB3-1402`: 四隅形状の自動生成)
+  // Takes 5 axial keyforms (center, left, right, down, up) across two parameters (e.g. ParamAngleX, ParamAngleY)
+  // and automatically synthesizes the 4 diagonal corner keyforms:
+  // Corner = Center + (H_displacement) + (V_displacement)
+  bus.register<{
+    target_node_id: string;
+    param_x_id?: string;
+    param_y_id?: string;
+  }>('macro.synthesize_4_corners', (draft, { target_node_id, param_x_id, param_y_id }) => {
+    const kfBinding = draft.keyforms.find((k) => k.target_node_id === target_node_id);
+    if (!kfBinding || kfBinding.dimensions.length < 2) {
+      throw new Error(`Target node '${target_node_id}' does not have a 2D keyform binding`);
+    }
+    const px = param_x_id || kfBinding.dimensions[0].param_id;
+    const py = param_y_id || kfBinding.dimensions[1].param_id;
+    const dimX = kfBinding.dimensions.find((d) => d.param_id === px);
+    const dimY = kfBinding.dimensions.find((d) => d.param_id === py);
+    if (!dimX || !dimY || dimX.keys.length < 3 || dimY.keys.length < 3) {
+      throw new Error(`Dimensions must have at least 3 keys (min, center, max)`);
+    }
+
+    const xMin = dimX.keys[0];
+    const xMid = dimX.keys[1];
+    const xMax = dimX.keys[2];
+    const yMin = dimY.keys[0];
+    const yMid = dimY.keys[1];
+    const yMax = dimY.keys[2];
+
+    const findKf = (kx: number, ky: number) =>
+      kfBinding.keyforms.find(
+        (k) => Math.abs(k.coordinates[0] - kx) < 1e-4 && Math.abs(k.coordinates[1] - ky) < 1e-4
+      );
+
+    const kfCenter = findKf(xMid, yMid);
+    const kfLeft = findKf(xMin, yMid);
+    const kfRight = findKf(xMax, yMid);
+    const kfDown = findKf(xMid, yMin);
+    const kfUp = findKf(xMid, yMax);
+
+    if (!kfCenter || !kfLeft || !kfRight || !kfDown || !kfUp) {
+      throw new Error('5 axial keyforms (center, left, right, down, up) must be set before synthesizing 4 corners');
+    }
+
+    const synthesizeWarp = (hKf: typeof kfLeft, vKf: typeof kfUp): [number, number][] => {
+      const cPts = (kfCenter.payload as any).control_points as [number, number][];
+      const hPts = (hKf.payload as any).control_points as [number, number][];
+      const vPts = (vKf.payload as any).control_points as [number, number][];
+      return cPts.map(([cx, cy], idx) => {
+        const hx = hPts[idx] ? hPts[idx][0] - cx : 0;
+        const hy = hPts[idx] ? hPts[idx][1] - cy : 0;
+        const vx = vPts[idx] ? vPts[idx][0] - cx : 0;
+        const vy = vPts[idx] ? vPts[idx][1] - cy : 0;
+        return [cx + hx + vx, cy + hy + vy];
+      });
+    };
+
+    const corners: [number, number, typeof kfLeft, typeof kfUp][] = [
+      [xMin, yMin, kfLeft, kfDown], // Bottom-Left
+      [xMax, yMin, kfRight, kfDown], // Bottom-Right
+      [xMin, yMax, kfLeft, kfUp],   // Top-Left
+      [xMax, yMax, kfRight, kfUp],   // Top-Right
+    ];
+
+    for (const [cx, cy, hKf, vKf] of corners) {
+      const existingIdx = kfBinding.keyforms.findIndex(
+        (k) => Math.abs(k.coordinates[0] - cx) < 1e-4 && Math.abs(k.coordinates[1] - cy) < 1e-4
+      );
+      let payload: any;
+      if (kfCenter.payload.kind === 'Warp') {
+        payload = {
+          kind: 'Warp' as const,
+          control_points: synthesizeWarp(hKf, vKf),
+        };
+      } else if (kfCenter.payload.kind === 'Rotation') {
+        const cRot = kfCenter.payload;
+        const hRot = hKf.payload as typeof cRot;
+        const vRot = vKf.payload as typeof cRot;
+        payload = {
+          kind: 'Rotation' as const,
+          origin: [
+            cRot.origin[0] + (hRot.origin[0] - cRot.origin[0]) + (vRot.origin[0] - cRot.origin[0]),
+            cRot.origin[1] + (hRot.origin[1] - cRot.origin[1]) + (vRot.origin[1] - cRot.origin[1]),
+          ],
+          angle_deg: cRot.angle_deg + (hRot.angle_deg - cRot.angle_deg) + (vRot.angle_deg - cRot.angle_deg),
+          scale: [
+            cRot.scale[0] + (hRot.scale[0] - cRot.scale[0]) + (vRot.scale[0] - cRot.scale[0]),
+            cRot.scale[1] + (hRot.scale[1] - cRot.scale[1]) + (vRot.scale[1] - cRot.scale[1]),
+          ],
+        };
+      } else if (kfCenter.payload.kind === 'ArtMesh') {
+        const cMesh = kfCenter.payload;
+        const hMesh = hKf.payload as typeof cMesh;
+        const vMesh = vKf.payload as typeof cMesh;
+        const offsets: [number, number][] = cMesh.vertex_offsets.map(([cx, cy], idx) => {
+          const hx = hMesh.vertex_offsets[idx] ? hMesh.vertex_offsets[idx][0] - cx : 0;
+          const hy = hMesh.vertex_offsets[idx] ? hMesh.vertex_offsets[idx][1] - cy : 0;
+          const vx = vMesh.vertex_offsets[idx] ? vMesh.vertex_offsets[idx][0] - cx : 0;
+          const vy = vMesh.vertex_offsets[idx] ? vMesh.vertex_offsets[idx][1] - cy : 0;
+          return [cx + hx + vx, cy + hy + vy];
+        });
+        payload = {
+          kind: 'ArtMesh' as const,
+          vertex_offsets: offsets,
+          opacity: cMesh.opacity,
+          multiply_color: cMesh.multiply_color,
+          screen_color: cMesh.screen_color,
+          draw_order: cMesh.draw_order,
+        };
+      }
+
+      if (payload) {
+        const newKf = { coordinates: [cx, cy], payload };
+        if (existingIdx >= 0) kfBinding.keyforms[existingIdx] = newKf;
+        else kfBinding.keyforms.push(newKf);
+      }
+    }
+  });
+
+  // 17. Deform Brush / Soft Selection (`CMD_TOOL_MODE_DEFORM_BRUSH` / `CUB3-1891`: 変形ブラシツール)
+  bus.register<{
+    node_id: string;
+    center: [number, number];
+    radius: number;
+    delta: [number, number];
+    falloff?: 'smooth' | 'linear' | 'gaussian';
+  }>('deform.soft_brush', (draft, { node_id, center, radius, delta, falloff = 'smooth' }) => {
+    const node = draft.nodes.find((n) => n.id === node_id);
+    if (!node) throw new Error(`Node '${node_id}' not found`);
+    const r = Math.max(1, radius);
+    const [cx, cy] = center;
+    const [dx, dy] = delta;
+
+    const computeWeight = (px: number, py: number): number => {
+      const dist = Math.hypot(px - cx, py - cy);
+      if (dist >= r) return 0;
+      const t = dist / r;
+      if (falloff === 'linear') return 1.0 - t;
+      if (falloff === 'gaussian') return Math.exp(-3.0 * t * t);
+      // smooth cubic Hermite: (1 - 3t^2 + 2t^3)
+      return 1.0 - 3.0 * t * t + 2.0 * t * t * t;
+    };
+
+    if (node.kind.type === 'WarpDeformer') {
+      node.kind.control_points = node.kind.control_points.map(([px, py]) => {
+        const w = computeWeight(px, py);
+        return [px + dx * w, py + dy * w];
+      });
+    } else if (node.kind.type === 'ArtMesh') {
+      node.kind.vertices = node.kind.vertices.map(([px, py]) => {
+        const w = computeWeight(px, py);
+        return [px + dx * w, py + dy * w];
+      });
+    } else if (node.kind.type === 'DeformPath') {
+      node.kind.control_points = node.kind.control_points.map(([px, py]) => {
+        const w = computeWeight(px, py);
+        return [px + dx * w, py + dy * w];
+      });
     }
   });
 

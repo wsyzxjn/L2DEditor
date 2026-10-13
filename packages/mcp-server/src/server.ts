@@ -12,6 +12,7 @@ import {
   renderFrameToCanvas,
   generateTextureAtlas,
   exportRuntimePackage,
+  importRuntimePackage,
   renderAnimationSequence,
   applyCubismAiFaceRig,
   serializeMoc3Container,
@@ -336,6 +337,18 @@ export function createMcpServer(): Server {
               outputPath: { type: 'string' },
             },
             required: ['moc3Path', 'outputPath'],
+          },
+        },
+        {
+          name: 'l2d_import_bundle',
+          description: 'Import an entire Live2D runtime bundle (.model3.json, .moc3, .physics3, .cdi3, expressions, pose) into an L2DEditor project.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              model3JsonPath: { type: 'string' },
+              outputPath: { type: 'string' },
+            },
+            required: ['model3JsonPath', 'outputPath'],
           },
         },
       ],
@@ -795,6 +808,18 @@ export function createMcpServer(): Server {
         fs.writeFileSync(targetFile, JSON.stringify(project, null, 2), 'utf-8');
         return {
           content: [{ type: 'text', text: `Imported .moc3 (v${mocVersion}, ${project.nodes.length} nodes) to ${targetFile}` }],
+        };
+      }
+
+      if (name === 'l2d_import_bundle') {
+        const model3JsonPath = args?.model3JsonPath as string;
+        const outPath = args?.outputPath as string;
+        const { project, modelName, mocVersion } = importRuntimePackage(model3JsonPath);
+        const targetFile = outPath.endsWith('.json') ? outPath : path.join(outPath, 'project.json');
+        fs.mkdirSync(path.dirname(path.resolve(targetFile)), { recursive: true });
+        fs.writeFileSync(targetFile, JSON.stringify(project, null, 2), 'utf-8');
+        return {
+          content: [{ type: 'text', text: `Imported runtime bundle '${modelName}' (v${mocVersion}, ${project.nodes.length} nodes, ${project.parameters.length} params) to ${targetFile}` }],
         };
       }
 

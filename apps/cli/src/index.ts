@@ -11,6 +11,7 @@ import {
   analyzeWavForLipSync,
   renderAnimationSequence,
   applyCubismAiFaceRig,
+  importRuntimePackage,
   serializeMoc3Container,
   parseMoc3ToProject,
 } from '@l2d/renderer';
@@ -334,6 +335,18 @@ program
     fs.mkdirSync(path.dirname(path.resolve(targetFile)), { recursive: true });
     fs.writeFileSync(targetFile, JSON.stringify(project, null, 2), 'utf-8');
     console.log(`Imported .moc3 (v${mocVersion}, ${project.nodes.length} nodes, ${project.parameters.length} parameters) to ${targetFile}`);
+  });
+
+program
+  .command('import-bundle <model3_json>')
+  .description('Import an entire Live2D runtime bundle (.model3.json, .moc3, .physics3, .cdi3, expressions, pose) into an L2DEditor project')
+  .requiredOption('-o, --out <out_dir>', 'Target .l2dproj directory')
+  .action((model3JsonFile, opts) => {
+    const { project, modelName, mocVersion } = importRuntimePackage(model3JsonFile);
+    fs.mkdirSync(opts.out, { recursive: true });
+    const jsonFile = path.join(opts.out, 'project.json');
+    fs.writeFileSync(jsonFile, JSON.stringify(project, null, 2), 'utf-8');
+    console.log(`Successfully imported runtime bundle '${modelName}' (.moc3 v${mocVersion}, ${project.nodes.length} nodes, ${project.parameters.length} params) into ${opts.out}`);
   });
 
 program
