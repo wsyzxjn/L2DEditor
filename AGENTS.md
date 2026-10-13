@@ -50,7 +50,7 @@ Agents can drive the entire 2D puppet rigging lifecycle without opening a GUI wi
    - MCP: `l2d_exec` (`macro.auto_rig` / `macro.ai_full_body_deformers`) + `l2d_ai_face_rig`
 3. **Fine-Grained Command Execution & Dry-Run**:
    - CLI: `node apps/cli/dist/index.js exec ./char.l2dproj '{"id":"1","name":"keyform.reflect_horizontal","params":{"node_id":"FACE","param_id":"ParamAngleX"}}' --dry-run`
-   - Mesh Editing & 4-Corner Synthesis: `macro.synthesize_4_corners`, `deform.soft_brush`, `mesh.add_vertex`, `mesh.flip_edge`, `glue.paint_weights`
+   - Mesh Editing & 4-Corner Synthesis: `macro.synthesize_4_corners`, `deform.soft_brush`, `mesh.add_vertex`, `mesh.flip_edge`, `glue.paint_weights`, `mesh.auto_generate_mesh`, `node.batch_reparent`
    - MCP: `l2d_exec`, `l2d_batch_exec`
 4. **Dual-Loop Verification (Numerical Lint + Visual Snapshot)**:
    - Numerical Lint: `node apps/cli/dist/index.js lint ./char.l2dproj` (`l2d_lint`)
