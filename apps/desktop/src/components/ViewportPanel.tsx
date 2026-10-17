@@ -13,21 +13,26 @@ import {
   Paintbrush,
   Layers,
   Route,
-  Camera,
   Eye,
   FlipHorizontal,
   Shuffle,
   Maximize2,
+  Crop,
   Grid,
+  FolderOpen,
+  FileUp,
 } from 'lucide-react';
 import earcut from 'earcut';
 import { ModelArtwork } from './ModelArtwork.js';
+import { OverflowMenu, OverflowMenuItem, OverflowMenuLabel } from './OverflowMenu.js';
 
 export const ViewportPanel: React.FC = () => {
   const { t } = useI18n();
   const {
     project,
     currentFilePath,
+    openProject,
+    importPsd,
     frame,
     selectedNodeId,
     parameterValues,
@@ -567,7 +572,7 @@ export const ViewportPanel: React.FC = () => {
             uv,
           },
         });
-        notify(`Added vertex at (${Math.round(wx)}, ${Math.round(wy)})`, 'info');
+        notify(t('notify.vertex_added', { x: Math.round(wx), y: Math.round(wy) }), 'info');
         return;
       }
 
@@ -592,7 +597,7 @@ export const ViewportPanel: React.FC = () => {
               vertex_index: clickedIdx,
             },
           });
-          notify(`Deleted vertex #${clickedIdx}`, 'info');
+          notify(t('notify.vertex_deleted', { index: clickedIdx }), 'info');
           setSelectedVertexIndex(null);
           return;
         }
@@ -738,11 +743,11 @@ export const ViewportPanel: React.FC = () => {
         },
       },
     });
-    notify(`Retriangulated mesh: ${newIndices.length / 3} triangles generated`, 'success');
+    notify(t('notify.retriangulated', { count: newIndices.length / 3 }), 'success');
   };
 
   return (
-    <div className="relative w-full h-full bg-[#101012] overflow-hidden select-none">
+    <div className="panel-root relative w-full h-full bg-[#101012] overflow-hidden select-none">
       <ModelArtwork project={project} frame={frame} projectPath={currentFilePath} pan={pan} zoom={zoom}
         flipped={isFlipScreenX} soloNodeId={isSoloMode ? selectedNodeId : null} onReady={setArtworkReady}
         onRendered={onArtworkRendered} captureRef={captureRef} />
@@ -756,346 +761,325 @@ export const ViewportPanel: React.FC = () => {
         onPointerUp={handlePointerUp}
       />
 
-      {/* Top Floating Viewport Toolbar (Mesh Edit & Physics) */}
-      <div className="absolute top-2 left-2 z-10 flex max-w-[calc(100%_-_1rem)] items-center space-x-1.5 overflow-x-auto whitespace-nowrap [&>button]:shrink-0 [&>div]:shrink-0 bg-dcc-panel/90 backdrop-blur px-2 py-1 rounded border border-dcc-border shadow-lg">
-        <button className="p-1 rounded text-zinc-300 hover:bg-zinc-700" onClick={fitModel} title="Fit Model to View (适应视口)">
-          <Maximize2 className="w-3 h-3" />
-        </button>
-        {selectedMesh && (
-          <button
-            className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
-              isMeshEditMode
-                ? 'bg-rose-600 text-white shadow'
-                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-            }`}
-            onClick={() => setIsMeshEditMode(!isMeshEditMode)}
-          >
-            {isMeshEditMode ? <Check className="w-3 h-3 mr-1" /> : <Sparkles className="w-3 h-3 mr-1" />}
-            {isMeshEditMode ? t('viewport.mesh_edit') + ' ✓' : t('viewport.mesh_edit')}
-          </button>
-        )}
-
-        {/* Mesh Edit Toolset */}
-        {selectedWarp && !isMeshEditMode && (
-          <button
-            className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
-              isWarpBrushActive
-                ? 'bg-blue-600 text-white'
-                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-            }`}
-            onClick={() => setIsWarpBrushActive(!isWarpBrushActive)}
-            title="Soft Selection Deform Brush (变形画笔)"
-          >
-            <Paintbrush className="w-3 h-3 mr-1" />
-            {t('inspector.artpath_stroke')}
-          </button>
-        )}
-
-        {(selectedWarp || selectedMesh) && !isMeshEditMode && (
-          <button
-            className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
-              isFreeQuadActive
-                ? 'bg-rose-600 text-white'
-                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-            }`}
-            onClick={() => {
-              const nextState = !isFreeQuadActive;
-              setIsFreeQuadActive(nextState);
-              if (nextState) {
-                if (selectedWarp) {
-                  const [bx, by, bw, bh] = selectedWarp.bounds;
-                  setQuadCorners([
-                    [bx, by],
-                    [bx + bw, by],
-                    [bx, by + bh],
-                    [bx + bw, by + bh],
-                  ]);
-                } else if (selectedMesh && selectedMesh.vertices.length > 0) {
-                  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                  for (const [vx, vy] of selectedMesh.vertices) {
-                    if (vx < minX) minX = vx;
-                    if (vx > maxX) maxX = vx;
-                    if (vy < minY) minY = vy;
-                    if (vy > maxY) maxY = vy;
-                  }
-                  setQuadCorners([
-                    [minX, minY],
-                    [maxX, minY],
-                    [minX, maxY],
-                    [maxX, maxY],
-                  ]);
-                }
-              }
-              notify(`4-Point Perspective Free Quad ${nextState ? 'ENABLED' : 'DISABLED'}`, 'info');
-            }}
-            title="4-Point Perspective Free Deform Handler (四点透视变形外框)"
-          >
-            <Maximize2 className="w-3 h-3 mr-1" />
-            Free Quad
-          </button>
-        )}
-        {isMeshEditMode && selectedMesh && (
-          <div className="flex items-center space-x-1 border-l border-dcc-border pl-1.5">
-            <button
-              className={`p-1 rounded text-dcc-sm ${
-                meshEditTool === 'select' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:bg-zinc-700'
-              }`}
-              onClick={() => setMeshEditTool('select')}
-              title={t('viewport.tool_select')}
-            >
-              <MousePointer className="w-3 h-3" />
-            </button>
-            <button
-              className={`p-1 rounded text-dcc-sm ${
-                meshEditTool === 'add' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:bg-zinc-700'
-              }`}
-              onClick={() => setMeshEditTool('add')}
-              title={t('viewport.tool_add_vertex')}
-            >
-              <Plus className="w-3 h-3" />
-            </button>
-            <button
-              className={`p-1 rounded text-dcc-sm ${
-                meshEditTool === 'delete' ? 'bg-rose-600 text-white' : 'text-zinc-400 hover:bg-zinc-700'
-              }`}
-              onClick={() => setMeshEditTool('delete')}
-              title={t('viewport.tool_delete_vertex')}
-            >
-              <Trash2 className="w-3 h-3" />
-            </button>
-            <button
-              className="px-1.5 py-0.5 text-dcc-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded font-mono"
-              onClick={handleRetriangulate}
-              title="Auto Retriangulate Delaunay Mesh"
-            >
-              Triangulate
-            </button>
-            <button
-              className="px-1.5 py-0.5 text-dcc-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded font-mono"
-              onClick={() => {
-                if (selectedNode) {
-                  executeCommand({
-                    id: `cmd_${Date.now()}`,
-                    name: 'mesh.subdivide',
-                    params: { mesh_id: selectedNode.id },
-                  });
-                  notify('Subdivided mesh into finer triangles', 'success');
-                }
-              }}
-              title="Subdivide all triangles into 4 finer triangles"
-            >
-              Subdivide
-            </button>
+      {project.nodes.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-4">
+          <div className="viewport-welcome pointer-events-auto w-full max-w-sm rounded-lg border border-dcc-border bg-dcc-panel/95 p-5 shadow-xl text-center">
+            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg border border-blue-500/25 bg-blue-500/10 text-blue-400">
+              <Layers className="w-5 h-5" />
+            </div>
+            <h1 className="text-sm font-semibold">{t('viewport.empty_title')}</h1>
+            <p className="mt-2 text-dcc leading-relaxed text-dcc-muted text-balance">{t('viewport.empty_description')}</p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button onClick={importPsd} className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-dcc font-medium hover:bg-blue-500">
+                <FileUp className="w-3.5 h-3.5" />{t('toolbar.import_psd')}
+              </button>
+              <button onClick={openProject} className="flex items-center gap-1.5 rounded border border-dcc-border bg-dcc-header px-3 py-1.5 text-dcc hover:bg-dcc-hover">
+                <FolderOpen className="w-3.5 h-3.5" />{t('toolbar.open')}
+              </button>
+            </div>
           </div>
-        )}
-
-        <div className="h-3 w-px bg-dcc-border" />
-
-        {/* Physics Live Mode Toggle */}
-        <button
-          className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
-            isPhysicsEnabled
-              ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50'
-              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
-          }`}
-          onClick={() => {
-            setIsPhysicsEnabled(!isPhysicsEnabled);
-            notify(`Physics simulation ${!isPhysicsEnabled ? 'ENABLED' : 'DISABLED'}`, 'info');
-          }}
-          title="Toggle live physics simulation"
-        >
-          <Zap className="w-3 h-3 mr-1" />
-          {t('viewport.physics')}
-        </button>
-
-        {/* Auto Idle Natural Posing Toggle */}
-        <button
-          className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
-            isAutoIdleEnabled
-              ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/50'
-              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
-          }`}
-          onClick={() => {
-            setIsAutoIdleEnabled(!isAutoIdleEnabled);
-            notify(`Auto Idle posing ${!isAutoIdleEnabled ? 'ENABLED' : 'DISABLED'}`, 'info');
-          }}
-          title="Toggle automatic natural breathing and posing"
-        >
-          <Smile className="w-3 h-3 mr-1" />
-          {t('viewport.auto_idle')}
-        </button>
-
-        {/* Onion Skin Toggle (CMD_PREVIEW_ONIONSKIN_MODELER) */}
-        <button
-          className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
-            isOnionSkinEnabled
-              ? 'bg-sky-600/30 text-sky-300 border border-sky-500/50'
-              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
-          }`}
-          onClick={() => {
-            setIsOnionSkinEnabled(!isOnionSkinEnabled);
-            notify(`Onion Skin ${!isOnionSkinEnabled ? 'ENABLED' : 'DISABLED'}`, 'info');
-          }}
-          title="Toggle Onion Skin Ghosting (洋葱皮前后关键帧重影)"
-        >
-          <Layers className="w-3 h-3 mr-1" />
-          {t('viewport.onion_skin')}
-        </button>
-
-        {/* Motion Path Toggle (CMD_PREVIEW_MOTIONPATH_ANIMATION) */}
-        <button
-          className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
-            isMotionPathEnabled
-              ? 'bg-teal-600/30 text-teal-300 border border-teal-500/50'
-              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
-          }`}
-          onClick={() => {
-            setIsMotionPathEnabled(!isMotionPathEnabled);
-            notify(`Motion Path ${!isMotionPathEnabled ? 'ENABLED' : 'DISABLED'}`, 'info');
-          }}
-          title="Toggle Motion Path Trajectory (运动轨迹预览)"
-        >
-          <Route className="w-3 h-3 mr-1" />
-          {t('viewport.motion_path')}
-        </button>
-
-        {/* Grid Snap Toggle */}
-        <button
-          className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
-            isGridSnapEnabled
-              ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50'
-              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
-          }`}
-          onClick={() => {
-            setIsGridSnapEnabled(!isGridSnapEnabled);
-            notify(`Grid Snap ${!isGridSnapEnabled ? 'ENABLED' : 'DISABLED'} (${gridSize || 50}px)`, 'info');
-          }}
-          title="Toggle Grid Snapping"
-        >
-          <Grid className="w-3 h-3 mr-1" />
-          {t('viewport.grid_snap')}
-        </button>
-
-        {/* Solo Mode (`CMD_SOLO`, S) */}
-        <button
-          className={`flex items-center px-1.5 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
-            isSoloMode
-              ? 'bg-amber-500 text-black'
-              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
-          }`}
-          onClick={() => {
-            setIsSoloMode(!isSoloMode);
-            notify(`Solo View ${!isSoloMode ? 'ENABLED' : 'DISABLED'}`, 'info');
-          }}
-          title="Solo Selected Node/Branch (独显模式 S)"
-        >
-          <Eye className="w-3 h-3 mr-0.5" /> Solo
-        </button>
-
-        {/* Horizontal Screen Flip (`CMD_CAMERA_FLIP_HORIZONTALLY_SCREEN`, R) */}
-        <button
-          className={`flex items-center px-1.5 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
-            isFlipScreenX
-              ? 'bg-indigo-600 text-white'
-              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
-          }`}
-          onClick={() => {
-            setIsFlipScreenX(!isFlipScreenX);
-            notify(`Horizontal Screen Mirror ${!isFlipScreenX ? 'ON' : 'OFF'}`, 'info');
-          }}
-          title="Flip Viewport Horizontally (水平镜像检查 R)"
-        >
-          <FlipHorizontal className="w-3 h-3" />
-        </button>
-
-        {/* Random Pose (`CMD_PLAY_OR_STOP_RANDOM_POSE`) */}
-        <button
-          className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded transition-colors"
-          onClick={() => {
-            project.parameters.forEach((p, idx) => {
-              if (!p.locked) {
-                const t = ((Math.sin(Date.now() * 0.003 + idx * 1.7) + 1) * 0.5);
-                const val = Number((p.min + (p.max - p.min) * t).toFixed(2));
-                setParameterValue(p.id, val);
-              }
-            });
-            notify('Applied Random Pose across unlocked parameters', 'info');
-          }}
-          title="Random Pose Test (随机姿势测试)"
-        >
-          <Shuffle className="w-3 h-3" />
-        </button>
-
-        {/* Edit Levels 1/2/3 (`CMD_EDIT_LEVEL_1..3`) */}
-        <div className="flex items-center space-x-0.5 bg-zinc-900 px-1 py-0.5 rounded border border-dcc-border">
-          {([1, 2, 3] as const).map((lvl) => (
-            <button
-              key={lvl}
-              className={`px-1 text-[10px] font-mono rounded ${
-                editLevel === lvl ? 'bg-blue-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-              onClick={() => {
-                setEditLevel(lvl);
-                if (lvl === 1 && selectedMesh) setIsMeshEditMode(true);
-                else if (lvl !== 1 && isMeshEditMode) setIsMeshEditMode(false);
-                notify(`Switched to Edit Level ${lvl}`, 'info');
-              }}
-              title={`Edit Level ${lvl} (编辑级别 ${lvl})`}
-            >
-              L{lvl}
-            </button>
-          ))}
         </div>
+      )}
 
-        <div className="h-3 w-px bg-dcc-border" />
+      {/* Top Floating Viewport Toolbar (Mesh Edit & Physics) */}
+      <div className="absolute top-2 left-2 z-10 flex max-w-[calc(100%_-_1rem)] items-center gap-1 bg-dcc-panel/90 backdrop-blur px-1.5 py-1 rounded border border-dcc-border shadow-lg">
+        {/* Tools scroll when space runs out; the overflow menu stays reachable at the end. */}
+        <div className="flex min-w-0 items-center space-x-1.5 overflow-x-auto whitespace-nowrap [&>button]:shrink-0 [&>div]:shrink-0">
+          <button className="btn btn-icon" onClick={fitModel} title={t('viewport.fit')} aria-label={t('viewport.fit')}>
+            <Maximize2 className="w-3 h-3" />
+          </button>
+          {selectedMesh && (
+            <button
+              className="btn"
+              aria-pressed={isMeshEditMode}
+              onClick={() => setIsMeshEditMode(!isMeshEditMode)}
+            >
+              <Sparkles className="w-3 h-3" />
+              <span className="toolbar-label-compact">{t('viewport.mesh_edit')}</span>
+            </button>
+          )}
 
-        {/* Temporary Snapshot Slots 1..4 (`CMD_SAVE_TEMP_SNAP_SHOT_0..3`) */}
-        <div className="flex items-center space-x-1">
-          <Camera className="w-3 h-3 text-purple-400 mr-0.5" />
-          {[0, 1, 2, 3].map((slot) => {
-            const hasSnap = !!tempSnapshots[slot];
-            const isShowing = activeSnapshotSlot === slot;
-            return (
+          {/* Mesh Edit Toolset */}
+          {selectedWarp && !isMeshEditMode && (
+            <button
+              className="btn"
+              aria-pressed={isWarpBrushActive}
+              onClick={() => setIsWarpBrushActive(!isWarpBrushActive)}
+              title={t('viewport.deform_brush')}
+              aria-label={t('viewport.deform_brush')}
+            >
+              <Paintbrush className="w-3 h-3" />
+              <span className="toolbar-label-compact">{t('viewport.deform_brush')}</span>
+            </button>
+          )}
+
+          {(selectedWarp || selectedMesh) && !isMeshEditMode && (
+            <button
+              className="btn"
+              aria-pressed={isFreeQuadActive}
+              onClick={() => {
+                const nextState = !isFreeQuadActive;
+                setIsFreeQuadActive(nextState);
+                if (nextState) {
+                  if (selectedWarp) {
+                    const [bx, by, bw, bh] = selectedWarp.bounds;
+                    setQuadCorners([
+                      [bx, by],
+                      [bx + bw, by],
+                      [bx, by + bh],
+                      [bx + bw, by + bh],
+                    ]);
+                  } else if (selectedMesh && selectedMesh.vertices.length > 0) {
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    for (const [vx, vy] of selectedMesh.vertices) {
+                      if (vx < minX) minX = vx;
+                      if (vx > maxX) maxX = vx;
+                      if (vy < minY) minY = vy;
+                      if (vy > maxY) maxY = vy;
+                    }
+                    setQuadCorners([
+                      [minX, minY],
+                      [maxX, minY],
+                      [minX, maxY],
+                      [maxX, maxY],
+                    ]);
+                  }
+                }
+              }}
+              title={t('viewport.free_quad')}
+              aria-label={t('viewport.free_quad')}
+            >
+              <Crop className="w-3 h-3" />
+              <span className="toolbar-label-compact">{t('viewport.free_quad')}</span>
+            </button>
+          )}
+          {isMeshEditMode && selectedMesh && (
+            <div className="flex items-center space-x-1 border-l border-dcc-border pl-1.5">
               <button
-                key={slot}
-                className={`px-1.5 py-0.5 text-[10px] font-mono rounded transition-colors ${
-                  isShowing
-                    ? 'bg-purple-600 text-white'
-                    : hasSnap
-                    ? 'bg-purple-950/60 text-purple-300 border border-purple-500/40'
-                    : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'
-                }`}
-                onClick={(e) => {
-                  if (e.shiftKey || !hasSnap) {
-                    setTempSnapshots((prev) => {
-                      const next = [...prev];
-                      next[slot] = frame ? JSON.parse(JSON.stringify(frame)) : null;
-                      return next;
+                className="btn btn-icon"
+                aria-pressed={meshEditTool === 'select'}
+                onClick={() => setMeshEditTool('select')}
+                title={t('viewport.tool_select')}
+              >
+                <MousePointer className="w-3 h-3" />
+              </button>
+              <button
+                className="btn btn-icon"
+                aria-pressed={meshEditTool === 'add'}
+                onClick={() => setMeshEditTool('add')}
+                title={t('viewport.tool_add_vertex')}
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+              <button
+                className="btn btn-icon"
+                aria-pressed={meshEditTool === 'delete'}
+                onClick={() => setMeshEditTool('delete')}
+                title={t('viewport.tool_delete_vertex')}
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+              <button
+                className="btn"
+                onClick={handleRetriangulate}
+                title={t('viewport.triangulate')}
+              >
+                {t('viewport.triangulate')}
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  if (selectedNode) {
+                    executeCommand({
+                      id: `cmd_${Date.now()}`,
+                      name: 'mesh.subdivide',
+                      params: { mesh_id: selectedNode.id },
                     });
-                    setActiveSnapshotSlot(slot);
-                    notify(`Saved Temporary Snapshot #${slot + 1} (Shift+Click to overwrite)`, 'success');
-                  } else {
-                    setActiveSnapshotSlot(isShowing ? null : slot);
+                    notify(t('notify.subdivided'), 'success');
                   }
                 }}
-                title={`Snapshot Slot #${slot + 1}: Click to toggle comparison, Shift+Click to save current frame`}
+                title={t('viewport.subdivide')}
               >
-                S{slot + 1}
+                {t('viewport.subdivide')}
               </button>
-            );
-          })}
+            </div>
+          )}
+
+          <div className="h-3 w-px bg-dcc-border" />
+
+          {/* Preview */}
+          <div role="group" aria-label={t('viewport.group_preview')} className="flex items-center space-x-1">
+            {/* Physics Live Mode Toggle */}
+            <button
+              className="btn"
+              onClick={() => {
+                setIsPhysicsEnabled(!isPhysicsEnabled);
+              }}
+              title={t('viewport.physics')}
+              aria-pressed={isPhysicsEnabled}
+            >
+              <Zap className="w-3 h-3" />
+              <span className="toolbar-label-compact">{t('viewport.physics')}</span>
+            </button>
+
+            {/* Auto Idle Natural Posing Toggle */}
+            <button
+              className="btn"
+              onClick={() => {
+                setIsAutoIdleEnabled(!isAutoIdleEnabled);
+              }}
+              title={t('viewport.auto_idle')}
+              aria-pressed={isAutoIdleEnabled}
+            >
+              <Smile className="w-3 h-3" />
+              <span className="toolbar-label-compact">{t('viewport.auto_idle')}</span>
+            </button>
+          </div>
+
+          <div className="h-3 w-px bg-dcc-border" />
+
+          {/* Edit */}
+          <div role="group" aria-label={t('viewport.group_edit')} className="flex items-center space-x-1">
+            {/* Grid Snap Toggle */}
+            <button
+              className="btn"
+              onClick={() => {
+                setIsGridSnapEnabled(!isGridSnapEnabled);
+              }}
+              title={t('viewport.grid_snap')}
+              aria-pressed={isGridSnapEnabled}
+            >
+              <Grid className="w-3 h-3" />
+              <span className="toolbar-label-compact">{t('viewport.grid_snap')}</span>
+            </button>
+
+            {/* Solo Mode (`CMD_SOLO`, S) */}
+            <button
+              className="btn"
+              onClick={() => {
+                setIsSoloMode(!isSoloMode);
+              }}
+              title={`${t('viewport.solo')} (S)`}
+              aria-pressed={isSoloMode}
+            >
+              <Eye className="w-3 h-3" />
+              <span className="toolbar-label-compact">{t('viewport.solo')}</span>
+            </button>
+
+            {/* Edit Levels 1/2/3 (`CMD_EDIT_LEVEL_1..3`) */}
+            <div role="group" aria-label={t('viewport.edit_level')} className="flex items-center h-6 space-x-0.5 px-0.5 rounded bg-dcc-bg/60 border border-dcc-border">
+              {([1, 2, 3] as const).map((lvl) => (
+                <button
+                  key={lvl}
+                  className={`px-1 text-dcc-xs font-mono rounded ${
+                    editLevel === lvl ? 'bg-blue-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                  onClick={() => {
+                    setEditLevel(lvl);
+                    if (lvl === 1 && selectedMesh) setIsMeshEditMode(true);
+                    else if (lvl !== 1 && isMeshEditMode) setIsMeshEditMode(false);
+                  }}
+                  title={`Edit Level ${lvl} (编辑级别 ${lvl})`}
+                >
+                  L{lvl}
+                </button>
+              ))}
+          </div>
+
+          </div>
+
         </div>
+
+        <OverflowMenu
+          label={t('common.more')}
+          active={isOnionSkinEnabled || isMotionPathEnabled || isFlipScreenX || activeSnapshotSlot !== null}
+        >
+          <OverflowMenuLabel>{t('viewport.group_preview')}</OverflowMenuLabel>
+          <OverflowMenuItem
+            icon={Layers}
+            label={t('viewport.onion_skin')}
+            checked={isOnionSkinEnabled}
+            onSelect={() => {
+              setIsOnionSkinEnabled(!isOnionSkinEnabled);
+            }}
+          />
+          <OverflowMenuItem
+            icon={Route}
+            label={t('viewport.motion_path')}
+            checked={isMotionPathEnabled}
+            onSelect={() => {
+              setIsMotionPathEnabled(!isMotionPathEnabled);
+            }}
+          />
+          <OverflowMenuItem
+            icon={FlipHorizontal}
+            label={`${t('viewport.flip')} (R)`}
+            checked={isFlipScreenX}
+            onSelect={() => {
+              setIsFlipScreenX(!isFlipScreenX);
+            }}
+          />
+          <OverflowMenuItem
+            icon={Shuffle}
+            label={t('viewport.random_pose')}
+            onSelect={() => {
+              project.parameters.forEach((p, idx) => {
+                if (!p.locked) {
+                  const t = ((Math.sin(Date.now() * 0.003 + idx * 1.7) + 1) * 0.5);
+                  const val = Number((p.min + (p.max - p.min) * t).toFixed(2));
+                  setParameterValue(p.id, val);
+                }
+              });
+              notify(t('notify.random_pose'), 'info');
+            }}
+          />
+          <OverflowMenuLabel>{t('viewport.snapshots')}</OverflowMenuLabel>
+          {/* Temporary Snapshot Slots 1..4 (`CMD_SAVE_TEMP_SNAP_SHOT_0..3`) */}
+          <div className="flex items-center gap-1 px-2 pb-1.5">
+            {[0, 1, 2, 3].map((slot) => {
+              const hasSnap = !!tempSnapshots[slot];
+              const isShowing = activeSnapshotSlot === slot;
+              return (
+                <button
+                  key={slot}
+                  className={`flex-1 py-1 text-dcc-xs font-mono rounded transition-colors ${
+                    isShowing
+                      ? 'bg-blue-600 text-white'
+                      : hasSnap
+                      ? 'bg-dcc-hover text-zinc-200 border border-zinc-600'
+                      : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'
+                  }`}
+                  onClick={(e) => {
+                    if (e.shiftKey || !hasSnap) {
+                      setTempSnapshots((prev) => {
+                        const next = [...prev];
+                        next[slot] = frame ? JSON.parse(JSON.stringify(frame)) : null;
+                        return next;
+                      });
+                      setActiveSnapshotSlot(slot);
+                      notify(t('notify.snapshot_saved', { slot: slot + 1 }), 'success');
+                    } else {
+                      setActiveSnapshotSlot(isShowing ? null : slot);
+                    }
+                  }}
+                  title={`Snapshot Slot #${slot + 1}: Click to toggle comparison, Shift+Click to save current frame`}
+                >
+                  S{slot + 1}
+                </button>
+              );
+            })}
+          </div>
+        </OverflowMenu>
       </div>
 
       {/* Bottom Status Bar Overlay */}
       <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 backdrop-blur rounded text-dcc-sm text-zinc-400 pointer-events-none flex items-center space-x-3">
-        <span>Zoom: {(zoom * 100).toFixed(0)}%</span>
-        <span>Pan: ({pan.x.toFixed(0)}, {pan.y.toFixed(0)})</span>
-        <span>Meshes: {frame?.meshes.length ?? 0}</span>
+        <span>{t('viewport.zoom')} {(zoom * 100).toFixed(0)}%</span>
+        <span>{t('viewport.meshes')} {frame?.meshes.length ?? 0}</span>
         {selectedNode && (
-          <span className="text-blue-400 font-medium">Selected: {selectedNode.name || selectedNode.id}</span>
+          <span className="max-w-[240px] truncate text-zinc-200">{t('viewport.selected')}: {selectedNode.name || selectedNode.id}</span>
         )}
-        {isMeshEditMode && <span className="text-rose-400 font-bold uppercase tracking-wider">EDITING MESH</span>}
+        {isMeshEditMode && <span className="text-rose-300 font-medium">{t('viewport.editing_mesh')}</span>}
       </div>
     </div>
   );

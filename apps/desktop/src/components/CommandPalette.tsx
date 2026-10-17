@@ -58,7 +58,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             <button
               className="px-1.5 py-0.5 text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded border border-dcc-border"
               onClick={() => onOpenChange(false)}
-              title="Close (ESC)"
+              title={t('palette.close')}
+              aria-label={t('palette.close')}
             >
               ESC
             </button>
@@ -71,22 +72,22 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('atlas'); onOpenChange(false); }}
               >
-                <Sparkles className="w-3.5 h-3.5 mr-2 text-pink-400" />
-                <span>Edit Texture Atlas (编辑纹理集)...</span>
+                <Sparkles className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
+                <span>{t('toolbar.atlas')}</span>
               </Command.Item>
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('import_psd'); onOpenChange(false); }}
               >
-                <FileUp className="w-3.5 h-3.5 mr-2 text-blue-400" />
-                <span>Import PSD Document...</span>
+                <FileUp className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
+                <span>{t('toolbar.import_psd')}</span>
               </Command.Item>
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('save'); onOpenChange(false); }}
               >
-                <Save className="w-3.5 h-3.5 mr-2 text-emerald-400" />
-                <span>Save Project</span>
+                <Save className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
+                <span>{t('toolbar.save')}</span>
               </Command.Item>
             </Command.Group>
 
@@ -95,60 +96,60 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('add_warp'); onOpenChange(false); }}
               >
-                <Plus className="w-3.5 h-3.5 mr-2 text-sky-400" />
-                <span>Add Warp Deformer</span>
+                <Plus className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
+                <span>{t('palette.add_warp')}</span>
               </Command.Item>
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('macro_turn_xy'); onOpenChange(false); }}
               >
-                <Sparkles className="w-3.5 h-3.5 mr-2 text-amber-400" />
-                <span>Run Macro: Setup Turn XY (3x3 Grid)</span>
+                <Sparkles className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
+                <span>{t('palette.turn_xy')}</span>
               </Command.Item>
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('ai_full_body_deformers'); onOpenChange(false); }}
               >
-                <Sparkles className="w-3.5 h-3.5 mr-2 text-sky-400" />
-                <span>Run AI Macro: Generate Full-Body 24-Deformer Tree (全身デフォーマ自動作成)</span>
+                <Sparkles className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
+                <span>{t('palette.full_body')}</span>
               </Command.Item>
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('synthesize_corners'); onOpenChange(false); }}
               >
-                <Sparkles className="w-3.5 h-3.5 mr-2 text-purple-400" />
-                <span>Synthesize 4-Corner Keyforms (四角自动合成 Ctrl+4)</span>
+                <Sparkles className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
+                <span>{t('inspector.synthesize_corners')}</span>
               </Command.Item>
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('cleanup_empty'); onOpenChange(false); }}
               >
-                <Sparkles className="w-3.5 h-3.5 mr-2 text-emerald-400" />
-                <span>Clean Up Empty Parts, Deformers & Unused Parameters</span>
+                <Sparkles className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
+                <span>{t('hierarchy.cleanup')}</span>
               </Command.Item>
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('undo'); onOpenChange(false); }}
               >
                 <Undo2 className="w-3.5 h-3.5 mr-2" />
-                <span>Undo</span>
+                <span>{t('toolbar.undo')}</span>
               </Command.Item>
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('redo'); onOpenChange(false); }}
               >
                 <Redo2 className="w-3.5 h-3.5 mr-2" />
-                <span>Redo</span>
+                <span>{t('toolbar.redo')}</span>
               </Command.Item>
             </Command.Group>
 
-            <Command.Group heading="Diagnostics" className="text-dcc-sm text-dcc-muted px-2 py-1 font-semibold uppercase">
+            <Command.Group heading={t('palette.group_diagnostics')} className="text-dcc-sm text-dcc-muted px-2 py-1 font-semibold uppercase">
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('lint'); onOpenChange(false); }}
               >
-                <ShieldCheck className="w-3.5 h-3.5 mr-2 text-purple-400" />
-                <span>Run Project Linter</span>
+                <ShieldCheck className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
+                <span>{t('palette.lint')}</span>
               </Command.Item>
             </Command.Group>
           </Command.List>

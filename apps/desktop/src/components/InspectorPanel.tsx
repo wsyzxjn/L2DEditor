@@ -14,7 +14,7 @@ export const InspectorPanel: React.FC = () => {
     // Canvas Inspector
     return (
       <div className="flex flex-col h-full bg-dcc-panel border-t border-dcc-border p-2 space-y-3">
-        <div className="flex items-center space-x-1.5 text-dcc font-semibold uppercase tracking-wider text-dcc-muted border-b border-dcc-border pb-1">
+        <div className="flex items-center space-x-1.5 text-dcc font-semibold text-dcc-muted border-b border-dcc-border pb-1">
           <Layers className="w-3.5 h-3.5" />
           <span>{t('inspector.canvas_props')}</span>
         </div>
@@ -58,12 +58,12 @@ export const InspectorPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-dcc-panel border-t border-dcc-border p-2 space-y-3 overflow-y-auto">
-      <div className="flex items-center justify-between border-b border-dcc-border pb-1">
-        <div className="flex items-center space-x-1.5 text-dcc font-semibold uppercase tracking-wider text-dcc-muted">
-          <Info className="w-3.5 h-3.5" />
-          <span>{t('inspector.title')}</span>
+      <div className="flex items-center justify-between gap-2 border-b border-dcc-border pb-1">
+        <div className="flex min-w-0 items-center space-x-1.5 text-dcc font-semibold text-dcc-text">
+          <Info className="w-3.5 h-3.5 shrink-0 text-dcc-muted" />
+          <span className="truncate" title={selectedNode.name || selectedNode.id}>{selectedNode.name || selectedNode.id}</span>
         </div>
-        <span className="text-dcc-sm px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">
+        <span className="shrink-0 text-dcc-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">
           {kind.type}
         </span>
       </div>
@@ -96,7 +96,7 @@ export const InspectorPanel: React.FC = () => {
         <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">{t('inspector.quick_setup')}</span>
         <div className="grid grid-cols-2 gap-1.5">
           <button
-            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-dcc-bg hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border transition-colors"
+            className="btn btn-secondary btn-wrap"
             onClick={() => {
               const firstParam = project.parameters[0];
               if (firstParam) {
@@ -105,14 +105,14 @@ export const InspectorPanel: React.FC = () => {
                   name: 'keyform.setup_points',
                   params: { target_node_id: selectedNode.id, param_id: firstParam.id, point_count: 2 },
                 });
-                notify(`Generated 2-point keys on ${firstParam.id}`, 'success');
+                notify(t('notify.keys_added', { count: 2, param: firstParam.id }), 'success');
               }
             }}
           >
-            <Key className="w-3 h-3 mr-1 text-emerald-400" /> {t('inspector.key2')}
+            <Key className="w-3 h-3 mr-1 text-dcc-muted" /> {t('inspector.key2')}
           </button>
           <button
-            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-dcc-bg hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border transition-colors"
+            className="btn btn-secondary btn-wrap"
             onClick={() => {
               const firstParam = project.parameters[0];
               if (firstParam) {
@@ -121,30 +121,30 @@ export const InspectorPanel: React.FC = () => {
                   name: 'keyform.setup_points',
                   params: { target_node_id: selectedNode.id, param_id: firstParam.id, point_count: 3 },
                 });
-                notify(`Generated 3-point keys on ${firstParam.id}`, 'success');
+                notify(t('notify.keys_added', { count: 3, param: firstParam.id }), 'success');
               }
             }}
           >
-            <Key className="w-3 h-3 mr-1 text-amber-400" /> {t('inspector.key3')}
+            <Key className="w-3 h-3 mr-1 text-dcc-muted" /> {t('inspector.key3')}
           </button>
         </div>
         <div className="grid grid-cols-2 gap-1.5 pt-1">
           <button
-            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded border border-purple-500/30 transition-colors"
+            className="btn btn-secondary btn-wrap"
             onClick={() => {
               executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'keyform.synthesize_corners',
                 params: { target_node_id: selectedNode.id },
               });
-              notify('Synthesized 4-Corner Keyforms (Ctrl+4)', 'success');
+              notify(t('notify.synthesized_corners'), 'success');
             }}
             title={t('inspector.synthesize_corners')}
           >
             <Grid className="w-3 h-3 mr-1" /> {t('inspector.synthesize_corners')}
           </button>
           <button
-            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-dcc-bg hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border transition-colors"
+            className="btn btn-secondary btn-wrap"
             onClick={() => {
               const binding = project.keyforms.find((k) => k.target_node_id === selectedNode.id);
               if (binding && binding.keyforms.length > 0) {
@@ -153,7 +153,7 @@ export const InspectorPanel: React.FC = () => {
                   name: 'keyform.restore_original_shape',
                   params: { target_node_id: selectedNode.id, coordinates: binding.keyforms[0].coordinates },
                 });
-                notify('Restored original rest shape on keyform', 'info');
+                notify(t('notify.shape_restored'), 'info');
               }
             }}
             title={t('inspector.restore_shape')}
@@ -168,21 +168,21 @@ export const InspectorPanel: React.FC = () => {
         <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">{t('inspector.shape_copy_paste')}</span>
         <div className="grid grid-cols-2 gap-1.5">
           <button
-            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-dcc-bg hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border transition-colors"
+            className="btn btn-secondary btn-wrap"
             onClick={() => {
               const binding = project.keyforms.find((k) => k.target_node_id === selectedNode.id);
               if (binding && binding.keyforms.length > 0) {
                 setCopiedShape(JSON.parse(JSON.stringify(binding.keyforms[0])));
-                notify('Copied keyform shape to clipboard', 'info');
+                notify(t('notify.shape_copied'), 'info');
               } else {
-                notify('No keyforms on this node to copy', 'error');
+                notify(t('notify.no_keyforms'), 'error');
               }
             }}
           >
             <Copy className="w-3 h-3 mr-1" /> {t('inspector.copy_shape')}
           </button>
           <button
-            className="flex items-center justify-center px-2 py-1 text-dcc-sm bg-dcc-bg hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border transition-colors disabled:opacity-40"
+            className="btn btn-secondary btn-wrap disabled:opacity-40"
             disabled={!copiedShape}
             onClick={() => {
               if (copiedShape) {
@@ -196,11 +196,11 @@ export const InspectorPanel: React.FC = () => {
                     mirror_x: true,
                   },
                 });
-                notify('Pasted mirrored shape to opposite key', 'success');
+                notify(t('notify.shape_mirrored'), 'success');
               }
             }}
           >
-            <FlipHorizontal className="w-3 h-3 mr-1 text-amber-400" /> {t('inspector.paste_mirrored')}
+            <FlipHorizontal className="w-3 h-3 mr-1 text-dcc-muted" /> {t('inspector.paste_mirrored')}
           </button>
         </div>
       </div>
@@ -281,14 +281,14 @@ export const InspectorPanel: React.FC = () => {
             ).map(([op, label]) => (
               <button
                 key={op}
-                className="py-0.5 text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border"
+                className="btn btn-secondary btn-wrap text-[10px] font-mono"
                 onClick={() => {
                   executeCommand({
                     id: `cmd_${Date.now()}`,
                     name: 'warp.change_topology',
                     params: { node_id: selectedNode.id, op },
                   });
-                  notify(`Resampled Warp Grid Topology: ${label}`, 'info');
+                  notify(t('notify.warp_resampled', { label }), 'info');
                 }}
               >
                 {label}
@@ -297,42 +297,42 @@ export const InspectorPanel: React.FC = () => {
           </div>
 
           <button
-            className="w-full mt-2 flex items-center justify-center px-2 py-1.5 text-dcc bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded font-medium transition-colors"
+            className="btn btn-secondary btn-wrap w-full mt-2"
             onClick={() => {
               executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'macro.setup_turn_xy',
                 params: { target_node_id: selectedNode.id },
               });
-              notify(`Setup 3x3 Turn XY on ${selectedNode.name || selectedNode.id}`, 'success');
+              notify(t('notify.turn_xy_on', { name: selectedNode.name || selectedNode.id }), 'success');
             }}
           >
             <Sparkles className="w-3.5 h-3.5 mr-1" /> {t('inspector.auto_turn_xy')}
           </button>
 
           <button
-            className="w-full mt-1.5 flex items-center justify-center px-2 py-1.5 text-dcc bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded font-medium transition-colors"
+            className="btn btn-secondary btn-wrap w-full mt-1.5"
             onClick={() => {
               executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'macro.auto_sway',
                 params: { target_node_id: selectedNode.id },
               });
-              notify(`Generated Auto Sway & Physics on ${selectedNode.name || selectedNode.id}`, 'success');
+              notify(t('notify.auto_sway_on', { name: selectedNode.name || selectedNode.id }), 'success');
             }}
           >
             <Wind className="w-3.5 h-3.5 mr-1" /> {t('inspector.auto_sway')}
           </button>
 
           <button
-            className="w-full mt-1.5 flex items-center justify-center px-2 py-1 text-dcc-sm bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 rounded transition-colors"
+            className="btn btn-secondary btn-wrap btn-danger w-full mt-1.5"
             onClick={() => {
               executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'deformer.delete_and_bake_to_children',
                 params: { deformer_id: selectedNode.id },
               });
-              notify('Deleted deformer and baked deformation into children', 'info');
+              notify(t('notify.deformer_baked'), 'info');
             }}
           >
             <Trash2 className="w-3 h-3 mr-1" /> {t('inspector.delete_bake')}
@@ -473,7 +473,7 @@ export const InspectorPanel: React.FC = () => {
             <div className="flex items-center justify-between">
               <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">{t('inspector.morph_targets')}</span>
               <button
-                className="text-dcc-sm px-1.5 py-0.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded"
+                className="btn btn-secondary btn-wrap"
                 onClick={() => {
                   const param = project.parameters[0]?.id || 'ParamEyeLOpen';
                   const morphId = `morph_${Date.now()}`;
@@ -490,7 +490,7 @@ export const InspectorPanel: React.FC = () => {
                       },
                     },
                   });
-                  notify('Added Morph Target (BlendShape)', 'success');
+                  notify(t('notify.morph_added'), 'success');
                 }}
               >
                 {t('inspector.add_morph')}
@@ -505,42 +505,42 @@ export const InspectorPanel: React.FC = () => {
           </div>
 
           <button
-            className="w-full mt-2 py-1 text-dcc-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border"
+            className="btn btn-secondary btn-wrap w-full mt-2"
             onClick={() => {
               executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'mesh.reverse_winding',
                 params: { mesh_id: selectedNode.id },
               });
-              notify('Reversed triangle normal winding', 'info');
+              notify(t('notify.winding_flipped'), 'info');
             }}
           >
             {t('inspector.reverse_winding')}
           </button>
 
           <button
-            className="w-full mt-1.5 py-1 text-dcc-sm bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded border border-blue-500/30 font-medium"
+            className="btn btn-secondary btn-wrap w-full mt-1.5"
             onClick={() => {
               executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'warp.create_enclosing_mesh',
                 params: { mesh_id: selectedNode.id },
               });
-              notify(`Created enclosing Warp Deformer for ${selectedNode.name || selectedNode.id}`, 'success');
+              notify(t('notify.warp_enclosed', { name: selectedNode.name || selectedNode.id }), 'success');
             }}
           >
             {t('inspector.create_enclosing_warp')}
           </button>
 
           <button
-            className="w-full mt-1.5 flex items-center justify-center py-1 text-dcc-sm bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded border border-purple-500/30 font-medium"
+            className="btn btn-secondary btn-wrap w-full mt-1.5"
             onClick={() => {
               executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'art_path.fit_mesh_contour',
                 params: { mesh_id: selectedNode.id },
               });
-              notify(`Generated contour ArtPath for ${selectedNode.name || selectedNode.id}`, 'success');
+              notify(t('notify.contour_path', { name: selectedNode.name || selectedNode.id }), 'success');
             }}
           >
             <PenTool className="w-3 h-3 mr-1" /> {t('inspector.fit_contour_path')}
@@ -557,27 +557,27 @@ export const InspectorPanel: React.FC = () => {
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             <button
-              className="px-2 py-1 text-dcc-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded border border-dcc-border"
+              className="btn btn-secondary btn-wrap"
               onClick={() => {
                 executeCommand({
                   id: `cmd_${Date.now()}`,
                   name: 'art_path.adjust_width',
                   params: { node_id: selectedNode.id, delta: 1.5 },
                 });
-                notify('Increased ArtPath stroke width', 'info');
+                notify(t('notify.stroke_wider'), 'info');
               }}
             >
               {t('inspector.thicken')}
             </button>
             <button
-              className="px-2 py-1 text-dcc-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded border border-dcc-border"
+              className="btn btn-secondary btn-wrap"
               onClick={() => {
                 executeCommand({
                   id: `cmd_${Date.now()}`,
                   name: 'art_path.adjust_width',
                   params: { node_id: selectedNode.id, delta: -1.5 },
                 });
-                notify('Reduced ArtPath stroke width', 'info');
+                notify(t('notify.stroke_thinner'), 'info');
               }}
             >
               {t('inspector.thin')}

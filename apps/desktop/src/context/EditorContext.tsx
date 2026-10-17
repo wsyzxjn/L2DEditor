@@ -27,6 +27,8 @@ export interface EditorContextValue {
   executeCommand: (cmd: Command<object>) => CommandExecutionResult;
   loadProject: (project: Project, path: string | null) => void;
   saveProjectTo: (path?: string) => Promise<string>;
+  openProject: () => Promise<void>;
+  importPsd: () => Promise<void>;
   undo: () => boolean;
   redo: () => boolean;
   viewportControls: React.RefObject<EditorViewportControls | null>;

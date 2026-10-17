@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import type { Node } from '@l2d/schema';
 import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
-import { Eye, EyeOff, Lock, Unlock, Grid, RotateCw, Image, Folder, Plus, PenTool, Sparkles, Search, Trash2, FolderTree } from 'lucide-react';
+import { OverflowMenu, OverflowMenuItem } from './OverflowMenu.js';
+import { Eye, EyeOff, Lock, Unlock, Grid, RotateCw, Image, Folder, Plus, PenTool, Sparkles, Search, Trash2, FolderTree, X } from 'lucide-react';
 
 export const HierarchyPanel: React.FC = () => {
   const { t } = useI18n();
@@ -19,7 +20,10 @@ export const HierarchyPanel: React.FC = () => {
     childrenMap.get(pid)!.push(node);
   }
 
-  const renderNode = (node: Node, depth: number) => {
+  const query = searchQuery.trim().toLowerCase();
+  const filteredNodes = project.nodes.filter((node) => `${node.name} ${node.id}`.toLowerCase().includes(query));
+
+  const renderNode = (node: Node, depth: number, includeChildren = true) => {
     const isSelected = selectedNodeIds.includes(node.id) || selectedNodeId === node.id;
     const children = childrenMap.get(node.id) || [];
 
@@ -32,8 +36,8 @@ export const HierarchyPanel: React.FC = () => {
     return (
       <div key={node.id} className="flex flex-col select-none">
         <div
-          className={`flex items-center h-6 px-2 text-dcc hover:bg-dcc-hover cursor-pointer ${
-            isSelected ? 'bg-dcc-accent/20 text-blue-300 font-medium' : 'text-dcc-text'
+          className={`flex items-center h-6 px-2 text-dcc cursor-pointer ${
+            isSelected ? 'list-item-selected font-medium' : 'text-dcc-text hover:bg-dcc-hover'
           }`}
           style={{ paddingLeft: `${8 + depth * 14}px` }}
           onClick={(e) => toggleSelectNodeId(node.id, e.shiftKey || e.metaKey || e.ctrlKey)}
@@ -76,7 +80,7 @@ export const HierarchyPanel: React.FC = () => {
           </button>
         </div>
 
-        {children.map((child) => renderNode(child, depth + 1))}
+        {includeChildren && children.map((child) => renderNode(child, depth + 1))}
       </div>
     );
   };
@@ -177,73 +181,56 @@ export const HierarchyPanel: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-dcc-panel border-r border-dcc-border">
-      {/* Header bar */}
-      <div className="flex shrink-0 items-center justify-between h-7 px-2 overflow-x-auto whitespace-nowrap [&>*]:shrink-0 border-b border-dcc-border bg-dcc-header">
-        <span className="text-dcc font-semibold uppercase tracking-wider text-dcc-muted">{t('hierarchy.title')}</span>
-        <div className="flex items-center space-x-1">
-          <button
-            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
-            onClick={handleAddWarp}
-            title={t('hierarchy.warp')}
-          >
-            <Plus className="w-3 h-3 mr-0.5" /> {t('hierarchy.warp')}
-          </button>
-          <button
-            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
-            onClick={handleAddRotation}
-            title={t('hierarchy.rot')}
-          >
-            <Plus className="w-3 h-3 mr-0.5" /> {t('hierarchy.rot')}
-          </button>
-          <button
-            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
-            onClick={handleAddPart}
-            title={t('hierarchy.part')}
-          >
-            <Plus className="w-3 h-3 mr-0.5" /> {t('hierarchy.part')}
-          </button>
-          <button
-            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded border border-purple-500/30 transition-colors"
-            onClick={handleAddArtPath}
-            title={t('hierarchy.path')}
-          >
-            <PenTool className="w-3 h-3 mr-0.5" /> {t('hierarchy.path')}
-          </button>
-          <button
-            className="p-1 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-zinc-400 hover:text-emerald-300 rounded transition-colors"
-            onClick={() => {
-              executeCommand({
-                id: `cmd_${Date.now()}`,
-                name: 'project.cleanup_empty',
-                params: {},
-              });
-              notify(t('notify.cleaned_empty'), 'success');
-            }}
-            title={t('hierarchy.cleanup')}
-          >
-            <Sparkles className="w-3 h-3" />
-          </button>
+    <div className="panel-root flex flex-col h-full bg-dcc-panel border-r border-dcc-border">
+      {/* Create menu, filter and cleanup */}
+      <div className="flex shrink-0 items-center gap-1 h-8 px-2 border-b border-dcc-border bg-dcc-header">
+        <OverflowMenu label={t('hierarchy.add')} icon={Plus}>
+          <OverflowMenuItem icon={Grid} label={t('hierarchy.warp')} onSelect={handleAddWarp} />
+          <OverflowMenuItem icon={RotateCw} label={t('hierarchy.rot')} onSelect={handleAddRotation} />
+          <OverflowMenuItem icon={Folder} label={t('hierarchy.part')} onSelect={handleAddPart} />
+          <OverflowMenuItem icon={PenTool} label={t('hierarchy.path')} onSelect={handleAddArtPath} />
+        </OverflowMenu>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 h-6 px-1.5 rounded bg-dcc-bg/60 border border-dcc-border focus-within:border-blue-500">
+          <Search className="w-3 h-3 text-zinc-500 shrink-0" />
+          <input
+            type="text"
+            placeholder={t('hierarchy.filter_placeholder')}
+            aria-label={t('hierarchy.filter_placeholder')}
+            className="min-w-0 flex-1 h-5 bg-transparent text-dcc-sm text-dcc-text outline-none placeholder:text-zinc-600"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <span className="shrink-0 text-dcc-xs font-mono text-zinc-500" title={`${project.nodes.length}`}>
+            {query ? `${filteredNodes.length}/${project.nodes.length}` : project.nodes.length}
+          </span>
+          {searchQuery && (
+            <button className="p-0.5 rounded text-dcc-muted hover:text-white" onClick={() => setSearchQuery('')} aria-label={t('hierarchy.clear_search')} title={t('hierarchy.clear_search')}>
+              <X className="w-3 h-3" />
+            </button>
+          )}
         </div>
-      </div>
-
-      {/* Node list */}
-      <div className="px-2 py-1 border-b border-dcc-border bg-dcc-bg/40 flex items-center space-x-1.5">
-        <Search className="w-3 h-3 text-zinc-500 shrink-0" />
-        <input
-          type="text"
-          placeholder={t('hierarchy.filter_placeholder')}
-          className="w-full h-5 bg-transparent text-dcc-sm text-dcc-text outline-none placeholder:text-zinc-600"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
+        <button
+          className="btn btn-icon"
+          onClick={() => {
+            executeCommand({
+              id: `cmd_${Date.now()}`,
+              name: 'project.cleanup_empty',
+              params: {},
+            });
+            notify(t('notify.cleaned_empty'), 'success');
+          }}
+          title={t('hierarchy.cleanup')}
+          aria-label={t('hierarchy.cleanup')}
+        >
+          <Sparkles className="w-3 h-3" />
+        </button>
       </div>
 
       {/* Multi-Selection Batch Actions Bar */}
       {selectedNodeIds.length > 1 && (
         <div className="flex items-center justify-between px-2 py-1 bg-blue-950/40 border-b border-blue-900/50 text-dcc-sm">
           <span className="text-blue-300 font-mono text-[11px]">
-            {selectedNodeIds.length} items
+            {t('hierarchy.batch_count', { count: selectedNodeIds.length })}
           </span>
           <div className="flex items-center space-x-1">
             <button
@@ -254,9 +241,10 @@ export const HierarchyPanel: React.FC = () => {
                   name: 'node.batch_update',
                   params: { node_ids: selectedNodeIds, changes: { visible: true } },
                 });
-                notify('Shown selected nodes', 'info');
+                notify(t('notify.nodes_shown'), 'info');
               }}
-              title="Show all selected"
+              title={t('hierarchy.batch_show')}
+              aria-label={t('hierarchy.batch_show')}
             >
               <Eye className="w-3 h-3" />
             </button>
@@ -268,9 +256,10 @@ export const HierarchyPanel: React.FC = () => {
                   name: 'node.batch_update',
                   params: { node_ids: selectedNodeIds, changes: { visible: false } },
                 });
-                notify('Hidden selected nodes', 'info');
+                notify(t('notify.nodes_hidden'), 'info');
               }}
-              title="Hide all selected"
+              title={t('hierarchy.batch_hide')}
+              aria-label={t('hierarchy.batch_hide')}
             >
               <EyeOff className="w-3 h-3" />
             </button>
@@ -282,9 +271,10 @@ export const HierarchyPanel: React.FC = () => {
                   name: 'node.batch_delete',
                   params: { node_ids: selectedNodeIds },
                 });
-                notify(`Deleted ${selectedNodeIds.length} nodes`, 'info');
+                notify(t('notify.nodes_deleted', { count: selectedNodeIds.length }), 'info');
               }}
-              title="Delete all selected nodes"
+              title={t('hierarchy.batch_delete')}
+              aria-label={t('hierarchy.batch_delete')}
             >
               <Trash2 className="w-3 h-3" />
             </button>
@@ -295,13 +285,17 @@ export const HierarchyPanel: React.FC = () => {
       <div className="flex-1 overflow-y-auto py-1">
         {project.nodes.length === 0 ? (
           <div className="p-4 text-center text-dcc text-dcc-muted">
+            <FolderTree className="w-7 h-7 mx-auto mb-3 text-zinc-600" />
             <p>{t('hierarchy.no_nodes')}</p>
             <p className="mt-1 text-dcc-sm text-zinc-500">{t('hierarchy.click_add')}</p>
           </div>
-        ) : searchQuery.trim() ? (
-          project.nodes
-            .filter((n) => `${n.name} ${n.id}`.toLowerCase().includes(searchQuery.toLowerCase()))
-            .map((n) => renderNode(n, 0))
+        ) : query ? (
+          filteredNodes.length ? filteredNodes.map((node) => renderNode(node, 0, false)) : (
+            <div className="p-4 text-center text-dcc text-dcc-muted">
+              <Search className="w-6 h-6 mx-auto mb-2 text-zinc-600" />
+              <p>{t('hierarchy.no_results')}</p>
+            </div>
+          )
         ) : (
           rootNodes.map((n) => renderNode(n, 0))
         )}

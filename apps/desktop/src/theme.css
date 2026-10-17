@@ -5,6 +5,10 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", sans-serif;
+  --dcc-radius: 4px;
+  --dcc-radius-sm: 3px;
   --dcc-bg: #141416;
   --dcc-panel: #1c1c1f;
   --dcc-header: #242429;
@@ -13,6 +17,11 @@
   --dcc-active: #3b82f6;
   --dcc-text: #f4f4f5;
   --dcc-muted: #a1a1aa;
+}
+
+body {
+  margin: 0;
+  font-size: 12px;
 }
 
 /* Window Drag Regions */
@@ -26,6 +35,11 @@
 
 /* Dockview Dark Theme Customization */
 .dockview-theme-dcc {
+  --dv-tabs-and-actions-container-height: 28px;
+  --dv-tab-font-size: 11px;
+  --dv-tab-margin: 3px 2px 0;
+  --dv-icon-hover-background-color: var(--dcc-hover);
+  --dv-group-view-background-color: var(--dcc-panel);
   --dv-drag-over-background-color: rgba(59, 130, 246, 0.2);
   --dv-drag-over-border-color: #3b82f6;
   --dv-tabs-and-actions-container-background-color: var(--dcc-header);
@@ -42,11 +56,254 @@
   --dv-paneview-header-border-color: var(--dcc-border);
 }
 
-.dockview-theme-dcc .dockview-tab {
-  height: 26px !important;
-  font-size: 11px !important;
-  font-weight: 500 !important;
-  padding: 0 10px !important;
+.dockview-theme-dcc .dv-tab {
+  max-width: 100%;
+  font-weight: 500;
+  border-radius: var(--dcc-radius) var(--dcc-radius) 0 0;
+  border-top: 2px solid transparent;
+}
+
+.dockview-theme-dcc .dv-active-group .dv-active-tab {
+  border-top-color: var(--dcc-active);
+}
+
+.dockview-theme-dcc .dv-tab .dv-default-tab-content {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dockview-theme-dcc .dv-tab:focus-visible::after,
+.dockview-theme-dcc .dv-tab:has(:focus-visible)::after {
+  border-radius: inherit;
+  outline-color: var(--dcc-active) !important;
+}
+
+.dockview-theme-dcc .dv-default-tab-action {
+  flex-shrink: 0;
+}
+
+.dockview-theme-dcc .dv-default-tab-action,
+.dockview-theme-dcc .dv-tabs-overflow-dropdown-default,
+.dockview-theme-dcc .dv-tabs-overflow-dropdown-default:hover {
+  border-radius: var(--dcc-radius-sm);
+}
+
+/* Keep overflow menu rows separate from the tab strip spacing. */
+.dv-tabs-overflow-container {
+  max-width: calc(100vw - 16px);
+  padding: 3px;
+  border: 1px solid var(--dcc-border);
+  border-radius: var(--dcc-radius);
+  background-color: var(--dcc-panel);
+}
+
+.dv-tabs-overflow-container .dv-tab {
+  margin: 0;
+  border-radius: var(--dcc-radius-sm);
+  font-size: 11px;
+}
+
+.dv-tabs-overflow-container .dv-tab:hover {
+  background-color: var(--dcc-hover);
+  color: var(--dcc-text);
+}
+
+/* Shared buttons: neutral by default; blue is reserved for on, selected and primary. */
+.btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--dcc-radius-sm);
+  color: #d4d4d8;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 120ms, color 120ms, box-shadow 120ms;
+}
+
+.btn:hover:not(:disabled) {
+  background-color: var(--dcc-hover);
+  color: var(--dcc-text);
+}
+
+.btn-icon {
+  width: 24px;
+  padding: 0;
+}
+
+.btn-wrap {
+  height: auto;
+  min-height: 24px;
+  padding: 4px 8px;
+  white-space: normal;
+  text-align: center;
+}
+
+.btn-secondary {
+  background-color: #26262c;
+  box-shadow: inset 0 0 0 1px var(--dcc-border);
+}
+
+.btn-primary,
+.btn-primary:hover:not(:disabled) {
+  background-color: #2563eb;
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #3b82f6;
+}
+
+.btn[aria-pressed="true"],
+.btn[aria-pressed="true"]:hover:not(:disabled) {
+  background-color: rgba(59, 130, 246, 0.18);
+  color: #bfdbfe;
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+
+.btn-danger {
+  color: #fda4af;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: rgba(244, 63, 94, 0.15);
+  color: #fecdd3;
+}
+
+.list-item-selected {
+  background-color: rgba(59, 130, 246, 0.16);
+  color: #bfdbfe;
+  box-shadow: inset 2px 0 var(--dcc-active);
+}
+
+/* Panel overflow menus (components/OverflowMenu.tsx) */
+.panel-menu-trigger {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--dcc-radius-sm);
+  color: var(--dcc-muted);
+}
+
+.panel-menu-trigger:hover,
+.panel-menu-trigger:has(+ .panel-menu:popover-open) {
+  background-color: var(--dcc-hover);
+  color: var(--dcc-text);
+}
+
+.panel-menu-trigger[data-active]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: var(--dcc-active);
+}
+
+.panel-menu {
+  position: fixed;
+  inset: auto;
+  top: anchor(bottom);
+  right: anchor(right);
+  margin: 4px 0 0;
+  position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  min-width: 180px;
+  max-width: min(280px, calc(100vw - 16px));
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 3px;
+  border: 1px solid var(--dcc-border);
+  border-radius: var(--dcc-radius);
+  background-color: var(--dcc-panel);
+  color: var(--dcc-text);
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.panel-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--dcc-radius-sm);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.panel-menu-item:hover,
+.panel-menu-item:focus-visible {
+  background-color: var(--dcc-hover);
+}
+
+.panel-menu-label {
+  padding: 6px 8px 2px;
+  color: #71717a;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* Panel toolbars drop labels as their panel narrows; icons and tooltips remain. */
+.panel-root {
+  container-type: inline-size;
+}
+
+@container (max-width: 560px) {
+  .toolbar-label-optional { display: none; }
+}
+
+/* Viewport tool labels give way earlier: the floating toolbar shares the canvas width. */
+@container (max-width: 760px) {
+  .toolbar-label-compact { display: none; }
+}
+
+@container (max-width: 200px) {
+  .panel-root .toolbar-label { display: none; }
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--dcc-active);
+  outline-offset: -2px;
+}
+
+button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+[cmdk-item][data-selected="true"] {
+  background: var(--dcc-hover);
+  color: var(--dcc-text);
+  box-shadow: inset 2px 0 var(--dcc-active);
+}
+
+@media (max-width: 1100px) {
+  .editor-toolbar .toolbar-label { display: none; }
+  .editor-file-actions button { padding: 5px; }
+  .editor-file-actions svg { margin-right: 0; }
+  .editor-toolbar-info { gap: 8px; }
+}
+
+@media (max-height: 500px) {
+  .viewport-welcome { padding: 12px; }
+  .viewport-welcome > div:first-child { display: none; }
 }
 
 /* Global Scrollbars */

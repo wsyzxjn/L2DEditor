@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
-import { Zap, Plus, Trash2, Sliders, Activity } from 'lucide-react';
+import { Plus, Trash2, Sliders, Activity } from 'lucide-react';
 import { ScrubInput } from './ScrubInput.js';
 import type { PhysicsGroup } from '@l2d/schema';
 
@@ -47,7 +47,7 @@ export const PhysicsPanel: React.FC = () => {
       params: newGroup,
     });
     setSelectedGroupId(id);
-    notify(`Created Physics Group: ${name}`, 'success');
+    notify(t('notify.physics_group_created', { name }), 'success');
   };
 
   const handleDeleteGroup = (id: string) => {
@@ -56,7 +56,7 @@ export const PhysicsPanel: React.FC = () => {
       name: 'physics.delete_group',
       params: { id },
     });
-    notify('Deleted Physics Group', 'info');
+    notify(t('notify.physics_group_deleted'), 'info');
   };
 
   const updateGroup = (updated: PhysicsGroup) => {
@@ -68,30 +68,25 @@ export const PhysicsPanel: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-dcc-panel border-l border-dcc-border select-none">
-      {/* Header */}
-      <div className="flex items-center justify-between h-7 px-2 border-b border-dcc-border bg-dcc-header">
-        <div className="flex items-center space-x-1.5 text-dcc font-semibold uppercase tracking-wider text-dcc-muted">
-          <Zap className="w-3.5 h-3.5 text-amber-400" />
-          <span>{t('physics.title')}</span>
-        </div>
-        <div className="flex items-center space-x-1">
-          <button
-            className={`flex items-center px-1.5 py-0.5 text-dcc-sm rounded font-medium transition-colors ${
-              isPhysicsEnabled ? 'bg-amber-600/30 text-amber-300' : 'bg-zinc-800 text-zinc-400'
-            }`}
-            onClick={() => setIsPhysicsEnabled(!isPhysicsEnabled)}
-          >
-            <Activity className="w-3 h-3 mr-0.5" /> Live
-          </button>
-          <button
-            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded"
-            onClick={handleAddGroup}
-            title={t('physics.add_group')}
-          >
-            <Plus className="w-3 h-3 mr-0.5" /> {t('parameters.add_group')}
-          </button>
-        </div>
+    <div className="panel-root flex flex-col h-full bg-dcc-panel border-l border-dcc-border select-none">
+      <div className="flex shrink-0 items-center gap-1 h-8 px-2 border-b border-dcc-border bg-dcc-header">
+        <button
+          className="btn btn-secondary"
+          onClick={handleAddGroup}
+          title={t('physics.add_group')}
+          aria-label={t('physics.add_group')}
+        >
+          <Plus className="w-3.5 h-3.5" /><span className="toolbar-label">{t('physics.add_group')}</span>
+        </button>
+        <div className="flex-1" />
+        <button
+          className="btn"
+          onClick={() => setIsPhysicsEnabled(!isPhysicsEnabled)}
+          aria-pressed={isPhysicsEnabled}
+          title={t('viewport.physics')}
+        >
+          <Activity className="w-3.5 h-3.5" /><span className="toolbar-label-optional">{t('physics.live')}</span>
+        </button>
       </div>
 
       {/* Official Cubism 5.3 Physics Presets Bar (`default_physics_preset40.xml`) */}
@@ -112,21 +107,21 @@ export const PhysicsPanel: React.FC = () => {
                 input_preset: 'head_input',
               },
             });
-            notify(`Applied Cubism 5.3 Physics Preset: ${preset}`, 'success');
+            notify(t('notify.physics_preset', { name: preset }), 'success');
             e.target.value = '';
           }}
         >
-          <option value="" disabled>Apply Official Rig Preset...</option>
-          <option value="hair_short">髪（短い） / Hair Short</option>
-          <option value="hair_long">髪（長い） / Hair Long</option>
-          <option value="hair_2stage">髪 2段振り子 / Hair 2-Stage</option>
-          <option value="hair_3stage">髪 3段振り子 / Hair 3-Stage</option>
-          <option value="cloth_light">服（軽い） / Cloth Light</option>
-          <option value="cloth_heavy">服（重い） / Cloth Heavy</option>
-          <option value="bust_small">胸（小さい） / Bust Small</option>
-          <option value="bust_large">胸（大きい） / Bust Large</option>
-          <option value="pendulum_10stage">10段振り子 / 10-Stage</option>
-          <option value="pendulum_20stage">20段振り子 / 20-Stage</option>
+          <option value="" disabled>{t('physics.preset_placeholder')}</option>
+          <option value="hair_short">{t('physics.preset_hair_short')}</option>
+          <option value="hair_long">{t('physics.preset_hair_long')}</option>
+          <option value="hair_2stage">{t('physics.preset_hair_2stage')}</option>
+          <option value="hair_3stage">{t('physics.preset_hair_3stage')}</option>
+          <option value="cloth_light">{t('physics.preset_cloth_light')}</option>
+          <option value="cloth_heavy">{t('physics.preset_cloth_heavy')}</option>
+          <option value="bust_small">{t('physics.preset_bust_small')}</option>
+          <option value="bust_large">{t('physics.preset_bust_large')}</option>
+          <option value="pendulum_10stage">{t('physics.preset_pendulum_10stage')}</option>
+          <option value="pendulum_20stage">{t('physics.preset_pendulum_20stage')}</option>
         </select>
       </div>
 
@@ -143,7 +138,7 @@ export const PhysicsPanel: React.FC = () => {
                 key={g.id}
                 className={`px-2 py-0.5 text-dcc-sm rounded whitespace-nowrap transition-colors ${
                   selectedGroup?.id === g.id
-                    ? 'bg-amber-600/20 text-amber-300 border border-amber-500/30 font-medium'
+                    ? 'bg-dcc-hover text-dcc-text font-medium shadow-[inset_0_-2px_0_#3b82f6]'
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
                 onClick={() => setSelectedGroupId(g.id)}
@@ -166,7 +161,8 @@ export const PhysicsPanel: React.FC = () => {
                 <button
                   className="p-1 hover:text-rose-400 text-zinc-500 rounded"
                   onClick={() => handleDeleteGroup(selectedGroup.id)}
-                  title="Delete Group"
+                  title={t('physics.delete_group')}
+                  aria-label={t('physics.delete_group')}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -174,7 +170,7 @@ export const PhysicsPanel: React.FC = () => {
 
               {/* 1. Input Parameters */}
               <div className="bg-dcc-bg/40 p-2 rounded border border-dcc-border/60 space-y-1.5">
-                <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">Input Movement</span>
+                <span className="text-dcc-sm font-semibold text-dcc-muted ">{t('physics.input')}</span>
                 {selectedGroup.inputs.map((inp, idx) => (
                   <div key={idx} className="flex items-center space-x-2">
                     <select
@@ -217,7 +213,8 @@ export const PhysicsPanel: React.FC = () => {
                       const nextP = [...selectedGroup.pendulums, { length: 50.0, damping: 0.85, mass: 1.0 }];
                       updateGroup({ ...selectedGroup, pendulums: nextP });
                     }}
-                    title="Add Pendulum Node"
+                    title={t('physics.add_node')}
+                    aria-label={t('physics.add_node')}
                   >
                     <Plus className="w-3 h-3" />
                   </button>
@@ -225,7 +222,7 @@ export const PhysicsPanel: React.FC = () => {
 
                 {selectedGroup.pendulums.map((pend, pidx) => (
                   <div key={pidx} className="bg-dcc-panel p-1.5 rounded border border-dcc-border/40 space-y-1">
-                    <div className="text-dcc-sm text-zinc-400 font-mono">Node #{pidx + 1}</div>
+                    <div className="text-dcc-xs text-zinc-400 font-mono">{t('physics.node', { index: pidx + 1 })}</div>
                     <div className="grid grid-cols-3 gap-1">
                       <ScrubInput
                         label="Len"
@@ -270,7 +267,7 @@ export const PhysicsPanel: React.FC = () => {
 
               {/* 3. Output Parameters */}
               <div className="bg-dcc-bg/40 p-2 rounded border border-dcc-border/60 space-y-1.5">
-                <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">Output Parameter</span>
+                <span className="text-dcc-sm font-semibold text-dcc-muted ">{t('physics.output')}</span>
                 {selectedGroup.outputs.map((out, idx) => (
                   <div key={idx} className="flex items-center space-x-2">
                     <select

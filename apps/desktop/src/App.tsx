@@ -24,7 +24,8 @@ import { PhysicsPanel } from './components/PhysicsPanel.js';
 import { HistoryPanel } from './components/HistoryPanel.js';
 import { AtlasModal } from './components/AtlasModal.js';
 import { CommandPalette } from './components/CommandPalette.js';
-import { useI18n, type LanguageSetting } from './i18n/index.js';
+import { StatusBar, type StatusMessage } from './components/StatusBar.js';
+import { useI18n } from './i18n/index.js';
 import type { L2DApi } from '../electron/preload.js';
 import type { EditorViewportControls } from '@l2d/mcp-server/editor-protocol';
 import { EditorAutomation } from './components/EditorAutomation.js';
@@ -36,10 +37,7 @@ import {
   Undo2,
   Redo2,
   Command as CommandIcon,
-  Check,
-  AlertCircle,
   Layers,
-  Globe,
 } from 'lucide-react';
 
 const defaultInitialProject: Project = {
@@ -68,6 +66,16 @@ const defaultInitialProject: Project = {
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 
+const panelTitleKeys = {
+  hierarchy_panel: 'hierarchy.title',
+  viewport_panel: 'viewport.title',
+  parameters_panel: 'parameters.title',
+  physics_panel: 'physics.title',
+  history_panel: 'history.title',
+  inspector_panel: 'inspector.title',
+  timeline_panel: 'timeline.title',
+};
+
 // Stable dockview components dictionary
 const dockviewComponents = {
   hierarchy: HierarchyPanel,
@@ -80,7 +88,7 @@ const dockviewComponents = {
 };
 
 export function App() {
-  const { t, localeSetting, effectiveLanguage, setLanguageSetting } = useI18n();
+  const { t, effectiveLanguage } = useI18n();
   const [project, setProject] = useState<Project>(defaultInitialProject);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -91,8 +99,10 @@ export function App() {
   const [parameterValues, setParameterValues] = useState<Record<string, number>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [atlasModalOpen, setAtlasModalOpen] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
+  const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Serialized document at the last load/save; undoing back to it counts as clean.
+  const [savedProjectJson, setSavedProjectJson] = useState(() => JSON.stringify(defaultInitialProject));
   const dockviewRef = useRef<DockviewApi | null>(null);
   const viewportControls = useRef<EditorViewportControls | null>(null);
 
@@ -115,11 +125,12 @@ export function App() {
   const [waveformPeaks, setWaveformPeaks] = useState<number[]>([]);
   const physicsSimRef = useRef<PhysicsSimulatorJs>(new PhysicsSimulatorJs());
 
-  const notify = (text: string, type: 'info' | 'success' | 'error' = 'info') => {
-    setStatusMessage({ text, type });
+  const notify = (text: string, type: StatusMessage['type'] = 'info') => {
+    const message = { text, type };
+    setStatusMessage(message);
     setTimeout(() => {
-      setStatusMessage((curr) => (curr?.text === text ? null : curr));
-    }, 3500);
+      setStatusMessage((curr) => (curr === message ? null : curr));
+    }, type === 'error' ? 8000 : 4000);
   };
 
   // Command Bus instance
@@ -258,13 +269,14 @@ export function App() {
       setProject({ ...bus.getProject() });
     } else {
       console.error('Command failed:', res.error);
-      notify(`Error: ${res.error}`, 'error');
+      notify(t('notify.command_failed', { error: res.error ?? '' }), 'error');
     }
     return res;
   };
 
   const loadProject = (loaded: Project, filePath: string | null) => {
     bus.setProject(loaded);
+    setSavedProjectJson(JSON.stringify(loaded));
     setProject(loaded);
     setCurrentFilePath(filePath);
     setSelectedNodeId(null);
@@ -295,6 +307,7 @@ export function App() {
     if (!target) throw new Error('No file path. Pass an explicit path to save a new document.');
     if (!api || !await api.saveProject(target, JSON.stringify(bus.getProject(), null, 2))) throw new Error('Failed to save project');
     flushSync(() => setCurrentFilePath(target));
+    setSavedProjectJson(JSON.stringify(bus.getProject()));
     notify(`${t('notify.saved')}: ${target}`, 'success');
     return target;
   };
@@ -336,12 +349,14 @@ export function App() {
       }
       const success = await (window as any).l2dApi.saveProject(currentFilePath, json);
       if (success) {
+        setSavedProjectJson(projectJson);
         notify(`${t('notify.saved')}: ${currentFilePath}`, 'success');
       } else {
         notify(`${t('notify.save_failed')}: ${currentFilePath}`, 'error');
       }
     } else {
       downloadFile(json, 'project.json', 'application/json');
+      setSavedProjectJson(projectJson);
       notify(t('notify.saved'), 'success');
     }
   };
@@ -352,10 +367,12 @@ export function App() {
       const res = await (window as any).l2dApi.saveProjectAsDialog(json, 'project.json');
       if (res && res.success && res.path) {
         setCurrentFilePath(res.path);
+        setSavedProjectJson(projectJson);
         notify(`${t('notify.saved')}: ${res.path}`, 'success');
       }
     } else {
       downloadFile(json, 'project.json', 'application/json');
+      setSavedProjectJson(projectJson);
       notify(t('notify.saved'), 'success');
     }
   };
@@ -369,7 +386,7 @@ export function App() {
           loadProject(parsed, res.path);
           notify(`${t('notify.opened')}: ${res.path}`, 'success');
         } catch (e: any) {
-          notify(`Failed to parse project: ${e?.message || e}`, 'error');
+          notify(t('notify.parse_failed', { error: e?.message || e }), 'error');
         }
       }
     } else {
@@ -386,13 +403,29 @@ export function App() {
           loadProject(parsed, res.outputPath);
           notify(`${t('notify.psd_imported')} (${parsed.nodes.length})`, 'success');
         } catch (e: any) {
-          notify(`Failed to import PSD: ${e?.message || e}`, 'error');
+          notify(t('notify.psd_import_failed', { error: e?.message || e }), 'error');
         }
       }
     } else {
-      notify('PSD import dialog requires Electron runtime', 'info');
+      notify(t('notify.desktop_only'), 'info');
     }
   };
+
+  const isDirty = projectJson !== savedProjectJson;
+
+  // Messages are translated when raised; drop the current one when the language changes.
+  useEffect(() => setStatusMessage(null), [effectiveLanguage]);
+
+  // Dockview stores panel titles as plain strings, so refresh them with the language.
+  useEffect(() => {
+    for (const [panelId, titleKey] of Object.entries(panelTitleKeys)) {
+      dockviewRef.current?.getPanel(panelId)?.api.setTitle(t(titleKey));
+    }
+  }, [effectiveLanguage]);
+  useEffect(() => {
+    const name = currentFilePath?.split(/[\\/]/).pop() ?? t('status.untitled');
+    document.title = `${isDirty ? '● ' : ''}${name} — L2DEditor`;
+  }, [currentFilePath, isDirty, t]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -525,6 +558,8 @@ export function App() {
     executeCommand,
     loadProject,
     saveProjectTo,
+    openProject: handleOpen,
+    importPsd: handleImportPsd,
     undo: handleUndo,
     redo: handleRedo,
     viewportControls,
@@ -568,12 +603,12 @@ export function App() {
   return (
     <EditorContext.Provider value={contextValue}>
       <EditorAutomation />
-      <div className="flex flex-col w-screen h-screen bg-dcc-bg text-dcc-text">
+      <div className="flex flex-col w-screen h-screen overflow-hidden bg-dcc-bg text-dcc-text">
         {/* Top Menu / App Toolbar */}
         <header
-          className={`flex items-center justify-between h-9 ${isMac ? 'pl-[78px]' : 'pl-3'} pr-3 bg-dcc-header border-b border-dcc-border select-none app-drag-region`}
+          className={`editor-toolbar flex shrink-0 items-center justify-between h-9 gap-3 ${isMac ? 'pl-[78px]' : 'pl-3'} pr-3 bg-dcc-header border-b border-dcc-border select-none app-drag-region`}
         >
-          <div className="flex items-center space-x-3 app-no-drag">
+          <div className="flex min-w-0 items-center gap-3 app-no-drag">
             <span className="font-bold tracking-tight text-white flex items-center space-x-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
               <span>L2DEditor</span>
@@ -581,41 +616,46 @@ export function App() {
 
             <div className="h-4 w-px bg-dcc-border" />
 
-            <div className="flex items-center space-x-1">
+            <div className="editor-file-actions flex items-center space-x-1">
               <button
                 className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
                 onClick={handleNew}
-                title="New Project (Ctrl+N)"
+                title={`${t('toolbar.new')} (${isMac ? '⌘' : 'Ctrl+'}N)`}
+                aria-label={t('toolbar.new')}
               >
-                <FilePlus className="w-3.5 h-3.5 mr-1" /> {t('toolbar.new')}
+                <FilePlus className="w-3.5 h-3.5 mr-1" /> <span className="toolbar-label">{t('toolbar.new')}</span>
               </button>
               <button
                 className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
                 onClick={handleOpen}
-                title="Open Project (Ctrl+O)"
+                title={`${t('toolbar.open')} (${isMac ? '⌘' : 'Ctrl+'}O)`}
+                aria-label={t('toolbar.open')}
               >
-                <FolderOpen className="w-3.5 h-3.5 mr-1" /> {t('toolbar.open')}
+                <FolderOpen className="w-3.5 h-3.5 mr-1" /> <span className="toolbar-label">{t('toolbar.open')}</span>
               </button>
               <button
                 className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
                 onClick={handleSave}
-                title="Save Project (Ctrl+S)"
+                title={`${t('toolbar.save')} (${isMac ? '⌘' : 'Ctrl+'}S)`}
+                aria-label={t('toolbar.save')}
               >
-                <Save className="w-3.5 h-3.5 mr-1" /> {t('toolbar.save')}
+                <Save className="w-3.5 h-3.5 mr-1" /> <span className="toolbar-label">{t('toolbar.save')}</span>
               </button>
               <button
                 className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
                 onClick={handleImportPsd}
-                title="Import PSD Document"
+                title={t('toolbar.import_psd')}
+                aria-label={t('toolbar.import_psd')}
               >
-                <FileUp className="w-3.5 h-3.5 mr-1" /> {t('toolbar.import_psd')}
+                <FileUp className="w-3.5 h-3.5 mr-1" /> <span className="toolbar-label">{t('toolbar.import_psd')}</span>
               </button>
             <button
               className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
               onClick={() => setAtlasModalOpen(true)}
-              title="Edit Texture Atlas"
+              title={t('toolbar.atlas')}
+              aria-label={t('toolbar.atlas')}
             >
-              <Layers className="w-3.5 h-3.5 mr-1 text-pink-400" /> {t('toolbar.atlas')}
+              <Layers className="w-3.5 h-3.5 mr-1 text-dcc-muted" /> <span className="toolbar-label">{t('toolbar.atlas')}</span>
             </button>
             </div>
 
@@ -625,14 +665,18 @@ export function App() {
               <button
                 className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white transition-colors"
                 onClick={handleUndo}
-                title="Undo (Ctrl+Z)"
+                title={`${t('toolbar.undo')} (${isMac ? '⌘Z' : 'Ctrl+Z'})`}
+                aria-label={t('toolbar.undo')}
+                disabled={!bus.canUndo()}
               >
                 <Undo2 className="w-3.5 h-3.5" />
               </button>
               <button
                 className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white transition-colors"
                 onClick={handleRedo}
-                title="Redo (Ctrl+Y)"
+                title={`${t('toolbar.redo')} (${isMac ? '⌘⇧Z' : 'Ctrl+Y'})`}
+                aria-label={t('toolbar.redo')}
+                disabled={!bus.canRedo()}
               >
                 <Redo2 className="w-3.5 h-3.5" />
               </button>
@@ -640,72 +684,36 @@ export function App() {
           </div>
 
           {/* Right Info & Palette */}
-          <div className="flex items-center space-x-3 app-no-drag">
-            {/* Language Switcher */}
-            <div className="flex items-center space-x-1 text-dcc-sm bg-zinc-800/80 px-2 py-0.5 rounded border border-dcc-border text-zinc-300">
-              <Globe className="w-3 h-3 text-cyan-400 shrink-0" />
-              <select
-                className="bg-transparent text-dcc-sm text-zinc-300 outline-none cursor-pointer"
-                value={localeSetting}
-                onChange={(e) => {
-                  setLanguageSetting(e.target.value as LanguageSetting);
-                  notify(t('notify.lang_changed'), 'info');
-                }}
-              >
-                <option value="auto" className="bg-zinc-900 text-zinc-200">
-                  {t('toolbar.lang_auto')} ({effectiveLanguage === 'zh-CN' ? '中文' : effectiveLanguage === 'ja' ? '日本語' : 'EN'})
-                </option>
-                <option value="zh-CN" className="bg-zinc-900 text-zinc-200">{t('toolbar.lang_zh')}</option>
-                <option value="ja" className="bg-zinc-900 text-zinc-200">{t('toolbar.lang_ja')}</option>
-                <option value="en" className="bg-zinc-900 text-zinc-200">{t('toolbar.lang_en')}</option>
-              </select>
-            </div>
-
-            {statusMessage && (
-              <span
-                title={statusMessage.text}
-                className={`fixed right-3 top-11 z-50 max-w-[70vw] truncate whitespace-nowrap text-dcc-sm px-2 py-0.5 rounded font-medium transition-all ${
-                  statusMessage.type === 'success'
-                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800'
-                    : statusMessage.type === 'error'
-                    ? 'bg-rose-950/80 text-rose-300 border border-rose-800'
-                    : 'bg-zinc-800 text-zinc-300 border border-zinc-700'
-                }`}
-              >
-                {statusMessage.type === 'success' ? (
-                  <Check className="w-3 h-3 mr-1 text-emerald-400" />
-                ) : statusMessage.type === 'error' ? (
-                  <AlertCircle className="w-3 h-3 mr-1 text-rose-400" />
-                ) : null}
-                {statusMessage.text}
-              </span>
-            )}
-
-            {currentFilePath && (
-              <span className="text-dcc-sm text-dcc-muted font-mono truncate max-w-xs hidden xl:inline" title={currentFilePath}>
-                {currentFilePath.split('/').pop()}
-              </span>
-            )}
-
+          <div className="editor-toolbar-info flex shrink-0 items-center gap-3 app-no-drag">
             <button
-              className="flex items-center px-2 py-1 text-dcc-sm bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 rounded border border-dcc-border space-x-1.5 transition-colors"
+              className="btn"
+              title={t('toolbar.commands')}
+              aria-label={t('toolbar.commands')}
               onClick={() => setCommandPaletteOpen(true)}
             >
-              <CommandIcon className="w-3 h-3 text-blue-400" />
-              <span>{t('toolbar.commands')}</span>
-              <kbd className="px-1 py-0.2 bg-zinc-900 text-zinc-400 rounded text-[9px] font-mono">⌘K</kbd>
+              <CommandIcon className="w-3 h-3 text-dcc-muted" />
+              <span className="toolbar-label">{t('toolbar.commands')}</span>
+              <kbd className="px-1 rounded bg-dcc-bg text-zinc-500 text-dcc-xs font-mono">{isMac ? '⌘K' : 'Ctrl+K'}</kbd>
             </button>
           </div>
         </header>
 
         {/* Main Dockview Area */}
-        <main className="flex-1 w-full h-full relative overflow-hidden">
+        <main className="flex-1 min-h-0 w-full relative overflow-hidden">
           <DockviewReact
             className="dockview-theme-dcc w-full h-full"
             onReady={onReady}
             components={dockviewComponents}
           />
         </main>
+
+        <StatusBar
+          filePath={currentFilePath}
+          dirty={isDirty}
+          message={statusMessage}
+          nodeCount={project.nodes.length}
+          selectedCount={selectedNodeIds.length}
+        />
 
         {/* Command Palette Modal */}
         <CommandPalette
@@ -723,9 +731,9 @@ export function App() {
             else if (action === 'lint') {
               const diags = lintProjectJs(project);
               if (diags.length === 0) {
-                notify('Project Linter: 0 errors, 0 warnings', 'success');
+                notify(t('notify.lint_clean'), 'success');
               } else {
-                notify(`Linter found ${diags.length} issue(s): ${diags[0].code}`, 'error');
+                notify(t('notify.lint_issues', { count: diags.length, code: diags[0].code }), 'error');
               }
             } else if (action === 'cleanup_empty') {
               executeCommand({
@@ -733,7 +741,7 @@ export function App() {
                 name: 'project.cleanup_empty',
                 params: {},
               });
-              notify('Cleaned up empty Parts, Deformers, and unused Parameters', 'success');
+              notify(t('notify.cleaned_empty'), 'success');
             } else if (action === 'synthesize_corners') {
               if (selectedNodeId) {
                 executeCommand({
@@ -741,9 +749,9 @@ export function App() {
                   name: 'keyform.synthesize_corners',
                   params: { target_node_id: selectedNodeId },
                 });
-                notify('Synthesized 4-corner keyforms (Ctrl+4)', 'success');
+                notify(t('notify.synthesized_corners'), 'success');
               } else {
-                notify('Select a node with 2D keyforms first', 'error');
+                notify(t('notify.need_keyform_node'), 'error');
               }
             } else if (action === 'ai_full_body_deformers') {
               executeCommand({
@@ -751,7 +759,7 @@ export function App() {
                 name: 'macro.ai_full_body_deformers',
                 params: {},
               });
-              notify('Generated Official Cubism 5.3 Full-Body 24-Deformer Tree', 'success');
+              notify(t('notify.full_body_deformers'), 'success');
             } else if (action === 'macro_turn_xy') {
               if (selectedNodeId) {
                 executeCommand({
@@ -759,9 +767,9 @@ export function App() {
                   name: 'macro.setup_turn_xy',
                   params: { target_node_id: selectedNodeId },
                 });
-                notify('Applied 3x3 Turn XY Macro', 'success');
+                notify(t('notify.setup_turn_xy'), 'success');
               } else {
-                notify('Please select a Warp Deformer first', 'error');
+                notify(t('notify.need_warp'), 'error');
               }
             }
           }}
@@ -783,9 +791,9 @@ export function App() {
               try {
                 const parsed = JSON.parse(text);
                 loadProject(parsed, file.name);
-                notify(`Opened ${file.name}`, 'success');
+                notify(t('notify.opened_file', { name: file.name }), 'success');
               } catch (err: any) {
-                notify(`Failed to parse file: ${err?.message || err}`, 'error');
+                notify(t('notify.parse_failed', { error: err?.message || err }), 'error');
               }
             }
           }}

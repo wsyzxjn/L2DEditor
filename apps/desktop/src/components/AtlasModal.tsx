@@ -50,14 +50,14 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
             name: 'project.update',
             params: res.updatedProject,
           });
-          notify(`Texture Atlas applied (${atlasSize}x${atlasSize}) with remapped UVs`, 'success');
+          notify(t('notify.atlas_applied', { size: atlasSize }), 'success');
           onOpenChange(false);
         }
       } else {
-        notify('Texture Atlas baking requires Electron desktop runtime', 'info');
+        notify(t('notify.desktop_only'), 'info');
       }
     } catch (err: any) {
-      notify(`Failed to apply atlas: ${err?.message || err}`, 'error');
+      notify(t('notify.atlas_failed', { error: err?.message || err }), 'error');
     }
   };
 
@@ -71,7 +71,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
         {/* Header */}
         <div className="flex items-center justify-between h-9 px-3 border-b border-dcc-border bg-dcc-header">
           <div className="flex items-center space-x-2 text-dcc font-semibold text-white">
-            <Layers className="w-4 h-4 text-blue-400" />
+            <Layers className="w-4 h-4 text-dcc-muted" />
             <span>{t('atlas.title')}</span>
           </div>
           <button
@@ -94,8 +94,8 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
                 onChange={(e) => setAtlasSize(Number(e.target.value))}
               >
                 <option value={1024}>1024 x 1024 px</option>
-                <option value={2048}>2048 x 2048 px (Standard)</option>
-                <option value={4096}>4096 x 4096 px (High-Res 4K)</option>
+                <option value={2048}>2048 × 2048 px · {t('atlas.standard')}</option>
+                <option value={4096}>4096 × 4096 px · {t('atlas.high_res')}</option>
               </select>
             </div>
 
@@ -125,7 +125,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
                     className="flex items-center justify-between h-6 px-1.5 bg-dcc-bg/60 rounded border border-dcc-border/40 text-dcc-sm"
                   >
                     <span className="truncate text-dcc-text">{mesh.name || mesh.id}</span>
-                    <span className="text-emerald-400 font-mono text-[10px]">Packed</span>
+                    <span className="text-emerald-400 font-mono text-dcc-xs">{t('atlas.packed')}</span>
                   </div>
                 ))}
               </div>
@@ -133,7 +133,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
 
             {/* Coverage info */}
             <div className="bg-dcc-bg p-2 rounded border border-dcc-border text-dcc-sm flex justify-between items-center font-mono">
-              <span className="text-dcc-muted">Atlas Coverage</span>
+              <span className="text-dcc-muted">{t('atlas.coverage')}</span>
               <span className="text-blue-400 font-semibold">{coveragePct}%</span>
             </div>
 
@@ -166,8 +166,8 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
               </div>
             ) : (
               <div className="text-dcc text-dcc-muted flex items-center space-x-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
-                <span>Computing optimal pack layout...</span>
+                <RefreshCw className="w-4 h-4 animate-spin text-dcc-muted" />
+                <span>{t('atlas.computing')}</span>
               </div>
             )}
 

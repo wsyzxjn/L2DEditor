@@ -20,8 +20,10 @@ export default {
         }
       },
       fontSize: {
-        'dcc': '11px',
-        'dcc-sm': '10px'
+        // 12px body text, 11px controls, 10px only for rulers, IDs and counters.
+        'dcc': '12px',
+        'dcc-sm': '11px',
+        'dcc-xs': '10px'
       }
     },
   },

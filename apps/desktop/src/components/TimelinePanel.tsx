@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
+import { OverflowMenu, OverflowMenuItem } from './OverflowMenu.js';
 import {
   Play,
   Pause,
@@ -8,7 +9,6 @@ import {
   Repeat,
   Key,
   Plus,
-  Film,
   TrendingUp,
   List,
   Mic,
@@ -81,7 +81,7 @@ export const TimelinePanel: React.FC = () => {
       params: newAnim,
     });
     setActiveAnimationId(id);
-    notify(`Created Animation: ${newAnim.name}`, 'success');
+    notify(t('notify.motion_created', { name: newAnim.name }), 'success');
   };
 
   const handleAddKeyframeAtPlayhead = (paramId: string) => {
@@ -97,7 +97,7 @@ export const TimelinePanel: React.FC = () => {
         curve: 'linear',
       },
     });
-    notify(`Keyframe added at frame ${Math.round(currentPlayheadFrame)} for ${paramId}`, 'success');
+    notify(t('notify.keyframe_added', { frame: Math.round(currentPlayheadFrame), param: paramId }), 'success');
   };
 
   const handleRulerClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -122,37 +122,36 @@ export const TimelinePanel: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-dcc-panel border-t border-dcc-border select-none">
+    <div className="panel-root flex flex-col h-full bg-dcc-panel border-t border-dcc-border select-none">
       {/* Timeline Controls Header */}
-      <div className="flex shrink-0 items-center justify-between h-8 px-3 overflow-x-auto whitespace-nowrap [&>*]:shrink-0 border-b border-dcc-border bg-dcc-header">
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-1.5 text-dcc font-semibold uppercase tracking-wider text-dcc-muted mr-2">
-            <Film className="w-3.5 h-3.5" />
-            <span>{t('timeline.title')}</span>
-          </div>
+      <div className="flex shrink-0 items-center gap-2 h-8 px-2 overflow-x-auto whitespace-nowrap [&>*]:shrink-0 border-b border-dcc-border bg-dcc-header">
+        <div className="flex items-center space-x-1.5">
 
           {/* Transport buttons */}
           <button
-            className="p-1 hover:bg-zinc-700 rounded text-zinc-300 hover:text-white transition-colors"
+            className="btn btn-icon"
             onClick={() => setIsPlayingAnimation(!isPlayingAnimation)}
             title={isPlayingAnimation ? t('timeline.pause') : t('timeline.play')}
+            aria-label={isPlayingAnimation ? t('timeline.pause') : t('timeline.play')}
+            aria-pressed={isPlayingAnimation}
           >
-            {isPlayingAnimation ? <Pause className="w-3.5 h-3.5 text-amber-400" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
+            {isPlayingAnimation ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
           </button>
           <button
-            className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
+            className="btn btn-icon"
             onClick={() => {
               setIsPlayingAnimation(false);
               setCurrentPlayheadFrame(0);
             }}
-            title={t('timeline.pause')}
+            title={t('timeline.stop')}
+            aria-label={t('timeline.stop')}
           >
             <Square className="w-3.5 h-3.5" />
           </button>
           <button
-            className={`p-1 rounded transition-colors ${
-              activeAnim.loop_playback ? 'text-blue-400 bg-blue-950/60' : 'text-zinc-500 hover:text-zinc-300'
-            }`}
+            className="btn btn-icon"
+            aria-pressed={!!activeAnim.loop_playback}
+            aria-label={t('timeline.loop')}
             onClick={() => {
               executeCommand({
                 id: `cmd_${Date.now()}`,
@@ -172,39 +171,42 @@ export const TimelinePanel: React.FC = () => {
             <span className="text-blue-400">{Math.round(currentPlayheadFrame)}</span>
             <span className="text-zinc-600">/</span>
             <span>{duration}</span>
-            <span className="text-dcc-sm text-zinc-500 ml-1">F</span>
+            <span className="text-dcc-xs text-zinc-500 ml-1">F</span>
           </div>
 
-          <span className="text-dcc-sm text-zinc-500 font-mono">@{activeAnim.fps || 30}fps</span>
+          <span className="toolbar-label-optional text-dcc-xs text-zinc-500 font-mono">@{activeAnim.fps || 30}fps</span>
         </div>
 
         {/* View Mode Toggle: Dope Sheet vs Graph Editor */}
-        <div className="flex items-center space-x-1 bg-dcc-bg p-0.5 rounded border border-dcc-border">
+        <div className="flex items-center h-6 space-x-0.5 px-0.5 bg-dcc-bg/60 rounded border border-dcc-border">
           <button
-            className={`flex items-center px-1.5 py-0.5 text-dcc-sm rounded transition-colors ${
-              viewMode === 'dopesheet' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
-            }`}
+            className="btn h-5 px-1.5"
             onClick={() => setViewMode('dopesheet')}
-            title="Dope Sheet Mode (摄影表)"
+            title={t('timeline.dopesheet')}
+            aria-label={t('timeline.dopesheet')}
+            aria-pressed={viewMode === 'dopesheet'}
           >
-            <List className="w-3 h-3 mr-1" /> Dope Sheet
+            <List className="w-3 h-3" /><span className="toolbar-label-optional">{t('timeline.dopesheet')}</span>
           </button>
           <button
-            className={`flex items-center px-1.5 py-0.5 text-dcc-sm rounded transition-colors ${
-              viewMode === 'graph' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
-            }`}
+            className="btn h-5 px-1.5"
             onClick={() => setViewMode('graph')}
-            title="Graph / Curve Editor (曲线编辑器)"
+            title={t('timeline.graph')}
+            aria-label={t('timeline.graph')}
+            aria-pressed={viewMode === 'graph'}
           >
-            <TrendingUp className="w-3 h-3 mr-1" /> Graph Editor
+            <TrendingUp className="w-3 h-3" /><span className="toolbar-label-optional">{t('timeline.graph')}</span>
           </button>
         </div>
 
         {/* Right Action: Motion Selector / Add Motion */}
-        <div className="flex items-center space-x-2">
+        <div className="flex-1" />
+
+        <div className="flex items-center space-x-1.5">
           {project.animations && project.animations.length > 0 ? (
             <select
-              className="h-6 px-1.5 text-dcc-sm bg-dcc-bg text-zinc-300 border border-dcc-border rounded outline-none"
+              aria-label={t('timeline.title')}
+              className="h-6 max-w-[160px] px-1.5 text-dcc-sm bg-dcc-bg text-zinc-300 border border-dcc-border rounded outline-none"
               value={activeAnim.id}
               onChange={(e) => setActiveAnimationId(e.target.value)}
             >
@@ -217,50 +219,47 @@ export const TimelinePanel: React.FC = () => {
           ) : null}
 
           <button
-            className="flex items-center px-2 py-0.5 text-dcc-sm bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded font-medium transition-colors"
+            className="btn btn-secondary"
             onClick={handleCreateAnimation}
+            title={t('timeline.new_motion')}
+            aria-label={t('timeline.new_motion')}
           >
-            <Plus className="w-3 h-3 mr-1" /> New Motion
+            <Plus className="w-3 h-3" /><span className="toolbar-label-optional">{t('timeline.new_motion')}</span>
           </button>
 
-          <button
-            className="flex items-center px-2 py-0.5 text-dcc-sm bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded font-medium transition-colors"
-            onClick={() => wavInputRef.current?.click()}
-            title="Import speech WAV audio for automatic mouth opening lipsync"
-          >
-            <Mic className="w-3 h-3 mr-1" /> {t('timeline.lipsync')}
-          </button>
-
-          <button
-            className="flex items-center px-2 py-0.5 text-dcc-sm bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 rounded font-medium transition-colors"
-            onClick={() => {
-              executeCommand({
-                id: `cmd_${Date.now()}`,
-                name: 'animation.bake_physics',
-                params: { animation_id: activeAnim.id },
-              });
-              notify(`Baked pendulum physics into ${activeAnim.name} tracks`, 'success');
-            }}
-            title="Bake Physics Simulation into Animation Tracks (物理演算烘焙 CMD_BAKE_PHYSICS)"
-          >
-            <Zap className="w-3 h-3 mr-1" /> {t('physics.bake_physics')}
-          </button>
-
-          <button
-            className="flex items-center px-2 py-0.5 text-dcc-sm bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded font-medium transition-colors"
-            onClick={() => {
-              executeCommand({
-                id: `cmd_${Date.now()}`,
-                name: 'macro.auto_face_motion',
-                params: { animation_id: activeAnim.id, duration_frames: duration },
-              });
-              setActiveAnimationId(activeAnim.id);
-              notify('Generated AI Auto Face Motion tracks', 'success');
-            }}
-            title="Generate AI Auto Face Motion (顔の動きの自動生成)"
-          >
-            <Sparkles className="w-3 h-3 mr-1" /> Auto Face
-          </button>
+          <OverflowMenu label={t('common.more')}>
+            <OverflowMenuItem
+              icon={Mic}
+              label={t('timeline.lipsync')}
+              title={t('timeline.lipsync_hint')}
+              onSelect={() => wavInputRef.current?.click()}
+            />
+            <OverflowMenuItem
+              icon={Zap}
+              label={t('physics.bake_physics')}
+              onSelect={() => {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'animation.bake_physics',
+                  params: { animation_id: activeAnim.id },
+                });
+                notify(t('notify.physics_baked', { name: activeAnim.name }), 'success');
+              }}
+            />
+            <OverflowMenuItem
+              icon={Sparkles}
+              label={t('timeline.auto_face')}
+              onSelect={() => {
+                executeCommand({
+                  id: `cmd_${Date.now()}`,
+                  name: 'macro.auto_face_motion',
+                  params: { animation_id: activeAnim.id, duration_frames: duration },
+                });
+                setActiveAnimationId(activeAnim.id);
+                notify(t('notify.auto_face_done'), 'success');
+              }}
+            />
+          </OverflowMenu>
 
           <input
             type="file"
@@ -305,9 +304,9 @@ export const TimelinePanel: React.FC = () => {
                     tracks: updatedTracks,
                   },
                 });
-                notify(`Generated CRI 5-Vowel LipSync (${res.keyframes.length} frames) from ${file.name}`, 'success');
+                notify(t('notify.lipsync_done', { name: file.name, count: res.keyframes.length }), 'success');
               } catch (err: any) {
-                notify(`LipSync error: ${err?.message || err}`, 'error');
+                notify(t('notify.lipsync_failed', { error: err?.message || err }), 'error');
               }
             }}
           />
@@ -318,8 +317,8 @@ export const TimelinePanel: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* Left Track Headers */}
         <div className="w-48 border-r border-dcc-border bg-dcc-panel/60 overflow-y-auto shrink-0">
-          <div className="h-6 border-b border-dcc-border bg-dcc-header/40 px-2 flex items-center text-dcc-sm text-dcc-muted uppercase font-semibold">
-            Parameters
+          <div className="h-6 border-b border-dcc-border bg-dcc-header/40 px-2 flex items-center text-dcc-sm text-dcc-muted font-semibold">
+            {t('timeline.tracks')}
           </div>
           {project.parameters.map((param) => {
             const isSelected = selectedTrackParamId === param.id;
@@ -329,14 +328,14 @@ export const TimelinePanel: React.FC = () => {
               <div
                 key={param.id}
                 className={`h-6 px-2 border-b border-dcc-border/40 flex items-center justify-between text-dcc hover:bg-dcc-hover cursor-pointer ${
-                  isSelected ? 'bg-blue-950/40 text-blue-300 font-medium' : 'text-dcc-text'
+                  isSelected ? 'list-item-selected font-medium' : 'text-dcc-text'
                 }`}
                 onClick={() => setSelectedTrackParamId(param.id)}
               >
                 <span className="truncate">{param.name || param.id}</span>
                 <div className="flex items-center space-x-1">
                   <button
-                    className="p-0.5 text-zinc-500 hover:text-sky-400 transition-colors"
+                    className="p-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
                     onClick={(e) => {
                       e.stopPropagation();
                       executeCommand({
@@ -354,12 +353,13 @@ export const TimelinePanel: React.FC = () => {
                     {isFrozen ? <Lock className="w-3 h-3 text-sky-400" /> : <Unlock className="w-3 h-3 text-zinc-600" />}
                   </button>
                   <button
-                    className="p-0.5 text-zinc-500 hover:text-emerald-400 transition-colors"
+                    className="p-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleAddKeyframeAtPlayhead(param.id);
                     }}
-                    title="Add Keyframe at playhead"
+                    title={t('timeline.add_key')}
+                    aria-label={t('timeline.add_key')}
                   >
                     <Key className="w-3 h-3" />
                   </button>

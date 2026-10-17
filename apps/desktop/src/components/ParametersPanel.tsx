@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
 import { ScrubInput } from './ScrubInput.js';
-import { Plus, SlidersHorizontal, Folder, ChevronDown, ChevronRight, FolderPlus, RotateCcw, Lock, Unlock, Compass, Search } from 'lucide-react';
+import { OverflowMenu, OverflowMenuItem } from './OverflowMenu.js';
+import { Plus, ListPlus, Folder, ChevronDown, ChevronRight, FolderPlus, RotateCcw, Lock, Unlock, Compass, Search } from 'lucide-react';
 import type { Parameter } from '@l2d/schema';
 
 export const ParametersPanel: React.FC = () => {
@@ -35,7 +36,7 @@ export const ParametersPanel: React.FC = () => {
         default: 0,
       },
     });
-    notify(`Created Parameter: ${name}`, 'success');
+    notify(t('notify.param_created', { name }), 'success');
   };
 
   const handleAddGroup = () => {
@@ -46,7 +47,7 @@ export const ParametersPanel: React.FC = () => {
       name: 'parameter_group.add',
       params: { id, name, collapsed: false },
     });
-    notify(`Created Parameter Group: ${name}`, 'success');
+    notify(t('notify.param_group_created', { name }), 'success');
   };
 
   const toggleGroup = (groupId: string) => {
@@ -127,9 +128,9 @@ export const ParametersPanel: React.FC = () => {
           })}
         </div>
 
-        <div className="flex justify-between text-dcc-sm text-dcc-muted">
+        <div className="flex justify-between text-dcc-xs text-dcc-muted">
           <span>{param.min}</span>
-          <span className="font-mono text-zinc-500">{param.id}</span>
+          <span className="font-mono text-zinc-500 truncate px-1">{param.id}</span>
           <span>{param.max}</span>
         </div>
       </div>
@@ -160,36 +161,37 @@ export const ParametersPanel: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-dcc-panel border-l border-dcc-border">
-      {/* Header */}
-      <div className="flex shrink-0 items-center justify-between h-7 px-2 overflow-x-auto whitespace-nowrap [&>*]:shrink-0 border-b border-dcc-border bg-dcc-header">
-        <div className="flex items-center space-x-1.5 text-dcc font-semibold uppercase tracking-wider text-dcc-muted">
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span>{t('parameters.title')}</span>
-        </div>
-        <div className="flex items-center space-x-1">
-          <button
-            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
-            onClick={() => {
-              for (const p of project.parameters) {
-                setParameterValue(p.id, p.default);
-              }
-              notify(t('parameters.reset_all'), 'info');
-            }}
-            title={t('parameters.reset_all')}
-          >
-            <RotateCcw className="w-3 h-3 mr-0.5" /> {t('parameters.reset_all')}
-          </button>
-          <button
-            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
-            onClick={handleAddGroup}
-            title={t('parameters.add_group')}
-          >
-            <FolderPlus className="w-3 h-3 mr-0.5" /> {t('parameters.add_group')}
-          </button>
-          <button
-            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded border border-blue-500/30 transition-colors"
-            onClick={() => {
+    <div className="panel-root flex flex-col h-full bg-dcc-panel border-l border-dcc-border">
+      {/* Toolbar: frequent actions stay visible, the rest live in the overflow menu. */}
+      <div className="flex shrink-0 items-center gap-1 h-8 px-2 border-b border-dcc-border bg-dcc-header">
+        <button
+          className="btn btn-secondary"
+          onClick={handleAddParam}
+          title={t('parameters.add_param')}
+          aria-label={t('parameters.add_param')}
+        >
+          <Plus className="w-3.5 h-3.5" /><span className="toolbar-label">{t('parameters.add_param')}</span>
+        </button>
+        <button
+          className="btn"
+          onClick={() => {
+            for (const p of project.parameters) {
+              setParameterValue(p.id, p.default);
+            }
+            notify(t('parameters.reset_all'), 'info');
+          }}
+          title={t('parameters.reset_all')}
+          aria-label={t('parameters.reset_all')}
+        >
+          <RotateCcw className="w-3.5 h-3.5" /><span className="toolbar-label-optional">{t('parameters.reset_all')}</span>
+        </button>
+        <div className="flex-1" />
+        <OverflowMenu label={t('common.more')}>
+          <OverflowMenuItem icon={FolderPlus} label={t('parameters.add_group')} onSelect={handleAddGroup} />
+          <OverflowMenuItem
+            icon={ListPlus}
+            label={t('parameters.preset')}
+            onSelect={() => {
               executeCommand({
                 id: `cmd_${Date.now()}`,
                 name: 'parameter.apply_standard_template',
@@ -197,18 +199,8 @@ export const ParametersPanel: React.FC = () => {
               });
               notify(t('parameters.preset'), 'success');
             }}
-            title={t('parameters.preset')}
-          >
-            {t('parameters.preset')}
-          </button>
-          <button
-            className="flex items-center px-1.5 py-0.5 text-dcc-sm bg-dcc-hover hover:bg-zinc-700 text-dcc-text rounded transition-colors"
-            onClick={handleAddParam}
-            title={t('parameters.add_param')}
-          >
-            <Plus className="w-3 h-3 mr-0.5" /> {t('parameters.add_param')}
-          </button>
-        </div>
+          />
+        </OverflowMenu>
       </div>
 
       {(project.expressions?.length ?? 0) > 0 && <div className="flex shrink-0 items-center gap-2 border-b border-dcc-border px-2 py-1">
@@ -240,12 +232,12 @@ export const ParametersPanel: React.FC = () => {
         {/* 2D XY Joystick Pad (ParamAngleX / ParamAngleY) */}
         {hasAngle2D && (
           <div className="p-2 bg-dcc-bg/60 border border-dcc-border rounded space-y-1.5">
-            <div className="flex items-center justify-between text-dcc-sm text-dcc-muted">
-              <div className="flex items-center space-x-1 font-semibold uppercase">
-                <Compass className="w-3.5 h-3.5 text-blue-400" />
-                <span>{t('parameters.xy_pad')}</span>
+            <div className="flex items-center justify-between gap-2 text-dcc-sm text-dcc-muted">
+              <div className="flex min-w-0 items-center space-x-1 font-semibold">
+                <Compass className="w-3.5 h-3.5 shrink-0 text-dcc-muted" />
+                <span className="truncate" title={t('parameters.xy_pad')}>{t('parameters.xy_pad')}</span>
               </div>
-              <span className="font-mono text-[10px] text-zinc-400">
+              <span className="shrink-0 font-mono text-dcc-xs text-zinc-400">
                 ({valX.toFixed(1)}, {valY.toFixed(1)})
               </span>
             </div>
@@ -306,10 +298,10 @@ export const ParametersPanel: React.FC = () => {
                   >
                     <div className="flex items-center space-x-1.5">
                       {isCollapsed ? <ChevronRight className="w-3 h-3 text-zinc-500" /> : <ChevronDown className="w-3 h-3 text-zinc-400" />}
-                      <Folder className="w-3.5 h-3.5 text-amber-400" />
+                      <Folder className="w-3.5 h-3.5 text-dcc-muted" />
                       <span className="text-zinc-200">{group.name || group.id}</span>
                     </div>
-                    <span className="text-dcc-sm font-mono text-zinc-500">{groupParams.length}</span>
+                    <span className="text-dcc-xs font-mono text-zinc-500">{groupParams.length}</span>
                   </div>
 
                   {!isCollapsed && (
