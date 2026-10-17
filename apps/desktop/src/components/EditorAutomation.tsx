@@ -3,12 +3,15 @@ import { flushSync } from 'react-dom';
 import type { RendererEditorRequest } from '@l2d/mcp-server/editor-protocol';
 import type { L2DApi } from '../../electron/preload.js';
 import { useEditor } from '../context/EditorContext.js';
+import type { AgentActivity } from './AgentActivityCard.js';
 
 /** GUI and MCP share the same context actions, document and Command Bus. */
-export function EditorAutomation() {
+export function EditorAutomation({ onActivity }: { onActivity?: (activity: AgentActivity) => void }) {
   const editor = useEditor();
   const current = useRef(editor);
+  const activityHandler = useRef(onActivity);
   current.current = editor;
+  activityHandler.current = onActivity;
 
   useEffect(() => {
     const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
@@ -103,9 +106,26 @@ export function EditorAutomation() {
     };
     return api.onEditorRequest(message => {
       void (async () => {
+        const request = message.request;
+        const startedAt = Date.now();
+        const command = request.action === 'exec' ? request.command : undefined;
+        const report = (
+          status: AgentActivity['status'],
+          extra: Partial<AgentActivity> = {},
+        ) => activityHandler.current?.({
+          id: message.id,
+          action: request.action,
+          status,
+          startedAt,
+          commandId: command?.id,
+          commandName: command?.name,
+          dryRun: request.action === 'exec' ? request.dryRun : undefined,
+          ...extra,
+        });
+        report('running');
         try {
           let extra: Record<string, unknown> = {};
-          if (message.request.action === 'wait_for_preview' || message.request.action === 'capture_model') {
+          if (request.action === 'wait_for_preview' || request.action === 'capture_model') {
             const deadline = performance.now() + 8000;
             while (true) {
               const e = current.current, controls = e.viewportControls.current, viewport = controls?.getState();
@@ -115,19 +135,29 @@ export function EditorAutomation() {
               if (performance.now() > deadline) throw new Error('Preview did not finish rendering');
               await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
             }
-            if (message.request.action === 'capture_model') {
-              const png = await current.current.viewportControls.current!.captureModel(message.request.scale);
+            if (request.action === 'capture_model') {
+              const png = await current.current.viewportControls.current!.captureModel(request.scale);
+              report('success', { durationMs: Date.now() - startedAt });
               api.respondToEditor({ id: message.id, result: { mimeType: 'image/png', data: png.replace(/^data:image\/png;base64,/, '') } });
               return;
             }
-          } else if (message.request.action === 'save') extra = { savedPath: await current.current.saveProjectTo(message.request.path) };
-          else if (message.request.action === 'state') {
-            api.respondToEditor({ id: message.id, result: apply(message.request) });
+          } else if (request.action === 'save') extra = { savedPath: await current.current.saveProjectTo(request.path) };
+          else if (request.action === 'state') {
+            report('success', { durationMs: Date.now() - startedAt });
+            api.respondToEditor({ id: message.id, result: apply(request) });
             return;
-          } else flushSync(() => { extra = apply(message.request); });
+          } else flushSync(() => { extra = apply(request); });
+          const commandResult = extra.commandResult as { patches?: unknown[] } | undefined;
+          report('success', {
+            durationMs: Date.now() - startedAt,
+            patchCount: commandResult?.patches?.length,
+            undoable: request.action === 'exec' && !request.dryRun,
+          });
           api.respondToEditor({ id: message.id, result: { ...inspect(), ...extra } });
         } catch (error) {
-          api.respondToEditor({ id: message.id, error: error instanceof Error ? error.message : String(error) });
+          const messageText = error instanceof Error ? error.message : String(error);
+          report('error', { durationMs: Date.now() - startedAt, error: messageText });
+          api.respondToEditor({ id: message.id, error: messageText });
         }
       })();
     });

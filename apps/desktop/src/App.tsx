@@ -23,9 +23,11 @@ import { TimelinePanel } from './components/TimelinePanel.js';
 import { PhysicsPanel } from './components/PhysicsPanel.js';
 import { HistoryPanel } from './components/HistoryPanel.js';
 import { AtlasModal } from './components/AtlasModal.js';
+import { AgentSetupModal } from './components/AgentSetupModal.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import { StatusBar, type StatusMessage } from './components/StatusBar.js';
 import { OverflowMenu, OverflowMenuItem } from './components/OverflowMenu.js';
+import { AgentActivityCard, type AgentActivity } from './components/AgentActivityCard.js';
 import { useI18n } from './i18n/index.js';
 import type { L2DApi } from '../electron/preload.js';
 import type { EditorViewportControls } from '@l2d/mcp-server/editor-protocol';
@@ -48,6 +50,7 @@ import {
   History,
   Info,
   Film,
+  Bot,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -146,7 +149,9 @@ export function App() {
   const [parameterValues, setParameterValues] = useState<Record<string, number>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [atlasModalOpen, setAtlasModalOpen] = useState(false);
+  const [agentSetupOpen, setAgentSetupOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
+  const [agentActivities, setAgentActivities] = useState<AgentActivity[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Serialized document at the last load/save; undoing back to it counts as clean.
   const [savedProjectJson, setSavedProjectJson] = useState(() => JSON.stringify(defaultInitialProject));
@@ -179,6 +184,22 @@ export function App() {
     setTimeout(() => {
       setStatusMessage((curr) => (curr === message ? null : curr));
     }, type === 'error' ? 8000 : 4000);
+  };
+
+  const recordAgentActivity = (activity: AgentActivity) => {
+    setAgentActivities((previous) => {
+      const index = previous.findIndex((item) => item.id === activity.id);
+      if (index < 0) return [...previous, activity].slice(-8);
+      const next = [...previous];
+      next[index] = activity;
+      return next;
+    });
+  };
+
+  const reconcileSelection = (nextProject: Project) => {
+    const existing = new Set(nextProject.nodes.map((node) => node.id));
+    setSelectedNodeIds((previous) => previous.filter((id) => existing.has(id)));
+    setSelectedNodeId((previous) => (previous && existing.has(previous) ? previous : null));
   };
 
   // Command Bus instance
@@ -314,7 +335,9 @@ export function App() {
   const executeCommand = (cmd: Command<object>) => {
     const res = bus.execute({ ...cmd, params: { ...cmd.params } });
     if (res.success) {
-      setProject({ ...bus.getProject() });
+      const next = bus.getProject();
+      setProject({ ...next });
+      reconcileSelection(next);
     } else {
       console.error('Command failed:', res.error);
       notify(t('notify.command_failed', { error: res.error ?? '' }), 'error');
@@ -383,9 +406,17 @@ export function App() {
   };
 
   const handleUndo = () => {
+    const history = bus.getHistory();
+    const undoneId = history.currentIndex >= 0 ? history.entries[history.currentIndex]?.id : undefined;
     const success = bus.undo();
     if (success) {
-      setProject({ ...bus.getProject() });
+      const next = bus.getProject();
+      setProject({ ...next });
+      reconcileSelection(next);
+      if (undoneId) {
+        setAgentActivities((previous) => previous.map((activity) =>
+          activity.commandId === undoneId ? { ...activity, status: 'undone', undoable: false } : activity));
+      }
       notify(t('notify.undo'), 'info');
     }
     return success;
@@ -394,7 +425,15 @@ export function App() {
   const handleRedo = () => {
     const success = bus.redo();
     if (success) {
-      setProject({ ...bus.getProject() });
+      const next = bus.getProject();
+      setProject({ ...next });
+      reconcileSelection(next);
+      const history = bus.getHistory();
+      const redoneId = history.currentIndex >= 0 ? history.entries[history.currentIndex]?.id : undefined;
+      if (redoneId) {
+        setAgentActivities((previous) => previous.map((activity) =>
+          activity.commandId === redoneId ? { ...activity, status: 'success', undoable: true } : activity));
+      }
       notify(t('notify.redo'), 'info');
     }
     return success;
@@ -402,7 +441,18 @@ export function App() {
 
   const jumpToHistory = (targetIndex: number) => {
     if (bus.jumpToHistory(targetIndex)) {
-      setProject({ ...bus.getProject() });
+      const next = bus.getProject();
+      setProject({ ...next });
+      reconcileSelection(next);
+      const history = bus.getHistory();
+      const statuses = new Map<string, AgentActivity['status']>(history.entries.map((entry, index) => [
+        entry.id,
+        index <= history.currentIndex ? 'success' : 'undone',
+      ]));
+      setAgentActivities((previous) => previous.map((activity) =>
+        activity.commandId && statuses.has(activity.commandId)
+          ? { ...activity, status: statuses.get(activity.commandId)!, undoable: statuses.get(activity.commandId) === 'success' }
+          : activity));
     }
   };
   const handleSave = async () => {
@@ -474,6 +524,10 @@ export function App() {
   };
 
   const isDirty = projectJson !== savedProjectJson;
+  const appliedHistory = bus.getHistory();
+  const undoableCommandId = appliedHistory.currentIndex >= 0
+    ? appliedHistory.entries[appliedHistory.currentIndex]?.id ?? null
+    : null;
 
   // Messages are translated when raised; drop the current one when the language changes.
   useEffect(() => setStatusMessage(null), [effectiveLanguage]);
@@ -722,7 +776,7 @@ export function App() {
 
   return (
     <EditorContext.Provider value={contextValue}>
-      <EditorAutomation />
+      <EditorAutomation onActivity={recordAgentActivity} />
       <div className="flex flex-col w-screen h-screen overflow-hidden bg-dcc-bg text-dcc-text">
         {/* Top Menu / App Toolbar */}
         <header
@@ -805,6 +859,15 @@ export function App() {
 
           {/* Right Info & Palette */}
           <div className="editor-toolbar-info flex shrink-0 items-center gap-1.5 app-no-drag">
+            <button
+              className="btn"
+              title={t('toolbar.agent_setup')}
+              aria-label={t('toolbar.agent_setup')}
+              onClick={() => setAgentSetupOpen(true)}
+            >
+              <Bot className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="toolbar-label">{t('toolbar.agent_setup')}</span>
+            </button>
             <OverflowMenu label={t('window.panels')} icon={PanelsTopLeft}>
               {(Object.keys(panelTitleKeys) as PanelId[]).map((id) => (
                 <OverflowMenuItem
@@ -840,6 +903,13 @@ export function App() {
           />
         </main>
 
+        <AgentActivityCard
+          activities={agentActivities}
+          undoableCommandId={undoableCommandId}
+          onUndo={() => { handleUndo(); }}
+          onDismiss={() => setAgentActivities([])}
+        />
+
         <StatusBar
           filePath={currentFilePath}
           dirty={isDirty}
@@ -858,7 +928,8 @@ export function App() {
             else if (action === 'save_as') handleSaveAs();
             else if (action === 'open') handleOpen();
             else if (action === 'import_psd') handleImportPsd();
-          else if (action === 'atlas') setAtlasModalOpen(true);
+            else if (action === 'atlas') setAtlasModalOpen(true);
+            else if (action === 'agent_setup') setAgentSetupOpen(true);
             else if (action === 'undo') handleUndo();
             else if (action === 'redo') handleRedo();
             else if (action === 'reset_layout') resetLayout();
@@ -909,8 +980,9 @@ export function App() {
           }}
         />
 
-      {/* Texture Atlas Layout Modal */}
-      <AtlasModal open={atlasModalOpen} onOpenChange={setAtlasModalOpen} />
+        {/* Texture Atlas Layout Modal */}
+        <AtlasModal open={atlasModalOpen} onOpenChange={setAtlasModalOpen} />
+        <AgentSetupModal open={agentSetupOpen} onOpenChange={setAgentSetupOpen} />
 
         {/* Hidden Web Fallback File Input */}
         <input

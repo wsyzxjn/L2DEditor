@@ -9,11 +9,27 @@ export interface SaveProjectResult {
   error?: string;
 }
 
+export interface AgentSkillInfo {
+  id: 'l2deditor-mcp' | 'live2d-model-building';
+  path: string;
+  required: boolean;
+}
+
+export interface AgentSetupInfo {
+  repoRoot: string;
+  mcpServerPath: string;
+  mcpServerBuilt: boolean;
+  editorUrl: string;
+  skills: AgentSkillInfo[];
+}
+
 export interface L2DApi {
   onEditorRequest: (handler: (message: EditorRequestMessage) => void) => () => void;
   respondToEditor: (message: EditorResponseMessage) => void;
   syncEditorState: (state: { project?: Project; parameters?: Record<string, number> }) => void;
   getSystemLocale: () => Promise<string>;
+  getAgentSetupInfo: () => Promise<AgentSetupInfo>;
+  copyText: (text: string) => Promise<void>;
   readTexture: (projectPath: string, texturePath: string) => Promise<string>;
   evaluateFrame: (projectJson: string, parameters: Record<string, number>) => Promise<EvaluatedFrameJs>;
   openProjectDialog: () => Promise<{ path: string; content: string } | null>;
@@ -31,6 +47,8 @@ const api: L2DApi = {
   respondToEditor: message => ipcRenderer.send('l2d:editor-response', message),
   syncEditorState: state => ipcRenderer.send('l2d:editor-state', state),
   getSystemLocale: () => ipcRenderer.invoke('l2d:get-system-locale'),
+  getAgentSetupInfo: () => ipcRenderer.invoke('l2d:get-agent-setup-info'),
+  copyText: text => ipcRenderer.invoke('l2d:copy-text', text),
   readTexture: (projectPath, texturePath) => ipcRenderer.invoke('l2d:read-texture', projectPath, texturePath),
   evaluateFrame: (projectJson, parameters) => ipcRenderer.invoke('l2d:evaluate-frame', projectJson, parameters),
   openProjectDialog: () => ipcRenderer.invoke('l2d:open-project-dialog'),

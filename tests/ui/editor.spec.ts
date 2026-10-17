@@ -50,6 +50,34 @@ test('command palette highlights the keyboard selection', async ({ page }) => {
   await expect(page.locator('[cmdk-root]')).toHaveCount(0);
 });
 
+test('agent integration explains MCP, Skills and a safe verification prompt', async ({ page }) => {
+  await page.getByRole('button', { name: 'Agent 接入' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Agent 接入' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('/path/to/L2DEditor/packages/mcp-server/dist/bin.js');
+  await expect(dialog.locator('.agent-setup-code-block').first()).toContainText('[mcp_servers.l2deditor]');
+
+  await dialog.getByRole('button', { name: '通用 JSON' }).click();
+  await expect(dialog).toContainText('"mcpServers"');
+  await expect(dialog).toContainText('ws://127.0.0.1:22033');
+
+  await dialog.getByRole('tab', { name: /Skill · 工作流/ }).click();
+  await expect(dialog).toContainText('$HOME/.agents/skills');
+  await expect(dialog).toContainText('cp -R');
+  await expect(dialog).toContainText('live2d-model-building');
+
+  await dialog.getByRole('tab', { name: /验证 · 联调/ }).click();
+  await expect(dialog).toContainText('l2d_gui_state');
+  await expect(dialog).toContainText('只读验证 L2DEditor 的 Agent 接入');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
+  await page.getByRole('button', { name: '命令面板' }).click();
+  await page.locator('[cmdk-input]').fill('Agent');
+  await page.getByRole('option', { name: '连接 Agent：MCP 与 Skills' }).click();
+  await expect(page.getByRole('dialog', { name: 'Agent 接入' })).toBeVisible();
+});
+
 test('overflow menus stay anchored and run their actions', async ({ page }) => {
   const viewportMenu = panelRoot(page, 'viewport_panel').locator('.panel-menu-trigger');
   await viewportMenu.click();

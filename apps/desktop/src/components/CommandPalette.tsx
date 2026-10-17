@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Command } from 'cmdk';
 import { useI18n } from '../i18n/index.js';
-import { Sparkles, FileUp, Plus, ShieldCheck, Undo2, Redo2, Save, LayoutDashboard } from 'lucide-react';
+import { Sparkles, FileUp, Plus, ShieldCheck, Undo2, Redo2, Save, LayoutDashboard, Bot } from 'lucide-react';
 
 interface CommandPaletteProps {
   open: boolean;
@@ -151,6 +151,13 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             </Command.Group>
 
             <Command.Group heading={t('palette.group_view')} className="text-dcc-sm text-dcc-muted px-2 py-1 font-semibold uppercase">
+              <Command.Item
+                className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
+                onSelect={() => { onAction('agent_setup'); onOpenChange(false); }}
+              >
+                <Bot className="w-3.5 h-3.5 mr-2 text-emerald-400" />
+                <span>{t('palette.agent_setup')}</span>
+              </Command.Item>
               <Command.Item
                 className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
                 onSelect={() => { onAction('reset_layout'); onOpenChange(false); }}

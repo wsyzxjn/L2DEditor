@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -57,6 +57,41 @@ function createWindow() {
   });
 }
 
+function getAgentSetupInfo() {
+  const candidates = [
+    path.resolve(app.getAppPath(), '../..'),
+    path.resolve(process.cwd(), '../..'),
+    process.cwd(),
+    path.resolve(app.getAppPath(), '..'),
+    app.getAppPath(),
+  ];
+  const repoRoot = candidates.find(candidate =>
+    fs.existsSync(path.join(candidate, 'skills/l2deditor-mcp/SKILL.md')) &&
+    fs.existsSync(path.join(candidate, 'packages/mcp-server/package.json')),
+  ) ?? candidates[0];
+  const port = Number(process.env.L2D_EDITOR_PORT ?? 22033);
+  const mcpServerPath = path.join(repoRoot, 'packages/mcp-server/dist/bin.js');
+
+  return {
+    repoRoot,
+    mcpServerPath,
+    mcpServerBuilt: fs.existsSync(mcpServerPath),
+    editorUrl: `ws://127.0.0.1:${Number.isInteger(port) ? port : 22033}`,
+    skills: [
+      {
+        id: 'l2deditor-mcp' as const,
+        path: path.join(repoRoot, 'skills/l2deditor-mcp'),
+        required: true,
+      },
+      {
+        id: 'live2d-model-building' as const,
+        path: path.join(repoRoot, 'skills/live2d-model-building'),
+        required: false,
+      },
+    ],
+  };
+}
+
 app.whenReady().then(() => {
   createWindow();
 
@@ -76,6 +111,13 @@ app.on('window-all-closed', () => {
 // IPC Handlers
 ipcMain.handle('l2d:get-system-locale', () => {
   return app.getLocale() || 'en';
+});
+
+ipcMain.handle('l2d:get-agent-setup-info', () => getAgentSetupInfo());
+
+ipcMain.handle('l2d:copy-text', (_, text: unknown) => {
+  if (typeof text !== 'string' || text.length > 100_000) throw new Error('Invalid clipboard text');
+  clipboard.writeText(text);
 });
 
 ipcMain.handle('l2d:evaluate-frame', (_, projectJson: string, parameters: Record<string, number>) => {
