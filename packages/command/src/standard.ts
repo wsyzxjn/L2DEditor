@@ -481,6 +481,95 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
+  bus.register<{ id: string; changes: Partial<Omit<TextureMeta, 'id'>> }>('texture.update', (draft, { id, changes }) => {
+    const target = draft.textures.find((t) => t.id === id);
+    if (!target) {
+      throw new Error(`Texture '${id}' not found`);
+    }
+    Object.assign(target, changes);
+  });
+
+  // 10. Multi-State / Sprite Swap Automation (Pose Switch & State Blending)
+  bus.register<{
+    base_node_id: string;
+    param_id: string;
+    states: Array<{
+      value: number;
+      texture_id: string;
+      node_id?: string;
+      name?: string;
+      draw_order?: number;
+    }>;
+  }>('macro.sprite_swap', (draft, { base_node_id, param_id, states }) => {
+    const baseNode = draft.nodes.find((n) => n.id === base_node_id);
+    if (!baseNode || baseNode.kind.type !== 'ArtMesh') {
+      throw new Error(`Base node '${base_node_id}' must be an existing ArtMesh`);
+    }
+
+    if (!states || states.length === 0) {
+      throw new Error('Sprite swap requires at least one state');
+    }
+
+    const baseMesh = baseNode.kind;
+    const sortedStates = [...states].sort((a, b) => a.value - b.value);
+    const keys = sortedStates.map((s) => s.value);
+
+    for (const state of sortedStates) {
+      const isBaseState = state.texture_id === baseMesh.texture_id || state.node_id === base_node_id;
+      const targetId = state.node_id || (isBaseState ? base_node_id : `${base_node_id}_state_${state.value}`);
+
+      let targetNode = draft.nodes.find((n) => n.id === targetId);
+      if (!targetNode) {
+        targetNode = {
+          id: targetId,
+          name: state.name || `${baseNode.name} (${param_id}=${state.value})`,
+          parent_id: baseNode.parent_id,
+          visible: true,
+          locked: false,
+          kind: {
+            ...JSON.parse(JSON.stringify(baseMesh)),
+            texture_id: state.texture_id,
+            draw_order: state.draw_order ?? baseMesh.draw_order,
+            opacity: 1,
+          },
+        };
+        draft.nodes.push(targetNode);
+      } else if (targetNode.kind.type === 'ArtMesh') {
+        targetNode.kind.texture_id = state.texture_id;
+        if (state.draw_order !== undefined) targetNode.kind.draw_order = state.draw_order;
+      }
+
+      let kfBinding = draft.keyforms.find((k) => k.target_node_id === targetId);
+      if (!kfBinding) {
+        const newBinding: KeyformBinding = {
+          target_node_id: targetId,
+          dimensions: [{ param_id, keys }],
+          keyforms: [],
+        };
+        draft.keyforms.push(newBinding);
+        kfBinding = newBinding;
+      } else {
+        kfBinding.dimensions = [{ param_id, keys }];
+        kfBinding.keyforms = [];
+      }
+
+      const verts = (targetNode.kind as any).vertices as [number, number][];
+      const zeroOffsets = verts ? verts.map(() => [0, 0] as [number, number]) : [];
+
+      for (const k of keys) {
+        const isCurrentState = Math.abs(k - state.value) < 1e-4;
+        kfBinding.keyforms.push({
+          coordinates: [k],
+          payload: {
+            kind: 'ArtMesh',
+            opacity: isCurrentState ? 1 : 0,
+            vertex_offsets: zeroOffsets,
+          },
+        });
+      }
+    }
+  });
+
   // Glue
   bus.register<any>('glue.add', (draft, glue) => {
     if (!draft.glues) draft.glues = [];

@@ -2727,4 +2727,98 @@ describe('Agent-First Full Feature Pipeline', () => {
     }
   });
 
+  it('executes macro.sprite_swap to atomically configure multi-state meshes and opacity keyforms', () => {
+    const bus = new CommandBus({
+      format_version: 1,
+      canvas: { width: 500, height: 500, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
+      parameters: [
+        { id: 'ParamEyeLOpen', name: '左眼开闭', min: 0, max: 1, default: 1, repeats: false, locked: false }
+      ],
+      nodes: [
+        {
+          id: 'eye_open',
+          name: '睁眼',
+          parent_id: null,
+          visible: true,
+          locked: false,
+          kind: {
+            type: 'ArtMesh',
+            texture_id: 'tex_open',
+            vertices: [[10, 10], [50, 10], [50, 50], [10, 50]],
+            uvs: [[0, 0], [1, 0], [1, 1], [0, 1]],
+            indices: [0, 1, 2, 0, 2, 3],
+            blend_mode: 'normal',
+            opacity: 1,
+            draw_order: 10,
+            mask_ids: [],
+          }
+        }
+      ],
+      keyforms: [],
+      textures: [
+        { id: 'tex_open', path: 'open.png', width: 64, height: 64, content_hash: 'hash-open' },
+        { id: 'tex_half', path: 'half.png', width: 64, height: 64, content_hash: 'hash-half' },
+        { id: 'tex_closed', path: 'closed.png', width: 64, height: 64, content_hash: 'hash-closed' },
+      ]
+    });
+    registerStandardCommands(bus);
+
+    // 1. Verify texture.update works
+    const updateRes = bus.execute({
+      id: 'tex-upd-1',
+      name: 'texture.update',
+      params: { id: 'tex_open', changes: { content_hash: 'hash-open-v2' } }
+    });
+    expect(updateRes.success).toBe(true);
+    expect(bus.getProject().textures.find(t => t.id === 'tex_open')?.content_hash).toBe('hash-open-v2');
+
+    // 2. Execute macro.sprite_swap
+    const result = bus.execute({
+      id: 'swap-1',
+      name: 'macro.sprite_swap',
+      params: {
+        base_node_id: 'eye_open',
+        param_id: 'ParamEyeLOpen',
+        states: [
+          { value: 0, texture_id: 'tex_closed', name: '闭眼' },
+          { value: 0.5, texture_id: 'tex_half', name: '半闭' },
+          { value: 1, texture_id: 'tex_open', name: '睁眼' },
+        ]
+      }
+    });
+    expect(result.success).toBe(true);
+
+    const proj = bus.getProject();
+    // Base node preserved, 2 sibling state nodes created
+    expect(proj.nodes).toHaveLength(3);
+    const closedNode = proj.nodes.find(n => n.id === 'eye_open_state_0');
+    const halfNode = proj.nodes.find(n => n.id === 'eye_open_state_0.5');
+    const openNode = proj.nodes.find(n => n.id === 'eye_open');
+
+    expect(closedNode?.kind.type).toBe('ArtMesh');
+    expect((closedNode?.kind as any).texture_id).toBe('tex_closed');
+    expect((halfNode?.kind as any).texture_id).toBe('tex_half');
+    expect((openNode?.kind as any).texture_id).toBe('tex_open');
+
+    // Check keyforms: each node has opacity 1 only at its own key
+    const closedKf = proj.keyforms.find(k => k.target_node_id === 'eye_open_state_0');
+    expect(closedKf?.keyforms.find(k => k.coordinates[0] === 0)?.payload.opacity).toBe(1);
+    expect(closedKf?.keyforms.find(k => k.coordinates[0] === 0.5)?.payload.opacity).toBe(0);
+    expect(closedKf?.keyforms.find(k => k.coordinates[0] === 1)?.payload.opacity).toBe(0);
+
+    const openKf = proj.keyforms.find(k => k.target_node_id === 'eye_open');
+    expect(openKf?.keyforms.find(k => k.coordinates[0] === 0)?.payload.opacity).toBe(0);
+    expect(openKf?.keyforms.find(k => k.coordinates[0] === 1)?.payload.opacity).toBe(1);
+
+    // Test Undo
+    bus.undo();
+    expect(bus.getProject().nodes).toHaveLength(1);
+    expect(bus.getProject().keyforms).toHaveLength(0);
+
+    // Test Redo
+    bus.redo();
+    expect(bus.getProject().nodes).toHaveLength(3);
+    expect(bus.getProject().keyforms).toHaveLength(3);
+  });
+
 });

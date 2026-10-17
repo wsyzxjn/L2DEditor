@@ -103,6 +103,7 @@ pub fn compute_atlas_layout_and_remap_uvs(
         path: "textures/texture_00.png".to_string(),
         width: atlas_size,
         height: atlas_size,
+        content_hash: None,
     }];
 
     let af = atlas_size as f32;
@@ -654,6 +655,7 @@ mod tests {
             path: "textures/face.png".into(),
             width: 256,
             height: 256,
+            content_hash: None,
         });
         project.nodes.push(Node {
             id: "mesh_face".into(),
@@ -741,7 +743,7 @@ mod tests {
         // textures rather than returning a bundle with missing parts.
         assert!(export_runtime_bundle(&project, "too_small", 256, 4, &[]).is_err());
         project.textures.push(TextureMeta {
-            id: "second_texture".into(), path: "second.png".into(), width: 256, height: 256,
+            id: "second_texture".into(), path: "second.png".into(), width: 256, height: 256, content_hash: None,
         });
         if let NodeKind::ArtMesh(mesh) = &mut project.nodes[1].kind {
             mesh.texture_id = "second_texture".into();

@@ -30,6 +30,7 @@ export interface TextureMeta {
   path: string;
   width: number;
   height: number;
+  content_hash?: string;
 }
 
 export type BlendMode = 'normal' | 'multiply' | 'screen' | 'additive';

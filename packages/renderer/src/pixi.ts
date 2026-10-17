@@ -27,17 +27,17 @@ export class PixiL2DRenderer {
     // A texture can be replaced while meshes are alive (for example after a
     // PSD reload). Rebind those meshes before releasing the old GPU source.
     for (const [meshId, mesh] of this.meshMap.entries()) {
-      if (this.meshTextureIds.get(meshId) === textureId) {
+      if (this.meshTextureIds.get(meshId) === textureId || mesh.texture === previous) {
         mesh.texture = texture;
       }
     }
     for (const mask of this.maskMap.values()) {
       for (const [sourceId, mesh] of mask.meshes) {
-        if (this.meshTextureIds.get(sourceId) === textureId) mesh.texture = texture;
+        if (this.meshTextureIds.get(sourceId) === textureId || mesh.texture === previous) mesh.texture = texture;
       }
     }
 
-    if (previous && previous !== PIXI.Texture.WHITE && ![...this.textureMap.values()].includes(previous)) {
+    if (previous && previous !== PIXI.Texture.WHITE && !previous.destroyed && ![...this.textureMap.values()].includes(previous)) {
       previous.destroy(true);
     }
   }
@@ -163,6 +163,7 @@ export class PixiL2DRenderer {
     this.meshMap.get(id)?.removeEffect(mask.effect);
     mask.effect.destroy();
     for (const coverage of mask.meshes.values()) {
+      coverage.texture = PIXI.Texture.WHITE;
       const geometry = coverage.geometry;
       coverage.destroy();
       geometry.destroy();
@@ -175,6 +176,7 @@ export class PixiL2DRenderer {
     for (const id of this.maskMap.keys()) this.removeMask(id);
     this.container.removeChildren();
     for (const mesh of this.meshMap.values()) {
+      mesh.texture = PIXI.Texture.WHITE;
       const geometry = mesh.geometry;
       mesh.destroy({ children: true });
       geometry.destroy();
@@ -183,7 +185,7 @@ export class PixiL2DRenderer {
     this.meshTextureIds.clear();
 
     for (const texture of this.textureMap.values()) {
-      if (texture !== PIXI.Texture.WHITE) {
+      if (texture !== PIXI.Texture.WHITE && !texture.destroyed) {
         texture.destroy(true);
       }
     }

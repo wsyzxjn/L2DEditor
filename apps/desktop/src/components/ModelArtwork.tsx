@@ -69,9 +69,9 @@ export function ModelArtwork({ project, frame, projectPath, pan, zoom, flipped, 
       observer.disconnect();
       sceneRef.current = null;
       if (initialized) {
-        // Release Pixi's shader/bind-group references before their textures.
-        app.destroy(true);
+        // Release renderer meshes and textures before destroying application.
         renderer.destroy();
+        app.destroy(true);
       }
     };
   }, [project.textures, textureDirectory, onReady]);
