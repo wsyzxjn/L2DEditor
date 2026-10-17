@@ -15,7 +15,8 @@ const desktopTest = test.extend<{ app: ElectronApplication; page: Page }>({
       executablePath: electronBinary,
       args: [path.join(desktopDir, 'dist-electron/main.js')],
       cwd: desktopDir,
-      env: { ...env, LANG: 'zh_CN.UTF-8' },
+      // Port 0 avoids colliding with a developer instance on the default 22033.
+      env: { ...env, LANG: 'zh_CN.UTF-8', L2D_EDITOR_PORT: '0' },
     });
     await use(app);
     await app.close();
