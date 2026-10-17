@@ -91,7 +91,7 @@ export const PhysicsPanel: React.FC = () => {
 
       {/* Official Cubism 5.3 Physics Presets Bar (`default_physics_preset40.xml`) */}
       <div className="flex items-center justify-between px-2 py-1 border-b border-dcc-border bg-dcc-bg/60 space-x-1.5">
-        <span className="text-[10px] font-semibold uppercase text-zinc-400 shrink-0">{t('physics.presets')}:</span>
+        <span className="text-[10px] font-semibold uppercase text-dcc-muted shrink-0">{t('physics.presets')}:</span>
         <select
           className="flex-1 h-5 px-1 text-dcc-sm bg-dcc-panel border border-dcc-border rounded text-dcc-text"
           defaultValue=""
@@ -139,7 +139,7 @@ export const PhysicsPanel: React.FC = () => {
                 className={`px-2 py-0.5 text-dcc-sm rounded whitespace-nowrap transition-colors ${
                   selectedGroup?.id === g.id
                     ? 'bg-dcc-hover text-dcc-text font-medium shadow-[inset_0_-2px_0_#3b82f6]'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    : 'text-dcc-muted hover:text-zinc-200'
                 }`}
                 onClick={() => setSelectedGroupId(g.id)}
               >
@@ -159,7 +159,7 @@ export const PhysicsPanel: React.FC = () => {
                   onChange={(e) => updateGroup({ ...selectedGroup, name: e.target.value })}
                 />
                 <button
-                  className="p-1 hover:text-rose-400 text-zinc-500 rounded"
+                  className="p-1 hover:text-rose-400 text-dcc-subtle rounded"
                   onClick={() => handleDeleteGroup(selectedGroup.id)}
                   title={t('physics.delete_group')}
                   aria-label={t('physics.delete_group')}
@@ -208,7 +208,7 @@ export const PhysicsPanel: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">Pendulums ({selectedGroup.pendulums.length})</span>
                   <button
-                    className="p-0.5 text-zinc-400 hover:text-amber-400"
+                    className="p-0.5 text-dcc-muted hover:text-amber-400"
                     onClick={() => {
                       const nextP = [...selectedGroup.pendulums, { length: 50.0, damping: 0.85, mass: 1.0 }];
                       updateGroup({ ...selectedGroup, pendulums: nextP });
@@ -222,7 +222,7 @@ export const PhysicsPanel: React.FC = () => {
 
                 {selectedGroup.pendulums.map((pend, pidx) => (
                   <div key={pidx} className="bg-dcc-panel p-1.5 rounded border border-dcc-border/40 space-y-1">
-                    <div className="text-dcc-xs text-zinc-400 font-mono">{t('physics.node', { index: pidx + 1 })}</div>
+                    <div className="text-dcc-xs text-dcc-muted font-mono">{t('physics.node', { index: pidx + 1 })}</div>
                     <div className="grid grid-cols-3 gap-1">
                       <ScrubInput
                         label="Len"

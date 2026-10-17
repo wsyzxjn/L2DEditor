@@ -75,7 +75,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
             <span>{t('atlas.title')}</span>
           </div>
           <button
-            className="p-1 text-zinc-400 hover:text-white rounded hover:bg-zinc-700"
+            className="p-1 text-dcc-muted hover:text-white rounded hover:bg-zinc-700"
             onClick={() => onOpenChange(false)}
           >
             <X className="w-4 h-4" />
@@ -110,7 +110,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
                   value={padding}
                   onChange={(e) => setPadding(Math.max(1, Number(e.target.value)))}
                 />
-                <span className="text-dcc-sm text-zinc-500 font-mono">px</span>
+                <span className="text-dcc-sm text-dcc-subtle font-mono">px</span>
               </div>
             </div>
 
@@ -140,7 +140,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
             {/* Action buttons */}
             <div className="flex space-x-2 pt-2">
               <button
-                className="flex-1 flex items-center justify-center h-8 text-dcc bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded border border-dcc-border font-medium transition-colors"
+                className="flex-1 flex items-center justify-center h-8 text-dcc bg-dcc-raised hover:bg-zinc-700 text-zinc-200 rounded border border-dcc-border font-medium transition-colors"
                 onClick={runPackPreview}
               >
                 <RefreshCw className="w-3.5 h-3.5 mr-1" /> {t('atlas.pack_button')}
@@ -155,7 +155,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
           </div>
 
           {/* Right Atlas Preview Canvas */}
-          <div className="flex-1 bg-[#0c0c0e] flex items-center justify-center p-4 relative overflow-hidden">
+          <div className="flex-1 bg-dcc-canvas flex items-center justify-center p-4 relative overflow-hidden">
             {previewBuffer ? (
               <div className="relative border border-zinc-700 shadow-2xl bg-zinc-900/60 checkerboard-bg">
                 <img
@@ -171,7 +171,7 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
               </div>
             )}
 
-            <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/70 backdrop-blur rounded text-dcc-sm font-mono text-zinc-400">
+            <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/70 backdrop-blur rounded text-dcc-sm font-mono text-dcc-muted">
               {atlasSize} x {atlasSize} px
             </div>
           </div>

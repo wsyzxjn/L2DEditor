@@ -26,16 +26,16 @@ export const StatusBar: React.FC<StatusBarProps> = ({ filePath, dirty, message, 
     <footer className="status-bar flex shrink-0 items-center gap-3 h-6 px-2 border-t border-dcc-border bg-dcc-header text-dcc-sm text-dcc-muted select-none">
       <span className="flex min-w-0 shrink-0 items-center gap-1.5 max-w-[40%]" title={filePath ?? fileName}>
         <span
-          className={`w-1.5 h-1.5 shrink-0 rounded-full ${dirty ? 'bg-zinc-300' : 'bg-transparent ring-1 ring-inset ring-zinc-600'}`}
+          className={`w-1.5 h-1.5 shrink-0 rounded-full ${dirty ? 'bg-dcc-control' : 'bg-transparent ring-1 ring-inset ring-zinc-600'}`}
           aria-hidden
         />
-        <span className="truncate text-zinc-300">{fileName}</span>
+        <span className="truncate text-dcc-control">{fileName}</span>
         <span className="shrink-0">{dirty ? t('status.unsaved') : t('status.saved')}</span>
       </span>
 
       <span
         role={message?.type === 'error' ? 'alert' : 'status'}
-        className={`flex min-w-0 flex-1 items-center gap-1.5 ${message?.type === 'error' ? 'text-rose-300' : 'text-zinc-300'}`}
+        className={`flex min-w-0 flex-1 items-center gap-1.5 ${message?.type === 'error' ? 'text-rose-300' : 'text-dcc-control'}`}
         title={message?.text}
       >
         {MessageIcon && <MessageIcon className={`w-3 h-3 shrink-0 ${message?.type === 'error' ? 'text-rose-400' : 'text-dcc-muted'}`} />}

@@ -17,6 +17,20 @@ export function detectSystemLanguage(systemLocale?: string): SupportedLanguage {
 
 export const translations: Record<SupportedLanguage, Record<string, string>> = {
   'zh-CN': {
+    'timeline.freeze': '冻结轨道',
+    'timeline.unfreeze': '解除冻结',
+    'timeline.keyframe_at': '第 {frame} 帧：{value}',
+    'timeline.empty_title': '这个动作还没有关键帧',
+    'timeline.empty_hint': '移动播放头，调整参数后点击左侧的钥匙图标添加关键帧；也可以在“…”菜单里用音频生成对口型。',
+    'hierarchy.expand': '展开',
+    'hierarchy.collapse': '折叠',
+    'hierarchy.expand_all': '全部展开',
+    'hierarchy.collapse_all': '全部折叠',
+    'hierarchy.reveal': '定位到选中节点',
+    'hierarchy.rename': '重命名',
+    'window.panels': '窗口',
+    'window.reset_layout': '重置布局',
+    'window.layout_reset': '已恢复默认布局',
     'palette.close': '关闭 (Esc)',
     'palette.add_warp': '添加弯曲变形器',
     'palette.turn_xy': '宏：设置 3×3 头部转向',
@@ -312,6 +326,20 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'notify.lang_changed': '界面语言已切换',
   },
   'ja': {
+    'timeline.freeze': 'トラックを固定',
+    'timeline.unfreeze': '固定を解除',
+    'timeline.keyframe_at': '{frame} フレーム: {value}',
+    'timeline.empty_title': 'このモーションにはまだキーがありません',
+    'timeline.empty_hint': '再生位置を動かしてパラメータを調整し、左の鍵アイコンでキーを追加します。「…」メニューから音声でリップシンクも生成できます。',
+    'hierarchy.expand': '展開',
+    'hierarchy.collapse': '折りたたむ',
+    'hierarchy.expand_all': 'すべて展開',
+    'hierarchy.collapse_all': 'すべて折りたたむ',
+    'hierarchy.reveal': '選択ノードを表示',
+    'hierarchy.rename': '名前を変更',
+    'window.panels': 'ウィンドウ',
+    'window.reset_layout': 'レイアウトをリセット',
+    'window.layout_reset': '既定のレイアウトに戻しました',
     'palette.close': '閉じる (Esc)',
     'palette.add_warp': 'ワープデフォーマを追加',
     'palette.turn_xy': 'マクロ: 3×3 の XY 回転を設定',
@@ -607,6 +635,20 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'notify.lang_changed': '言語設定を変更しました',
   },
   'en': {
+    'timeline.freeze': 'Freeze track',
+    'timeline.unfreeze': 'Unfreeze track',
+    'timeline.keyframe_at': 'Frame {frame}: {value}',
+    'timeline.empty_title': 'This motion has no keyframes yet',
+    'timeline.empty_hint': 'Move the playhead, adjust a parameter, then click the key icon on the left. You can also generate lip sync from audio in the “…” menu.',
+    'hierarchy.expand': 'Expand',
+    'hierarchy.collapse': 'Collapse',
+    'hierarchy.expand_all': 'Expand all',
+    'hierarchy.collapse_all': 'Collapse all',
+    'hierarchy.reveal': 'Reveal selected node',
+    'hierarchy.rename': 'Rename',
+    'window.panels': 'Window',
+    'window.reset_layout': 'Reset layout',
+    'window.layout_reset': 'Restored the default layout',
     'palette.close': 'Close (Esc)',
     'palette.add_warp': 'Add warp deformer',
     'palette.turn_xy': 'Macro: set up 3×3 Turn XY',
@@ -957,6 +999,10 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return localeSetting;
   }, [localeSetting, systemLocale]);
+
+  useEffect(() => {
+    document.documentElement.lang = effectiveLanguage;
+  }, [effectiveLanguage]);
 
   const setLanguageSetting = (setting: LanguageSetting) => {
     setLocaleSettingState(setting);

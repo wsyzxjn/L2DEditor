@@ -25,6 +25,7 @@ import { HistoryPanel } from './components/HistoryPanel.js';
 import { AtlasModal } from './components/AtlasModal.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import { StatusBar, type StatusMessage } from './components/StatusBar.js';
+import { OverflowMenu, OverflowMenuItem } from './components/OverflowMenu.js';
 import { useI18n } from './i18n/index.js';
 import type { L2DApi } from '../electron/preload.js';
 import type { EditorViewportControls } from '@l2d/mcp-server/editor-protocol';
@@ -38,6 +39,16 @@ import {
   Redo2,
   Command as CommandIcon,
   Layers,
+  PanelsTopLeft,
+  RotateCcw,
+  FolderTree,
+  Monitor,
+  SlidersHorizontal,
+  Activity,
+  History,
+  Info,
+  Film,
+  type LucideIcon,
 } from 'lucide-react';
 
 const defaultInitialProject: Project = {
@@ -66,6 +77,8 @@ const defaultInitialProject: Project = {
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 
+const LAYOUT_STORAGE_KEY = 'l2d_layout_v1';
+
 const panelTitleKeys = {
   hierarchy_panel: 'hierarchy.title',
   viewport_panel: 'viewport.title',
@@ -74,6 +87,40 @@ const panelTitleKeys = {
   history_panel: 'history.title',
   inspector_panel: 'inspector.title',
   timeline_panel: 'timeline.title',
+};
+
+type PanelId = keyof typeof panelTitleKeys;
+type PanelDirection = 'left' | 'right' | 'above' | 'below' | 'within';
+
+const panelComponentNames: Record<PanelId, keyof typeof dockviewComponents> = {
+  hierarchy_panel: 'hierarchy',
+  viewport_panel: 'viewport',
+  parameters_panel: 'parameters',
+  physics_panel: 'physics',
+  history_panel: 'history',
+  inspector_panel: 'inspector',
+  timeline_panel: 'timeline',
+};
+
+const panelIcons: Record<PanelId, LucideIcon> = {
+  hierarchy_panel: FolderTree,
+  viewport_panel: Monitor,
+  parameters_panel: SlidersHorizontal,
+  physics_panel: Activity,
+  history_panel: History,
+  inspector_panel: Info,
+  timeline_panel: Film,
+};
+
+// Where a reopened panel goes: beside the first reference panel that is still open.
+const panelPlacement: Record<PanelId, [PanelId, PanelDirection][]> = {
+  hierarchy_panel: [['viewport_panel', 'left'], ['timeline_panel', 'left']],
+  viewport_panel: [['hierarchy_panel', 'right'], ['parameters_panel', 'left'], ['timeline_panel', 'above']],
+  parameters_panel: [['physics_panel', 'within'], ['history_panel', 'within'], ['inspector_panel', 'above'], ['viewport_panel', 'right']],
+  physics_panel: [['parameters_panel', 'within'], ['history_panel', 'within'], ['inspector_panel', 'above'], ['viewport_panel', 'right']],
+  history_panel: [['parameters_panel', 'within'], ['physics_panel', 'within'], ['inspector_panel', 'above'], ['viewport_panel', 'right']],
+  inspector_panel: [['parameters_panel', 'below'], ['physics_panel', 'below'], ['history_panel', 'below'], ['viewport_panel', 'right']],
+  timeline_panel: [['viewport_panel', 'below'], ['hierarchy_panel', 'right']],
 };
 
 // Stable dockview components dictionary
@@ -104,6 +151,7 @@ export function App() {
   // Serialized document at the last load/save; undoing back to it counts as clean.
   const [savedProjectJson, setSavedProjectJson] = useState(() => JSON.stringify(defaultInitialProject));
   const dockviewRef = useRef<DockviewApi | null>(null);
+  const [openPanelIds, setOpenPanelIds] = useState<string[]>([]);
   const viewportControls = useRef<EditorViewportControls | null>(null);
 
   // Mesh editing state
@@ -457,23 +505,22 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [project, currentFilePath]);
 
-  const onReady = (event: DockviewReadyEvent) => {
-    dockviewRef.current = event.api;
-    const left = event.api.addPanel({
+  const buildDefaultLayout = (api: DockviewApi) => {
+    const left = api.addPanel({
       id: 'hierarchy_panel',
       component: 'hierarchy',
       title: t('hierarchy.title'),
       initialWidth: 260,
     });
 
-    const center = event.api.addPanel({
+    const center = api.addPanel({
       id: 'viewport_panel',
       component: 'viewport',
       title: t('viewport.title'),
       position: { referencePanel: left, direction: 'right' },
     });
 
-    const rightTop = event.api.addPanel({
+    const rightTop = api.addPanel({
       id: 'parameters_panel',
       component: 'parameters',
       title: t('parameters.title'),
@@ -482,7 +529,7 @@ export function App() {
     });
 
     // Add Physics panel tabbed next to parameters
-    event.api.addPanel({
+    api.addPanel({
       id: 'physics_panel',
       component: 'physics',
       title: t('physics.title'),
@@ -490,13 +537,13 @@ export function App() {
     });
 
     // Add History (Undo Tree) panel tabbed next to parameters/physics
-    event.api.addPanel({
+    api.addPanel({
       id: 'history_panel',
       component: 'history',
       title: t('history.title'),
       position: { referencePanel: rightTop, direction: 'within' },
     });
-    event.api.addPanel({
+    api.addPanel({
       id: 'inspector_panel',
       component: 'inspector',
       title: t('inspector.title'),
@@ -504,7 +551,7 @@ export function App() {
     });
 
     // Add Timeline at bottom
-    const timeline = event.api.addPanel({
+    const timeline = api.addPanel({
       id: 'timeline_panel',
       component: 'timeline',
       title: t('timeline.title'),
@@ -515,6 +562,65 @@ export function App() {
     rightTop.api.setSize({ width: 320 });
     timeline.api.setSize({ height: 220 });
     rightTop.api.setActive();
+  };
+
+  const refreshPanelState = (api: DockviewApi) => setOpenPanelIds(api.panels.map((panel) => panel.id));
+
+  const onReady = (event: DockviewReadyEvent) => {
+    const api = event.api;
+    dockviewRef.current = api;
+    let restored = false;
+    const savedLayout = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (savedLayout) {
+      try {
+        api.fromJSON(JSON.parse(savedLayout));
+        restored = api.panels.length > 0;
+      } catch {
+        localStorage.removeItem(LAYOUT_STORAGE_KEY);
+      }
+    }
+    if (!restored) {
+      api.clear();
+      buildDefaultLayout(api);
+    }
+    // Saved layouts carry titles in the language they were saved with.
+    for (const panel of api.panels) panel.api.setTitle(t(panelTitleKeys[panel.id as PanelId]));
+    refreshPanelState(api);
+    api.onDidLayoutChange(() => {
+      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(api.toJSON()));
+      refreshPanelState(api);
+    });
+  };
+
+  const openPanel = (id: PanelId) => {
+    const api = dockviewRef.current;
+    if (!api) return;
+    const existing = api.getPanel(id);
+    if (existing) {
+      existing.api.setActive();
+      return;
+    }
+    const anchor = panelPlacement[id].find(([reference]) => api.getPanel(reference));
+    api.addPanel({
+      id,
+      component: panelComponentNames[id],
+      title: t(panelTitleKeys[id]),
+      ...(anchor ? { position: { referencePanel: anchor[0], direction: anchor[1] } } : {}),
+    });
+  };
+
+  const togglePanel = (id: PanelId) => {
+    const panel = dockviewRef.current?.getPanel(id);
+    if (panel) dockviewRef.current!.removePanel(panel);
+    else openPanel(id);
+  };
+
+  const resetLayout = () => {
+    const api = dockviewRef.current;
+    if (!api) return;
+    api.clear();
+    buildDefaultLayout(api);
+    notify(t('window.layout_reset'), 'info');
   };
 
   const toggleSelectNodeId = (id: string, multi: boolean = false) => {
@@ -564,9 +670,9 @@ export function App() {
     redo: handleRedo,
     viewportControls,
     showPanel: (panel: string) => {
-      const target = dockviewRef.current?.getPanel(`${panel}_panel`);
-      if (!target) throw new Error(`Panel '${panel}' is closed`);
-      target.api.setActive();
+      const id = `${panel}_panel`;
+      if (!(id in panelTitleKeys)) throw new Error(`Unknown panel '${panel}'`);
+      openPanel(id as PanelId);
     },
     jumpToHistory,
     notify,
@@ -618,7 +724,7 @@ export function App() {
 
             <div className="editor-file-actions flex items-center space-x-1">
               <button
-                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
+                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-dcc-control transition-colors"
                 onClick={handleNew}
                 title={`${t('toolbar.new')} (${isMac ? '⌘' : 'Ctrl+'}N)`}
                 aria-label={t('toolbar.new')}
@@ -626,7 +732,7 @@ export function App() {
                 <FilePlus className="w-3.5 h-3.5 mr-1" /> <span className="toolbar-label">{t('toolbar.new')}</span>
               </button>
               <button
-                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
+                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-dcc-control transition-colors"
                 onClick={handleOpen}
                 title={`${t('toolbar.open')} (${isMac ? '⌘' : 'Ctrl+'}O)`}
                 aria-label={t('toolbar.open')}
@@ -634,7 +740,7 @@ export function App() {
                 <FolderOpen className="w-3.5 h-3.5 mr-1" /> <span className="toolbar-label">{t('toolbar.open')}</span>
               </button>
               <button
-                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
+                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-dcc-control transition-colors"
                 onClick={handleSave}
                 title={`${t('toolbar.save')} (${isMac ? '⌘' : 'Ctrl+'}S)`}
                 aria-label={t('toolbar.save')}
@@ -642,7 +748,7 @@ export function App() {
                 <Save className="w-3.5 h-3.5 mr-1" /> <span className="toolbar-label">{t('toolbar.save')}</span>
               </button>
               <button
-                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
+                className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-dcc-control transition-colors"
                 onClick={handleImportPsd}
                 title={t('toolbar.import_psd')}
                 aria-label={t('toolbar.import_psd')}
@@ -650,7 +756,7 @@ export function App() {
                 <FileUp className="w-3.5 h-3.5 mr-1" /> <span className="toolbar-label">{t('toolbar.import_psd')}</span>
               </button>
             <button
-              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-zinc-300 transition-colors"
+              className="flex items-center px-2 py-1 text-dcc-sm hover:bg-dcc-hover rounded text-dcc-control transition-colors"
               onClick={() => setAtlasModalOpen(true)}
               title={t('toolbar.atlas')}
               aria-label={t('toolbar.atlas')}
@@ -663,7 +769,7 @@ export function App() {
 
             <div className="flex items-center space-x-1">
               <button
-                className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white transition-colors"
+                className="p-1 hover:bg-dcc-hover rounded text-dcc-muted hover:text-white transition-colors"
                 onClick={handleUndo}
                 title={`${t('toolbar.undo')} (${isMac ? '⌘Z' : 'Ctrl+Z'})`}
                 aria-label={t('toolbar.undo')}
@@ -672,7 +778,7 @@ export function App() {
                 <Undo2 className="w-3.5 h-3.5" />
               </button>
               <button
-                className="p-1 hover:bg-dcc-hover rounded text-zinc-400 hover:text-white transition-colors"
+                className="p-1 hover:bg-dcc-hover rounded text-dcc-muted hover:text-white transition-colors"
                 onClick={handleRedo}
                 title={`${t('toolbar.redo')} (${isMac ? '⌘⇧Z' : 'Ctrl+Y'})`}
                 aria-label={t('toolbar.redo')}
@@ -684,7 +790,20 @@ export function App() {
           </div>
 
           {/* Right Info & Palette */}
-          <div className="editor-toolbar-info flex shrink-0 items-center gap-3 app-no-drag">
+          <div className="editor-toolbar-info flex shrink-0 items-center gap-1.5 app-no-drag">
+            <OverflowMenu label={t('window.panels')} icon={PanelsTopLeft}>
+              {(Object.keys(panelTitleKeys) as PanelId[]).map((id) => (
+                <OverflowMenuItem
+                  key={id}
+                  icon={panelIcons[id]}
+                  label={t(panelTitleKeys[id])}
+                  checked={openPanelIds.includes(id)}
+                  onSelect={() => togglePanel(id)}
+                />
+              ))}
+              <div className="my-1 h-px bg-dcc-border" role="separator" />
+              <OverflowMenuItem icon={RotateCcw} label={t('window.reset_layout')} onSelect={resetLayout} />
+            </OverflowMenu>
             <button
               className="btn"
               title={t('toolbar.commands')}
@@ -693,7 +812,7 @@ export function App() {
             >
               <CommandIcon className="w-3 h-3 text-dcc-muted" />
               <span className="toolbar-label">{t('toolbar.commands')}</span>
-              <kbd className="px-1 rounded bg-dcc-bg text-zinc-500 text-dcc-xs font-mono">{isMac ? '⌘K' : 'Ctrl+K'}</kbd>
+              <kbd className="px-1 rounded bg-dcc-bg text-dcc-subtle text-dcc-xs font-mono">{isMac ? '⌘K' : 'Ctrl+K'}</kbd>
             </button>
           </div>
         </header>
@@ -728,6 +847,7 @@ export function App() {
           else if (action === 'atlas') setAtlasModalOpen(true);
             else if (action === 'undo') handleUndo();
             else if (action === 'redo') handleRedo();
+            else if (action === 'reset_layout') resetLayout();
             else if (action === 'lint') {
               const diags = lintProjectJs(project);
               if (diags.length === 0) {

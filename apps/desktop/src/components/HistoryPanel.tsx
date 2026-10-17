@@ -17,7 +17,7 @@ export const HistoryPanel: React.FC = () => {
           className={`flex items-center justify-between h-6 px-2 rounded cursor-pointer text-dcc transition-colors ${
             currentIndex === -1
               ? 'list-item-selected font-medium'
-              : 'hover:bg-dcc-hover text-zinc-400'
+              : 'hover:bg-dcc-hover text-dcc-muted'
           }`}
           onClick={() => {
             jumpToHistory(-1);
@@ -25,10 +25,10 @@ export const HistoryPanel: React.FC = () => {
           }}
         >
           <div className="flex items-center space-x-1.5">
-            <RotateCcw className="w-3 h-3 text-zinc-500" />
+            <RotateCcw className="w-3 h-3 text-dcc-subtle" />
             <span>[{t('history.initial_state')}]</span>
           </div>
-          <span className="text-[10px] font-mono text-zinc-500">#0</span>
+          <span className="text-[10px] font-mono text-dcc-subtle">#0</span>
         </div>
 
         {entries.map((entry, idx) => {
@@ -42,7 +42,7 @@ export const HistoryPanel: React.FC = () => {
                   ? 'list-item-selected font-medium'
                   : isApplied
                   ? 'hover:bg-dcc-hover text-dcc-text'
-                  : 'hover:bg-dcc-hover text-zinc-500 italic opacity-60'
+                  : 'hover:bg-dcc-hover text-dcc-subtle italic opacity-60'
               }`}
               onClick={() => {
                 jumpToHistory(idx);
@@ -53,11 +53,11 @@ export const HistoryPanel: React.FC = () => {
                 {isApplied ? (
                   <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
                 ) : (
-                  <CircleDashed className="w-3 h-3 text-zinc-500 shrink-0" />
+                  <CircleDashed className="w-3 h-3 text-dcc-subtle shrink-0" />
                 )}
                 <span className="truncate font-mono text-dcc-sm">{entry.name}</span>
               </div>
-              <span className="text-[10px] font-mono text-zinc-500 shrink-0">
+              <span className="text-[10px] font-mono text-dcc-subtle shrink-0">
                 {entry.patchCount}p
               </span>
             </div>

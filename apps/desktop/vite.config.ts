@@ -5,8 +5,22 @@ import path from 'path';
 
 const buildRoot = process.env.L2D_DESKTOP_BUILD_ROOT;
 
+// Split large UI libraries out of the renderer entry chunk. PixiJS is left to
+// Rollup so its renderer backends stay lazily loaded chunks.
+const vendorChunk = (id: string) => {
+  const match = /node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?(dockview[^/]*|react-dom|react|scheduler|cmdk|lucide-react)\//.exec(id);
+  if (!match) return undefined;
+  const name = match[1];
+  if (name.startsWith('dockview')) return 'dockview';
+  if (name === 'react' || name === 'react-dom' || name === 'scheduler') return 'react';
+  return 'ui-vendor';
+};
+
 export default defineConfig({
-  ...(buildRoot ? { build: { outDir: path.resolve(buildRoot, 'dist') } } : {}),
+  build: {
+    ...(buildRoot ? { outDir: path.resolve(buildRoot, 'dist') } : {}),
+    rollupOptions: { output: { manualChunks: vendorChunk } },
+  },
   plugins: [
     react(),
     electron({

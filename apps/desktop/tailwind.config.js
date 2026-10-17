@@ -8,15 +8,20 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Defined once in src/theme.css (:root --dcc-*).
         dcc: {
-          bg: '#141416',
-          panel: '#1c1c1f',
-          header: '#242429',
-          border: '#2e2e36',
-          hover: '#383842',
-          accent: '#3b82f6',
-          text: '#f4f4f5',
-          muted: '#a1a1aa'
+          bg: 'rgb(var(--dcc-bg) / <alpha-value>)',
+          panel: 'rgb(var(--dcc-panel) / <alpha-value>)',
+          header: 'rgb(var(--dcc-header) / <alpha-value>)',
+          border: 'rgb(var(--dcc-border) / <alpha-value>)',
+          hover: 'rgb(var(--dcc-hover) / <alpha-value>)',
+          raised: 'rgb(var(--dcc-raised) / <alpha-value>)',
+          canvas: 'rgb(var(--dcc-canvas) / <alpha-value>)',
+          text: 'rgb(var(--dcc-text) / <alpha-value>)',
+          control: 'rgb(var(--dcc-control) / <alpha-value>)',
+          muted: 'rgb(var(--dcc-muted) / <alpha-value>)',
+          subtle: 'rgb(var(--dcc-subtle) / <alpha-value>)',
+          accent: 'rgb(var(--dcc-active) / <alpha-value>)',
         }
       },
       fontSize: {

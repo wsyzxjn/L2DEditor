@@ -6,6 +6,8 @@ dist/
 dist-electron/
 out/
 .turbo/
+test-results/
+playwright-report/
 
 # OS and Editor
 .DS_Store

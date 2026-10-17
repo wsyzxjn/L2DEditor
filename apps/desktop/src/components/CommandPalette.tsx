@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Command } from 'cmdk';
 import { useI18n } from '../i18n/index.js';
-import { Sparkles, FileUp, Plus, ShieldCheck, Undo2, Redo2, Save } from 'lucide-react';
+import { Sparkles, FileUp, Plus, ShieldCheck, Undo2, Redo2, Save, LayoutDashboard } from 'lucide-react';
 
 interface CommandPaletteProps {
   open: boolean;
@@ -56,7 +56,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               }}
             />
             <button
-              className="px-1.5 py-0.5 text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded border border-dcc-border"
+              className="px-1.5 py-0.5 text-[10px] font-mono bg-dcc-raised hover:bg-zinc-700 text-dcc-muted hover:text-zinc-200 rounded border border-dcc-border"
               onClick={() => onOpenChange(false)}
               title={t('palette.close')}
               aria-label={t('palette.close')}
@@ -140,6 +140,16 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               >
                 <Redo2 className="w-3.5 h-3.5 mr-2" />
                 <span>{t('toolbar.redo')}</span>
+              </Command.Item>
+            </Command.Group>
+
+            <Command.Group heading={t('palette.group_view')} className="text-dcc-sm text-dcc-muted px-2 py-1 font-semibold uppercase">
+              <Command.Item
+                className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
+                onSelect={() => { onAction('reset_layout'); onOpenChange(false); }}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
+                <span>{t('window.reset_layout')}</span>
               </Command.Item>
             </Command.Group>
 

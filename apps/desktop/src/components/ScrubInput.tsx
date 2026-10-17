@@ -88,7 +88,7 @@ export const ScrubInput: React.FC<ScrubInputProps> = ({
 
   return (
     <div
-      className={`flex items-center h-6 px-1.5 text-dcc bg-dcc-panel border border-dcc-border rounded hover:border-zinc-500 focus-within:border-dcc-accent select-none cursor-ew-resize ${className}`}
+      className={`flex items-center h-6 px-1.5 text-dcc bg-dcc-panel border border-dcc-border rounded hover:border-dcc-subtle focus-within:border-dcc-accent select-none cursor-ew-resize ${className}`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

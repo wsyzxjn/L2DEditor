@@ -86,7 +86,12 @@ export const TimelinePanel: React.FC = () => {
 
   const handleAddKeyframeAtPlayhead = (paramId: string) => {
     const curVal = parameterValues[paramId] ?? 0;
-    executeCommand({
+    // Without saved motions the timeline shows a placeholder; store it before keying it.
+    if (!project.animations?.some((animation) => animation.id === activeAnim.id)) {
+      executeCommand({ id: `cmd_${Date.now()}`, name: 'animation.add', params: activeAnim });
+      setActiveAnimationId(activeAnim.id);
+    }
+    const result = executeCommand({
       id: `cmd_${Date.now()}`,
       name: 'animation.set_keyframe',
       params: {
@@ -97,7 +102,7 @@ export const TimelinePanel: React.FC = () => {
         curve: 'linear',
       },
     });
-    notify(t('notify.keyframe_added', { frame: Math.round(currentPlayheadFrame), param: paramId }), 'success');
+    if (result.success) notify(t('notify.keyframe_added', { frame: Math.round(currentPlayheadFrame), param: paramId }), 'success');
   };
 
   const handleRulerClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -120,6 +125,14 @@ export const TimelinePanel: React.FC = () => {
     const pct = 1.0 - (y - 10) / (height - 20);
     return paramMin + pct * (paramMax - paramMin);
   };
+
+  const isKeyed = (paramId: string) =>
+    (activeAnim.tracks.find((track) => track.target_param_id === paramId)?.keyframes.length ?? 0) > 0;
+  const orderedParams = [
+    ...project.parameters.filter((param) => isKeyed(param.id)),
+    ...project.parameters.filter((param) => !isKeyed(param.id)),
+  ];
+  const hasKeyframes = orderedParams.length > 0 && isKeyed(orderedParams[0].id);
 
   return (
     <div className="panel-root flex flex-col h-full bg-dcc-panel border-t border-dcc-border select-none">
@@ -167,14 +180,14 @@ export const TimelinePanel: React.FC = () => {
           <div className="h-3 w-px bg-dcc-border mx-1" />
 
           {/* Frame Counter */}
-          <div className="flex items-center space-x-1 text-dcc font-mono text-zinc-300 bg-dcc-bg px-2 py-0.5 rounded border border-dcc-border">
+          <div className="flex items-center space-x-1 text-dcc font-mono text-dcc-control bg-dcc-bg px-2 py-0.5 rounded border border-dcc-border">
             <span className="text-blue-400">{Math.round(currentPlayheadFrame)}</span>
             <span className="text-zinc-600">/</span>
             <span>{duration}</span>
-            <span className="text-dcc-xs text-zinc-500 ml-1">F</span>
+            <span className="text-dcc-xs text-dcc-subtle ml-1">F</span>
           </div>
 
-          <span className="toolbar-label-optional text-dcc-xs text-zinc-500 font-mono">@{activeAnim.fps || 30}fps</span>
+          <span className="toolbar-label-optional text-dcc-xs text-dcc-subtle font-mono">@{activeAnim.fps || 30}fps</span>
         </div>
 
         {/* View Mode Toggle: Dope Sheet vs Graph Editor */}
@@ -206,7 +219,7 @@ export const TimelinePanel: React.FC = () => {
           {project.animations && project.animations.length > 0 ? (
             <select
               aria-label={t('timeline.title')}
-              className="h-6 max-w-[160px] px-1.5 text-dcc-sm bg-dcc-bg text-zinc-300 border border-dcc-border rounded outline-none"
+              className="h-6 max-w-[160px] px-1.5 text-dcc-sm bg-dcc-bg text-dcc-control border border-dcc-border rounded outline-none"
               value={activeAnim.id}
               onChange={(e) => setActiveAnimationId(e.target.value)}
             >
@@ -313,14 +326,14 @@ export const TimelinePanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Tracks & Ruler Area */}
+      {/* Tracks & Ruler Area: keyed tracks first, untouched parameters dimmed below them. */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Track Headers */}
         <div className="w-48 border-r border-dcc-border bg-dcc-panel/60 overflow-y-auto shrink-0">
           <div className="h-6 border-b border-dcc-border bg-dcc-header/40 px-2 flex items-center text-dcc-sm text-dcc-muted font-semibold">
             {t('timeline.tracks')}
           </div>
-          {project.parameters.map((param) => {
+          {orderedParams.map((param) => {
             const isSelected = selectedTrackParamId === param.id;
             const trackObj = activeAnim.tracks.find((t) => t.target_param_id === param.id);
             const isFrozen = !!trackObj?.frozen;
@@ -328,14 +341,14 @@ export const TimelinePanel: React.FC = () => {
               <div
                 key={param.id}
                 className={`h-6 px-2 border-b border-dcc-border/40 flex items-center justify-between text-dcc hover:bg-dcc-hover cursor-pointer ${
-                  isSelected ? 'list-item-selected font-medium' : 'text-dcc-text'
+                  isSelected ? 'list-item-selected font-medium' : isKeyed(param.id) ? 'text-dcc-text' : 'text-dcc-subtle'
                 }`}
                 onClick={() => setSelectedTrackParamId(param.id)}
               >
                 <span className="truncate">{param.name || param.id}</span>
                 <div className="flex items-center space-x-1">
                   <button
-                    className="p-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
+                    className="p-0.5 text-dcc-subtle hover:text-zinc-200 transition-colors"
                     onClick={(e) => {
                       e.stopPropagation();
                       executeCommand({
@@ -348,12 +361,14 @@ export const TimelinePanel: React.FC = () => {
                         },
                       });
                     }}
-                    title={isFrozen ? 'Unfreeze Track (CMD_SET_UNFREEZE)' : 'Freeze Track (CMD_SET_FREEZE_SELECTED)'}
+                    title={isFrozen ? t('timeline.unfreeze') : t('timeline.freeze')}
+                    aria-label={isFrozen ? t('timeline.unfreeze') : t('timeline.freeze')}
+                    aria-pressed={isFrozen}
                   >
-                    {isFrozen ? <Lock className="w-3 h-3 text-sky-400" /> : <Unlock className="w-3 h-3 text-zinc-600" />}
+                    {isFrozen ? <Lock className="w-3 h-3 text-blue-300" /> : <Unlock className="w-3 h-3 text-zinc-600" />}
                   </button>
                   <button
-                    className="p-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
+                    className="p-0.5 text-dcc-subtle hover:text-zinc-200 transition-colors"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleAddKeyframeAtPlayhead(param.id);
@@ -398,7 +413,7 @@ export const TimelinePanel: React.FC = () => {
                   className="absolute top-0 bottom-0 flex flex-col justify-between -translate-x-1/2 pointer-events-none"
                   style={{ left: `${pct}%` }}
                 >
-                  <span className="text-[9px] font-mono text-zinc-500 leading-none">{frameNum}</span>
+                  <span className="text-[9px] font-mono text-dcc-subtle leading-none">{frameNum}</span>
                   <div className="w-px h-1.5 bg-zinc-600 self-center" />
                 </div>
               );
@@ -414,6 +429,15 @@ export const TimelinePanel: React.FC = () => {
             </div>
           </div>
 
+          {!hasKeyframes && (
+            <div className="absolute inset-x-0 top-6 bottom-0 z-20 flex items-center justify-center p-4 pointer-events-none">
+              <div className="max-w-sm rounded border border-dcc-border bg-dcc-panel/95 px-4 py-3 text-center shadow-lg">
+                <p className="text-dcc font-medium text-dcc-text">{t('timeline.empty_title')}</p>
+                <p className="mt-1 text-dcc-sm leading-relaxed text-dcc-muted">{t('timeline.empty_hint')}</p>
+              </div>
+            </div>
+          )}
+
           {/* Dope Sheet View vs Graph Editor View */}
           {viewMode === 'dopesheet' ? (
             <div className="flex-1 overflow-y-auto relative">
@@ -423,7 +447,7 @@ export const TimelinePanel: React.FC = () => {
                 style={{ left: `${(currentPlayheadFrame / duration) * 100}%` }}
               />
 
-              {project.parameters.map((param) => {
+              {orderedParams.map((param) => {
                 const track = activeAnim.tracks.find((t) => t.target_param_id === param.id);
                 const keyframes = track?.keyframes || [];
 
@@ -444,7 +468,7 @@ export const TimelinePanel: React.FC = () => {
                           key={kidx}
                           className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-amber-400 border border-zinc-900 z-10 hover:scale-125 transition-transform"
                           style={{ left: `${pct}%` }}
-                          title={`Keyframe at frame ${kf.frame}: value ${kf.value}`}
+                          title={t('timeline.keyframe_at', { frame: kf.frame, value: kf.value })}
                         />
                       );
                     })}
@@ -503,7 +527,7 @@ export const TimelinePanel: React.FC = () => {
                 })}
               </svg>
 
-              <div className="absolute top-2 right-2 px-2 py-1 bg-black/60 rounded text-dcc-sm font-mono text-zinc-400">
+              <div className="absolute top-2 right-2 px-2 py-1 bg-black/60 rounded text-dcc-sm font-mono text-dcc-muted">
                 Curve: {selectedTrackParamId} ({paramMin} ~ {paramMax})
               </div>
             </div>

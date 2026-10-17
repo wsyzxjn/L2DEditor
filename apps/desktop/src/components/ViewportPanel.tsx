@@ -747,7 +747,7 @@ export const ViewportPanel: React.FC = () => {
   };
 
   return (
-    <div className="panel-root relative w-full h-full bg-[#101012] overflow-hidden select-none">
+    <div className="panel-root relative w-full h-full bg-dcc-canvas overflow-hidden select-none">
       <ModelArtwork project={project} frame={frame} projectPath={currentFilePath} pan={pan} zoom={zoom}
         flipped={isFlipScreenX} soloNodeId={isSoloMode ? selectedNodeId : null} onReady={setArtworkReady}
         onRendered={onArtworkRendered} captureRef={captureRef} />
@@ -972,7 +972,7 @@ export const ViewportPanel: React.FC = () => {
                 <button
                   key={lvl}
                   className={`px-1 text-dcc-xs font-mono rounded ${
-                    editLevel === lvl ? 'bg-blue-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
+                    editLevel === lvl ? 'bg-blue-600 text-white' : 'text-dcc-subtle hover:text-dcc-control'
                   }`}
                   onClick={() => {
                     setEditLevel(lvl);
@@ -1047,7 +1047,7 @@ export const ViewportPanel: React.FC = () => {
                       ? 'bg-blue-600 text-white'
                       : hasSnap
                       ? 'bg-dcc-hover text-zinc-200 border border-zinc-600'
-                      : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'
+                      : 'bg-dcc-raised text-dcc-subtle hover:text-dcc-control'
                   }`}
                   onClick={(e) => {
                     if (e.shiftKey || !hasSnap) {
@@ -1073,7 +1073,7 @@ export const ViewportPanel: React.FC = () => {
       </div>
 
       {/* Bottom Status Bar Overlay */}
-      <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 backdrop-blur rounded text-dcc-sm text-zinc-400 pointer-events-none flex items-center space-x-3">
+      <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 backdrop-blur rounded text-dcc-sm text-dcc-muted pointer-events-none flex items-center space-x-3">
         <span>{t('viewport.zoom')} {(zoom * 100).toFixed(0)}%</span>
         <span>{t('viewport.meshes')} {frame?.meshes.length ?? 0}</span>
         {selectedNode && (

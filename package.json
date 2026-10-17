@@ -11,9 +11,11 @@
     "build:wasm:node": "wasm-pack build crates/l2d-wasm --target nodejs --out-dir ../../packages/schema/wasm-node",
     "test:core": "cargo test --workspace",
     "build": "pnpm -r build",
-    "test": "pnpm test:core && vitest run"
+    "test": "pnpm test:core && vitest run",
+    "test:ui": "pnpm --filter l2d-desktop build && playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@types/node": "^24.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.2.7"

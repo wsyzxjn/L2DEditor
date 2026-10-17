@@ -9,14 +9,22 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", sans-serif;
   --dcc-radius: 4px;
   --dcc-radius-sm: 3px;
-  --dcc-bg: #141416;
-  --dcc-panel: #1c1c1f;
-  --dcc-header: #242429;
-  --dcc-border: #2e2e36;
-  --dcc-hover: #2f2f38;
-  --dcc-active: #3b82f6;
-  --dcc-text: #f4f4f5;
-  --dcc-muted: #a1a1aa;
+  /* Color tokens as RGB channels so Tailwind opacity modifiers (bg-dcc-bg/40) work. */
+  --dcc-bg: 20 20 22;
+  --dcc-panel: 28 28 31;
+  --dcc-header: 36 36 41;
+  --dcc-border: 46 46 54;
+  --dcc-hover: 56 56 66;
+  --dcc-raised: 38 38 44;
+  --dcc-canvas: 16 16 18;
+  --dcc-active: 59 130 246;
+  --dcc-active-strong: 37 99 235;
+  --dcc-active-text: 191 219 254;
+  --dcc-text: 244 244 245;
+  --dcc-control: 212 212 216;
+  --dcc-muted: 161 161 170;
+  --dcc-subtle: 113 113 122;
+  --dcc-danger: 253 164 175;
 }
 
 body {
@@ -38,22 +46,22 @@ body {
   --dv-tabs-and-actions-container-height: 28px;
   --dv-tab-font-size: 11px;
   --dv-tab-margin: 3px 2px 0;
-  --dv-icon-hover-background-color: var(--dcc-hover);
-  --dv-group-view-background-color: var(--dcc-panel);
-  --dv-drag-over-background-color: rgba(59, 130, 246, 0.2);
-  --dv-drag-over-border-color: #3b82f6;
-  --dv-tabs-and-actions-container-background-color: var(--dcc-header);
-  --dv-activegroup-visiblepanel-tab-background-color: var(--dcc-panel);
+  --dv-icon-hover-background-color: rgb(var(--dcc-hover));
+  --dv-group-view-background-color: rgb(var(--dcc-panel));
+  --dv-drag-over-background-color: rgb(var(--dcc-active) / 0.2);
+  --dv-drag-over-border-color: rgb(var(--dcc-active));
+  --dv-tabs-and-actions-container-background-color: rgb(var(--dcc-header));
+  --dv-activegroup-visiblepanel-tab-background-color: rgb(var(--dcc-panel));
   --dv-activegroup-hiddenpanel-tab-background-color: transparent;
-  --dv-inactivegroup-visiblepanel-tab-background-color: var(--dcc-panel);
+  --dv-inactivegroup-visiblepanel-tab-background-color: rgb(var(--dcc-panel));
   --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
-  --dv-tab-divider-color: var(--dcc-border);
-  --dv-activegroup-visiblepanel-tab-color: var(--dcc-text);
-  --dv-activegroup-hiddenpanel-tab-color: var(--dcc-muted);
-  --dv-inactivegroup-visiblepanel-tab-color: var(--dcc-muted);
-  --dv-inactivegroup-hiddenpanel-tab-color: #71717a;
-  --dv-separator-border: var(--dcc-border);
-  --dv-paneview-header-border-color: var(--dcc-border);
+  --dv-tab-divider-color: rgb(var(--dcc-border));
+  --dv-activegroup-visiblepanel-tab-color: rgb(var(--dcc-text));
+  --dv-activegroup-hiddenpanel-tab-color: rgb(var(--dcc-muted));
+  --dv-inactivegroup-visiblepanel-tab-color: rgb(var(--dcc-muted));
+  --dv-inactivegroup-hiddenpanel-tab-color: rgb(var(--dcc-subtle));
+  --dv-separator-border: rgb(var(--dcc-border));
+  --dv-paneview-header-border-color: rgb(var(--dcc-border));
 }
 
 .dockview-theme-dcc .dv-tab {
@@ -64,7 +72,7 @@ body {
 }
 
 .dockview-theme-dcc .dv-active-group .dv-active-tab {
-  border-top-color: var(--dcc-active);
+  border-top-color: rgb(var(--dcc-active));
 }
 
 .dockview-theme-dcc .dv-tab .dv-default-tab-content {
@@ -77,7 +85,7 @@ body {
 .dockview-theme-dcc .dv-tab:focus-visible::after,
 .dockview-theme-dcc .dv-tab:has(:focus-visible)::after {
   border-radius: inherit;
-  outline-color: var(--dcc-active) !important;
+  outline-color: rgb(var(--dcc-active)) !important;
 }
 
 .dockview-theme-dcc .dv-default-tab-action {
@@ -94,9 +102,9 @@ body {
 .dv-tabs-overflow-container {
   max-width: calc(100vw - 16px);
   padding: 3px;
-  border: 1px solid var(--dcc-border);
+  border: 1px solid rgb(var(--dcc-border));
   border-radius: var(--dcc-radius);
-  background-color: var(--dcc-panel);
+  background-color: rgb(var(--dcc-panel));
 }
 
 .dv-tabs-overflow-container .dv-tab {
@@ -106,8 +114,8 @@ body {
 }
 
 .dv-tabs-overflow-container .dv-tab:hover {
-  background-color: var(--dcc-hover);
-  color: var(--dcc-text);
+  background-color: rgb(var(--dcc-hover));
+  color: rgb(var(--dcc-text));
 }
 
 /* Shared buttons: neutral by default; blue is reserved for on, selected and primary. */
@@ -120,7 +128,7 @@ body {
   height: 24px;
   padding: 0 8px;
   border-radius: var(--dcc-radius-sm);
-  color: #d4d4d8;
+  color: rgb(var(--dcc-control));
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
@@ -128,8 +136,8 @@ body {
 }
 
 .btn:hover:not(:disabled) {
-  background-color: var(--dcc-hover);
-  color: var(--dcc-text);
+  background-color: rgb(var(--dcc-hover));
+  color: rgb(var(--dcc-text));
 }
 
 .btn-icon {
@@ -146,29 +154,29 @@ body {
 }
 
 .btn-secondary {
-  background-color: #26262c;
-  box-shadow: inset 0 0 0 1px var(--dcc-border);
+  background-color: rgb(var(--dcc-raised));
+  box-shadow: inset 0 0 0 1px rgb(var(--dcc-border));
 }
 
 .btn-primary,
 .btn-primary:hover:not(:disabled) {
-  background-color: #2563eb;
+  background-color: rgb(var(--dcc-active-strong));
   color: #fff;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: #3b82f6;
+  background-color: rgb(var(--dcc-active));
 }
 
 .btn[aria-pressed="true"],
 .btn[aria-pressed="true"]:hover:not(:disabled) {
-  background-color: rgba(59, 130, 246, 0.18);
-  color: #bfdbfe;
-  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.5);
+  background-color: rgb(var(--dcc-active) / 0.18);
+  color: rgb(var(--dcc-active-text));
+  box-shadow: inset 0 0 0 1px rgb(var(--dcc-active) / 0.5);
 }
 
 .btn-danger {
-  color: #fda4af;
+  color: rgb(var(--dcc-danger));
 }
 
 .btn-danger:hover:not(:disabled) {
@@ -177,9 +185,9 @@ body {
 }
 
 .list-item-selected {
-  background-color: rgba(59, 130, 246, 0.16);
-  color: #bfdbfe;
-  box-shadow: inset 2px 0 var(--dcc-active);
+  background-color: rgb(var(--dcc-active) / 0.16);
+  color: rgb(var(--dcc-active-text));
+  box-shadow: inset 2px 0 rgb(var(--dcc-active));
 }
 
 /* Panel overflow menus (components/OverflowMenu.tsx) */
@@ -192,13 +200,13 @@ body {
   width: 22px;
   height: 22px;
   border-radius: var(--dcc-radius-sm);
-  color: var(--dcc-muted);
+  color: rgb(var(--dcc-muted));
 }
 
 .panel-menu-trigger:hover,
 .panel-menu-trigger:has(+ .panel-menu:popover-open) {
-  background-color: var(--dcc-hover);
-  color: var(--dcc-text);
+  background-color: rgb(var(--dcc-hover));
+  color: rgb(var(--dcc-text));
 }
 
 .panel-menu-trigger[data-active]::after {
@@ -209,7 +217,7 @@ body {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background-color: var(--dcc-active);
+  background-color: rgb(var(--dcc-active));
 }
 
 .panel-menu {
@@ -224,10 +232,10 @@ body {
   max-height: min(60vh, 420px);
   overflow-y: auto;
   padding: 3px;
-  border: 1px solid var(--dcc-border);
+  border: 1px solid rgb(var(--dcc-border));
   border-radius: var(--dcc-radius);
-  background-color: var(--dcc-panel);
-  color: var(--dcc-text);
+  background-color: rgb(var(--dcc-panel));
+  color: rgb(var(--dcc-text));
   font-size: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
@@ -246,12 +254,12 @@ body {
 
 .panel-menu-item:hover,
 .panel-menu-item:focus-visible {
-  background-color: var(--dcc-hover);
+  background-color: rgb(var(--dcc-hover));
 }
 
 .panel-menu-label {
   padding: 6px 8px 2px;
-  color: #71717a;
+  color: rgb(var(--dcc-subtle));
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -275,11 +283,16 @@ body {
   .panel-root .toolbar-label { display: none; }
 }
 
+/* The command palette input already sits in a focused search row. */
+input[cmdk-input]:focus-visible {
+  outline: none !important;
+}
+
 button:focus-visible,
 select:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid var(--dcc-active);
+  outline: 2px solid rgb(var(--dcc-active));
   outline-offset: -2px;
 }
 
@@ -289,9 +302,9 @@ button:disabled {
 }
 
 [cmdk-item][data-selected="true"] {
-  background: var(--dcc-hover);
-  color: var(--dcc-text);
-  box-shadow: inset 2px 0 var(--dcc-active);
+  background: rgb(var(--dcc-hover));
+  color: rgb(var(--dcc-text));
+  box-shadow: inset 2px 0 rgb(var(--dcc-active));
 }
 
 @media (max-width: 1100px) {
@@ -320,4 +333,17 @@ button:disabled {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #52525b;
+}
+
+/* Inspector sections (components/InspectorSection.tsx) */
+.inspector-section > summary {
+  list-style: none;
+}
+
+.inspector-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.inspector-section[open] > summary .inspector-section-chevron {
+  transform: rotate(90deg);
 }

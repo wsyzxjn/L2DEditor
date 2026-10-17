@@ -2,6 +2,7 @@ import React from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
 import { ScrubInput } from './ScrubInput.js';
+import { InspectorSection } from './InspectorSection.js';
 import { Info, Sparkles, Layers, Key, Copy, FlipHorizontal, Grid, RotateCcw, Wind, Trash2, PenTool } from 'lucide-react';
 
 export const InspectorPanel: React.FC = () => {
@@ -13,7 +14,7 @@ export const InspectorPanel: React.FC = () => {
   if (!selectedNode) {
     // Canvas Inspector
     return (
-      <div className="flex flex-col h-full bg-dcc-panel border-t border-dcc-border p-2 space-y-3">
+      <div className="panel-root flex flex-col h-full bg-dcc-panel border-t border-dcc-border p-2 space-y-3">
         <div className="flex items-center space-x-1.5 text-dcc font-semibold text-dcc-muted border-b border-dcc-border pb-1">
           <Layers className="w-3.5 h-3.5" />
           <span>{t('inspector.canvas_props')}</span>
@@ -57,13 +58,13 @@ export const InspectorPanel: React.FC = () => {
   const kind = selectedNode.kind;
 
   return (
-    <div className="flex flex-col h-full bg-dcc-panel border-t border-dcc-border p-2 space-y-3 overflow-y-auto">
-      <div className="flex items-center justify-between gap-2 border-b border-dcc-border pb-1">
+    <div className="panel-root flex flex-col h-full bg-dcc-panel border-t border-dcc-border p-2 space-y-3 overflow-y-auto">
+      <div className="sticky -top-2 z-10 -mx-2 -mt-2 flex items-center justify-between gap-2 px-2 pt-2 pb-1 border-b border-dcc-border bg-dcc-panel">
         <div className="flex min-w-0 items-center space-x-1.5 text-dcc font-semibold text-dcc-text">
           <Info className="w-3.5 h-3.5 shrink-0 text-dcc-muted" />
           <span className="truncate" title={selectedNode.name || selectedNode.id}>{selectedNode.name || selectedNode.id}</span>
         </div>
-        <span className="shrink-0 text-dcc-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">
+        <span className="shrink-0 text-dcc-xs px-1.5 py-0.5 rounded bg-dcc-raised text-dcc-muted font-mono">
           {kind.type}
         </span>
       </div>
@@ -72,7 +73,7 @@ export const InspectorPanel: React.FC = () => {
       <div className="space-y-1.5">
         <div>
           <label className="text-dcc-sm text-dcc-muted">{t('inspector.node_id')}</label>
-          <div className="text-dcc font-mono text-zinc-300 select-all">{selectedNode.id}</div>
+          <div className="text-dcc font-mono text-dcc-control select-all">{selectedNode.id}</div>
         </div>
         <div>
           <label className="text-dcc-sm text-dcc-muted">{t('inspector.node_name')}</label>
@@ -92,8 +93,7 @@ export const InspectorPanel: React.FC = () => {
       </div>
 
       {/* Quick Keyform Generation */}
-      <div className="pt-2 border-t border-dcc-border space-y-1.5">
-        <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">{t('inspector.quick_setup')}</span>
+      <InspectorSection id="inspector.quick_setup" title={t('inspector.quick_setup')}>
         <div className="grid grid-cols-2 gap-1.5">
           <button
             className="btn btn-secondary btn-wrap"
@@ -161,11 +161,10 @@ export const InspectorPanel: React.FC = () => {
             <RotateCcw className="w-3 h-3 mr-1" /> {t('inspector.restore_shape')}
           </button>
         </div>
-      </div>
+      </InspectorSection>
 
       {/* Shape Copy & Paste */}
-      <div className="pt-2 border-t border-dcc-border/60 space-y-1.5">
-        <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">{t('inspector.shape_copy_paste')}</span>
+      <InspectorSection id="inspector.shape_copy_paste" title={t('inspector.shape_copy_paste')}>
         <div className="grid grid-cols-2 gap-1.5">
           <button
             className="btn btn-secondary btn-wrap"
@@ -203,12 +202,11 @@ export const InspectorPanel: React.FC = () => {
             <FlipHorizontal className="w-3 h-3 mr-1 text-dcc-muted" /> {t('inspector.paste_mirrored')}
           </button>
         </div>
-      </div>
+      </InspectorSection>
       
       {/* Part Properties */}
       {kind.type === 'Part' && (
-        <div className="space-y-2 pt-2 border-t border-dcc-border">
-          <span className="text-dcc-sm font-semibold text-dcc-muted uppercase">{t('inspector.part_folder')}</span>
+        <InspectorSection id="inspector.part_folder" title={t('inspector.part_folder')}>
           <div>
             <label className="text-dcc-sm text-dcc-muted">{t('inspector.folder_opacity')}</label>
             <ScrubInput
@@ -228,13 +226,12 @@ export const InspectorPanel: React.FC = () => {
               max={1}
             />
           </div>
-        </div>
+        </InspectorSection>
       )}
 
       {/* Warp Deformer Properties */}
       {kind.type === 'WarpDeformer' && (
-        <div className="space-y-2 pt-2 border-t border-dcc-border">
-          <span className="text-dcc font-semibold text-dcc-muted uppercase">{t('inspector.warp_grid')}</span>
+        <InspectorSection id="inspector.warp_grid" title={t('inspector.warp_grid')}>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-dcc-sm text-dcc-muted">{t('inspector.cols')}</label>
@@ -337,13 +334,12 @@ export const InspectorPanel: React.FC = () => {
           >
             <Trash2 className="w-3 h-3 mr-1" /> {t('inspector.delete_bake')}
           </button>
-        </div>
+        </InspectorSection>
       )}
 
       {/* Rotation Deformer Properties */}
       {kind.type === 'RotationDeformer' && (
-        <div className="space-y-2 pt-2 border-t border-dcc-border">
-          <span className="text-dcc font-semibold text-dcc-muted uppercase">{t('inspector.rot_deformer')}</span>
+        <InspectorSection id="inspector.rot_deformer" title={t('inspector.rot_deformer')}>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-dcc-sm text-dcc-muted">{t('inspector.origin_x')}</label>
@@ -395,13 +391,12 @@ export const InspectorPanel: React.FC = () => {
               step={1}
             />
           </div>
-        </div>
+        </InspectorSection>
       )}
 
       {/* ArtMesh Properties */}
       {kind.type === 'ArtMesh' && (
-        <div className="space-y-2 pt-2 border-t border-dcc-border">
-          <span className="text-dcc font-semibold text-dcc-muted uppercase">{t('inspector.mesh_geo')}</span>
+        <InspectorSection id="inspector.mesh_geo" title={t('inspector.mesh_geo')}>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-dcc-sm text-dcc-muted">{t('inspector.vertices')}</label>
@@ -499,7 +494,7 @@ export const InspectorPanel: React.FC = () => {
             {(kind.morph_targets || []).map((m: any) => (
               <div key={m.id} className="flex items-center justify-between h-6 px-1.5 bg-dcc-bg/60 rounded border border-dcc-border/40 text-dcc-sm">
                 <span className="truncate text-dcc-text">{m.name}</span>
-                <span className="font-mono text-[10px] text-zinc-500">{m.param_id}</span>
+                <span className="font-mono text-[10px] text-dcc-subtle">{m.param_id}</span>
               </div>
             ))}
           </div>
@@ -545,14 +540,13 @@ export const InspectorPanel: React.FC = () => {
           >
             <PenTool className="w-3 h-3 mr-1" /> {t('inspector.fit_contour_path')}
           </button>
-</div>
+        </InspectorSection>
       )}
 
       {/* ArtPath Properties */}
       {kind.type === 'ArtPath' && (
-        <div className="space-y-2 pt-2 border-t border-dcc-border">
-          <span className="text-dcc font-semibold text-dcc-muted uppercase">{t('inspector.artpath_stroke')}</span>
-          <div className="text-dcc-sm text-zinc-400 font-mono">
+        <InspectorSection id="inspector.artpath_stroke" title={t('inspector.artpath_stroke')}>
+          <div className="text-dcc-sm text-dcc-muted font-mono">
             {t('inspector.control_points')}: {kind.points.length} ({kind.closed ? t('inspector.closed') : t('inspector.open')})
           </div>
           <div className="grid grid-cols-2 gap-1.5">
@@ -583,7 +577,7 @@ export const InspectorPanel: React.FC = () => {
               {t('inspector.thin')}
             </button>
           </div>
-        </div>
+        </InspectorSection>
       )}
     </div>
   );
