@@ -16,6 +16,10 @@
     "./headless": {
       "types": "./dist/headless.d.ts",
       "default": "./dist/headless.js"
+    },
+    "./acceptance": {
+      "types": "./dist/acceptance.d.ts",
+      "default": "./dist/acceptance.js"
     }
   },
   "scripts": {

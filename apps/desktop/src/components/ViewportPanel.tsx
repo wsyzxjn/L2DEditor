@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
-import { evaluateProjectJs, type EvaluatedFrameJs } from '@l2d/schema';
+import { evaluateProjectJs, triangleWeights, type EvaluatedFrameJs } from '@l2d/schema';
 import {
   MousePointer,
   Plus,
@@ -103,7 +103,7 @@ export const ViewportPanel: React.FC = () => {
     const w = canvas.width;
     const h = canvas.height;
 
-    const wx = (sx - (w / 2 + pan.x)) / zoom + project.canvas.width / 2;
+    const wx = (sx - (w / 2 + pan.x)) / (isFlipScreenX ? -zoom : zoom) + project.canvas.width / 2;
     const wy = (sy - (h / 2 + pan.y)) / zoom + project.canvas.height / 2;
     return [wx, wy];
   };
@@ -558,21 +558,26 @@ export const ViewportPanel: React.FC = () => {
     // Mesh Edit Mode interaction
     if (isMeshEditMode && selectedNode && selectedMesh) {
       if (meshEditTool === 'add') {
-        // Add new vertex and UV
-        const uv: [number, number] = [
-          (wx - 400) / 400, // normalized approx
-          (wy - 400) / 400,
-        ];
-        executeCommand({
+        const surface = renderedFrame.current?.meshes.find(mesh => mesh.id === selectedNode.id);
+        if (!surface || selectedNode.locked) return;
+        if (surface.vertices.length !== selectedMesh.vertices.length * 2) return;
+        let pos: [number, number] | undefined;
+        for (let i = 0; i < surface.indices.length; i += 3) {
+          const ids = surface.indices.slice(i, i + 3);
+          const points = ids.map(id => [surface.vertices[id * 2], surface.vertices[id * 2 + 1]]);
+          const weights = triangleWeights([wx, wy], points[0], points[1], points[2]);
+          if (!weights) continue;
+          // Invert the displayed triangle into the mesh's rest-space surface.
+          pos = [0, 1].map(axis => ids.reduce((sum, id, j) => sum + selectedMesh.vertices[id][axis] * weights[j], 0)) as [number, number];
+          break;
+        }
+        if (!pos) { notify(t('viewport.vertex_outside'), 'error'); return; }
+        const result = executeCommand({
           id: `cmd_${Date.now()}`,
           name: 'mesh.add_vertex',
-          params: {
-            mesh_id: selectedNode.id,
-            vertex: [wx, wy],
-            uv,
-          },
+          params: { node_id: selectedNode.id, pos },
         });
-        notify(t('notify.vertex_added', { x: Math.round(wx), y: Math.round(wy) }), 'info');
+        if (result.success) notify(t('notify.vertex_added', { x: Math.round(wx), y: Math.round(wy) }), 'info');
         return;
       }
 

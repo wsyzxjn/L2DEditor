@@ -15,6 +15,7 @@ import {
   serializeMoc3Container,
   parseMoc3ToProject,
 } from '@l2d/renderer';
+import { runAcceptance, checkAcceptanceRevision, type AcceptancePlan } from '@l2d/renderer/acceptance';
 import { exportModelingTemplate, type Project } from '@l2d/schema';
 import { WasmModel, lintProjectJson, getProjectStats, importMtnMotion, bakePhysicsToAnimation } from '@l2d/schema/wasm-node';
 
@@ -118,6 +119,27 @@ program
     if (hasErrors) {
       process.exitCode = 1;
     }
+  });
+
+program
+  .command('acceptance <project>')
+  .description('Sweep parameters, expressions and motion samples; write revision-bound PNGs and a review report')
+  .requiredOption('-o, --out <directory>', 'New output directory (must not already exist)')
+  .option('--plan <file>', 'JSON plan with cases and optional pixel-region comparisons')
+  .action(async (projectInput, opts) => {
+    const plan: AcceptancePlan = opts.plan ? JSON.parse(fs.readFileSync(opts.plan, 'utf8')) : {};
+    const report = await runAcceptance(resolveProjectPath(projectInput), opts.out, plan);
+    console.log(JSON.stringify({ report: path.resolve(opts.out, 'report.json'), cases: report.cases.length, numericalPass: report.numericalPass, visualReview: report.visualReview, externalRuntime: report.externalRuntime }, null, 2));
+    if (!report.numericalPass) process.exitCode = 1;
+  });
+
+program
+  .command('check-acceptance <project> <report>')
+  .description('Detect changed project, texture, evaluator build or damaged acceptance artifacts')
+  .action(async (projectInput, reportPath) => {
+    const result = await checkAcceptanceRevision(resolveProjectPath(projectInput), reportPath);
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.current) process.exitCode = 1;
   });
 
 program

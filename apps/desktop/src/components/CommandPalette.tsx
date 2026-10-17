@@ -89,6 +89,13 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                 <Save className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
                 <span>{t('toolbar.save')}</span>
               </Command.Item>
+              <Command.Item
+                className="flex items-center px-2 py-1.5 rounded hover:bg-dcc-hover cursor-pointer text-dcc-text"
+                onSelect={() => { onAction('save_as'); onOpenChange(false); }}
+              >
+                <Save className="w-3.5 h-3.5 mr-2 text-dcc-muted" />
+                <span>{t('toolbar.save_as')}</span>
+              </Command.Item>
             </Command.Group>
 
             <Command.Group heading={t('palette.group_edit')} className="text-dcc-sm text-dcc-muted px-2 py-1 font-semibold uppercase">

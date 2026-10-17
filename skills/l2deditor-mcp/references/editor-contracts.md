@@ -2,6 +2,8 @@
 
 核对基准：L2DEditor 本地源码与实际 GUI/MCP 流程，2026-10-15。版本/工具变化时重新发现，不依赖此快照猜参数。
 
+2026-10-18 更新：新增 `l2d_acceptance` / `l2d_check_acceptance`，自动扫描与版本失效检查共用 CLI 实现；GUI save 收集纹理；网格加点契约统一。下文的 31 个工具为旧快照，当前以 `listTools` 为准。资源路径重写会重置撤销历史并提示；普通相对路径保存保留历史。完整参数格式和边界见仓库 `docs/acceptance.md`。
+
 本轮 SDK `listTools` 实测 31 个工具，其中 12 个 GUI 工具；headless inspect 已通过。默认 22033 无服务时会返回明确连接错误，不能把它当作模型损坏或无权使用；对已启动的实际端口另做 GUI 验证。
 
 配套 SDK helper 已在 v5 独立 Electron 窗口/端口实际验证：初始只读 state、3 节点分页、dry-run 不改文档/撤销栈、实际编辑与 Undo/Redo、截图写文件不输出 base64、同纹理目录另存并重开、重载后同一动作帧图像哈希一致、源工程及所有纹理哈希不变。此证据只覆盖所列流程，不证明任意命令或跨目录资源搬运正确。
@@ -20,7 +22,7 @@
 | `l2d_inspect / l2d_lint / l2d_exec_command / l2d_snapshot` | 磁盘工程；文件变了不等于当前窗口已刷新 |
 | `l2d_gui_state / l2d_gui_exec` | 当前 GUI 内存文档；GUI edits 使用同一 Command Bus/undo 栈 |
 | `l2d_gui_set_parameters / expression / playback` | 预览状态；不保存，不创建关键形态 |
-| `l2d_gui_save` | 将 GUI 文档写到明确路径；不复制相对纹理到新目录 |
+| `l2d_gui_save` | 校验并收集纹理后保存；跨目录副本保留完整资源，冲突文件不覆盖 |
 
 避免 GUI 保存覆盖 headless 文件修改。先明确主路径，备份整套工程/纹理；打开文件或重载前保护当前未保存文档。读取节点页时用 `nextNodeOffset`，重复显示名称不能代替唯一 ID。
 
@@ -38,7 +40,7 @@
 | `l2d_gui_show_panel` | `{panel:"viewport"}`；可选 hierarchy/parameters/inspector/timeline/physics/history |
 | `l2d_gui_exec` | `{command:{id:"edit-1",name:"...",params:{...}},dryRun:true}`；成功后按授权去掉 dryRun |
 | `l2d_gui_history` | `{operation:"undo"}` / redo / `{operation:"jump",index:...}`；先看 history |
-| `l2d_gui_save` | `{path:"/absolute/sibling.json"}` 或当前路径；跨目录需另处理资源 |
+| `l2d_gui_save` | `{path:"/absolute/sibling.json"}` 或当前路径；以当前工程为资源源目录收集纹理 |
 | `l2d_gui_screenshot` | `{target:"model",scale:1}`；`window` 包含控件，scale 范围 0.1..2 |
 
 以服务 `listTools` 的 JSON schema 校验；不要把此表当作全量参数定义。
@@ -69,7 +71,7 @@ Rust/Wasm 与 JS 当前保留引用中的零透明度 mask mesh；本体不绘�
 - v6 的口型验收区分网格轴和真实墨迹：原图局部脸方向、纹理主轴和头部姿态都要保留。眼部 keyforms 普通烘焙在实际 Rust/Wasm head 三角表面上，不使用第二套实时求值器；默认 idle/showcase 固定身体，三个 diagnostic 动作另留。录制用暂停 seek、`physics:false, autoIdle:false`，所有源工程及纹理哈希保持不变。
 - v6 实际捕获 15 个 GUI 状态，包括完全张嘴、笑嘴和 0.45 开度/眼球 XY 极值/30 度 yaw；新增 cases 不会自动加入独立 captureNames。必须核对真实 result 项及资源 revision，不能把 headless 字典当成 GUI 证据。实际 672 帧固定身体预览和 skill helper 的编辑/撤销/另存回读通过；眼白极值的锯齿、颈圈/围巾的细接缝仍单独保留。
 - v6 四个 alpha fixture 项目重载留下 8 条 Pixi BindGroup source/sampler 释放警告，另有开发 CSP 警告。截图和页面错误检查通过不代表资源生命周期已修；见通用坑账本 P41。本轮未过滤或声称解决这些 warning。
-- `mesh.add_vertex` 有重复注册、GUI payload 漂移、最近质心选面和默认全画布 UV 的问题，已定位但本轮未修。用前核对实际实现和 dry-run，不自动推广为可靠编辑。
+- `mesh.add_vertex` 统一为 `node_id/pos/uv?`；包含面插值 UV 与形态偏移，共享边双侧拆分，GUI 反映射显示坐标。相关专项回归已通过；不能由此推断其他拓扑编辑也已修复。
 - 原 source-pixel 分区版本存在缺口/残影和歪嘴；v4 验证嘴部 XY 锚点及 1,377 个 Head XYZ 发根样本，补齐颈圈并录制真实 GUI 动作。颈圈大块露底收敛，但后发/抬臂的材质接缝和细边未全部通过，静态像素结果不能作完整模型验收。
 - v5 已修复运行包回读的纹理 ID、真实尺寸和 CPU atlas copy 采样问题。单张 4096 图集的本模型回读自然姿态无 RGB 差，摇头、抬臂、张嘴所测姿态最大差 2。实际颜色/缺失文件/损坏图像/大 UV 偏移/缩小素材有独立回归；标准第三方 MOC3 的多纹理索引、外部播放器未由此覆盖。
 - 24fps/288 帧若 CLI 编码默认 30fps，时长会变。编码 FPS 显式匹配，或明确真正重采样；`-r` 当前不是轨道重采样能力。

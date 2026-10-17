@@ -10,7 +10,7 @@ export const test = base.extend<{ consoleErrors: string[] }>({
         if (message.type() === 'error') errors.push(message.text());
       });
       await use(errors);
-      expect(errors).toEqual([]);
+      expect(errors.join('\n')).toBe('');
     },
     { auto: true },
   ],
@@ -36,7 +36,7 @@ export async function setLanguage(page: Page, language: 'zh-CN' | 'ja' | 'en') {
 /** Toolbar-like rows that clip instead of scrolling must not overflow. */
 export async function overflowingToolbars(page: Page) {
   return page.evaluate(() =>
-    [...document.querySelectorAll<HTMLElement>('.panel-root > div:first-child, header, footer.status-bar')]
+    [...document.querySelectorAll<HTMLElement>('.panel-root > div:first-child:not(.absolute), header, footer.status-bar')]
       .filter((element) => element.offsetParent && element.scrollWidth > element.clientWidth + 1)
       .map((element) => `${element.className.slice(0, 60)} (${element.scrollWidth}>${element.clientWidth})`),
   );

@@ -22,6 +22,9 @@ L2DEditor is an open alternative to proprietary 2D puppet rigging tools like Liv
    - Real-time 60fps mesh deformation viewport with interactive Warp Gizmo.
    - Global Command Palette (`cmdk`, `Cmd+K` / `Ctrl+K`).
 
+For revision-bound parameter/expression checks, portable Save As, and state-texture
+editing, see [Model Acceptance and Resource Workflows](docs/acceptance.md).
+
 ---
 
 ## 📁 Repository Structure

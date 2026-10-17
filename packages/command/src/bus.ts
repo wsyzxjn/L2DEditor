@@ -30,6 +30,7 @@ export class CommandBus {
   }
 
   public register<T>(commandName: string, handler: CommandHandler<T>): void {
+    if (this.handlers.has(commandName)) throw new Error(`Command '${commandName}' is already registered`);
     this.handlers.set(commandName, handler);
   }
 

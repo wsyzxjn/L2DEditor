@@ -17,6 +17,7 @@ import {
   serializeMoc3Container,
   parseMoc3ToProject,
 } from '@l2d/renderer';
+import { runAcceptance, checkAcceptanceRevision, type AcceptancePlan } from '@l2d/renderer/acceptance';
 import type { Project } from '@l2d/schema';
 // Wasm node bindings
 import { WasmModel, lintProjectJson, getProjectStats, importMtnMotion, bakePhysicsToAnimation } from '@l2d/schema/wasm-node';
@@ -36,6 +37,28 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
   );
 
   const offlineTools: Tool[] = [
+        {
+          name: 'l2d_acceptance',
+          description: 'Run bounded parameter, expression and motion sweeps with CPU PNG evidence, lint and optional pixel-region comparisons. Visual review and external runtime checks remain separate.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string' },
+              outputDirectory: { type: 'string', description: 'New output directory, must not already exist' },
+              plan: { type: 'object', description: 'Optional cases and comparisons, same format as CLI acceptance --plan' },
+            },
+            required: ['projectPath', 'outputDirectory'],
+          },
+        },
+        {
+          name: 'l2d_check_acceptance',
+          description: 'Check whether an acceptance report still matches current project, textures, evaluator build and PNG artifacts.',
+          inputSchema: {
+            type: 'object',
+            properties: { projectPath: { type: 'string' }, reportPath: { type: 'string' } },
+            required: ['projectPath', 'reportPath'],
+          },
+        },
         {
           name: 'l2d_inspect',
           description: 'Inspect a .l2dproj project directory: returns canvas dimensions, parameter lists, node hierarchy tree, and keyform counts.',
@@ -353,6 +376,14 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
 
   const callOfflineTool = async (name: string, args: Record<string, unknown>): Promise<CallToolResult> => {
     try {
+      if (name === 'l2d_acceptance') {
+        const report = await runAcceptance(resolveProjectJsonPath(args.projectPath as string), args.outputDirectory as string, args.plan as AcceptancePlan | undefined);
+        return { content: [{ type: 'text', text: JSON.stringify({ reportPath: path.resolve(args.outputDirectory as string, 'report.json'), numericalPass: report.numericalPass, cases: report.cases.length, visualReview: report.visualReview, externalRuntime: report.externalRuntime }) }], isError: !report.numericalPass };
+      }
+      if (name === 'l2d_check_acceptance') {
+        const result = await checkAcceptanceRevision(resolveProjectJsonPath(args.projectPath as string), args.reportPath as string);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], isError: !result.current };
+      }
       if (name === 'l2d_inspect') {
         const projectPath = resolveProjectJsonPath(args?.projectPath as string);
         const raw = fs.readFileSync(projectPath, 'utf-8');

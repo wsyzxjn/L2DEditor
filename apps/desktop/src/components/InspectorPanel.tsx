@@ -3,6 +3,7 @@ import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
 import { ScrubInput } from './ScrubInput.js';
 import { InspectorSection } from './InspectorSection.js';
+import { SpriteSwapEditor } from './SpriteSwapEditor.js';
 import { Info, Sparkles, Layers, Key, Copy, FlipHorizontal, Grid, RotateCcw, Wind, Trash2, PenTool } from 'lucide-react';
 
 export const InspectorPanel: React.FC = () => {
@@ -395,6 +396,7 @@ export const InspectorPanel: React.FC = () => {
       )}
 
       {/* ArtMesh Properties */}
+      {selectedNode.kind.type === 'ArtMesh' && <SpriteSwapEditor key={selectedNode.id} node={{ ...selectedNode, kind: selectedNode.kind }} />}
       {kind.type === 'ArtMesh' && (
         <InspectorSection id="inspector.mesh_geo" title={t('inspector.mesh_geo')}>
           <div className="grid grid-cols-2 gap-2">

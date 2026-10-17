@@ -7,6 +7,7 @@ import { generateTextureAtlas } from '@l2d/renderer';
 import { createRequire } from 'node:module';
 import type { WasmModel } from '@l2d/schema/wasm-node';
 import { startEditorBridge } from './editorBridge.js';
+import { saveProjectFile } from './project-files.js';
 
 const nodeWasm = createRequire(import.meta.url)('@l2d/schema/wasm-node') as typeof import('@l2d/schema/wasm-node');
 
@@ -124,17 +125,16 @@ ipcMain.handle('l2d:open-project-dialog', async () => {
   return null;
 });
 
-ipcMain.handle('l2d:save-project', async (_, filePath: string, content: string) => {
+ipcMain.handle('l2d:save-project', async (_, filePath: string, content: string, sourcePath?: string) => {
   try {
-    fs.writeFileSync(filePath, content, 'utf-8');
-    return true;
-  } catch (err) {
-    console.error('Failed to save project:', err);
-    return false;
+    const saved = await saveProjectFile(filePath, content, sourcePath);
+    return { path: filePath, content: saved, success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || String(err) };
   }
 });
 
-ipcMain.handle('l2d:save-project-as-dialog', async (_, content: string, defaultName?: string) => {
+ipcMain.handle('l2d:save-project-as-dialog', async (_, content: string, defaultName?: string, sourcePath?: string) => {
   if (!mainWindow) return null;
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
     title: 'Save Project As',
@@ -147,8 +147,8 @@ ipcMain.handle('l2d:save-project-as-dialog', async (_, content: string, defaultN
   if (canceled || !filePath) return null;
 
   try {
-    fs.writeFileSync(filePath, content, 'utf-8');
-    return { path: filePath, success: true };
+    const saved = await saveProjectFile(filePath, content, sourcePath);
+    return { path: filePath, content: saved, success: true };
   } catch (err: any) {
     console.error('Failed to save project:', err);
     return { error: err.message || String(err), success: false };

@@ -1,6 +1,7 @@
 import {
   evaluateAnimationAtFrameJs,
   getMeshBoundaryLoops,
+  triangleWeights,
   generateStrokeMeshTopology,
   type ModelingTemplate,
   PhysicsSimulatorJs,
@@ -489,7 +490,7 @@ export function registerStandardCommands(bus: CommandBus): void {
     Object.assign(target, changes);
   });
 
-  // 10. Multi-State / Sprite Swap Automation (Pose Switch & State Blending)
+  // Multi-state parts retain their geometry keyforms and share one opacity axis.
   bus.register<{
     base_node_id: string;
     param_id: string;
@@ -499,74 +500,71 @@ export function registerStandardCommands(bus: CommandBus): void {
       node_id?: string;
       name?: string;
       draw_order?: number;
+      offset?: [number, number];
     }>;
   }>('macro.sprite_swap', (draft, { base_node_id, param_id, states }) => {
-    const baseNode = draft.nodes.find((n) => n.id === base_node_id);
-    if (!baseNode || baseNode.kind.type !== 'ArtMesh') {
-      throw new Error(`Base node '${base_node_id}' must be an existing ArtMesh`);
-    }
-
-    if (!states || states.length === 0) {
-      throw new Error('Sprite swap requires at least one state');
-    }
-
-    const baseMesh = baseNode.kind;
+    const baseNode = draft.nodes.find(n => n.id === base_node_id);
+    if (!baseNode || baseNode.kind.type !== 'ArtMesh') throw new Error(`Base node '${base_node_id}' must be an existing ArtMesh`);
+    if (baseNode.locked) throw new Error('Base node is locked');
+    const parameter = draft.parameters.find(parameter => parameter.id === param_id);
+    if (!parameter) throw new Error(`Unknown parameter '${param_id}'`);
+    if (!states?.length) throw new Error('Sprite swap requires at least one state');
+    const baseMesh = JSON.parse(JSON.stringify(baseNode.kind)) as typeof baseNode.kind;
+    const sourceBinding = draft.keyforms.find(binding => binding.target_node_id === base_node_id);
+    const source = sourceBinding ? JSON.parse(JSON.stringify(sourceBinding)) as KeyformBinding : undefined;
     const sortedStates = [...states].sort((a, b) => a.value - b.value);
-    const keys = sortedStates.map((s) => s.value);
-
-    for (const state of sortedStates) {
-      const isBaseState = state.texture_id === baseMesh.texture_id || state.node_id === base_node_id;
-      const targetId = state.node_id || (isBaseState ? base_node_id : `${base_node_id}_state_${state.value}`);
-
-      let targetNode = draft.nodes.find((n) => n.id === targetId);
+    const keys = sortedStates.map(state => state.value);
+    if (keys.some((key, i) => !Number.isFinite(key) || key < parameter.min || key > parameter.max || (i > 0 && key - keys[i - 1] < 1e-4))) throw new Error('State values must be distinct and inside the parameter range');
+    const targetIds = sortedStates.map(state => state.node_id ?? (state.texture_id === baseMesh.texture_id ? base_node_id : `${base_node_id}_state_${state.value}`));
+    if (new Set(targetIds).size !== targetIds.length || !targetIds.includes(base_node_id)) throw new Error('States must include the base node exactly once and use unique node IDs');
+    for (const [index, state] of sortedStates.entries()) {
+      if (!draft.textures.some(texture => texture.id === state.texture_id)) throw new Error(`Unknown texture '${state.texture_id}'`);
+      if (state.offset && (state.offset.length !== 2 || !state.offset.every(Number.isFinite))) throw new Error('State offset must be a finite coordinate pair');
+      const targetId = targetIds[index];
+      if (targetId === base_node_id && state.offset?.some(value => value !== 0)) throw new Error('The base state defines the alignment origin');
+      let targetNode = draft.nodes.find(node => node.id === targetId);
+      const existed = Boolean(targetNode);
+      if (targetNode && (targetNode.kind.type !== 'ArtMesh' || targetNode.locked || targetNode.parent_id !== baseNode.parent_id)) throw new Error(`State node '${targetId}' must be an unlocked sibling mesh`);
       if (!targetNode) {
-        targetNode = {
-          id: targetId,
-          name: state.name || `${baseNode.name} (${param_id}=${state.value})`,
-          parent_id: baseNode.parent_id,
-          visible: true,
-          locked: false,
-          kind: {
-            ...JSON.parse(JSON.stringify(baseMesh)),
-            texture_id: state.texture_id,
-            draw_order: state.draw_order ?? baseMesh.draw_order,
-            opacity: 1,
-          },
-        };
+        targetNode = { id: targetId, name: state.name ?? `${baseNode.name} (${param_id}=${state.value})`, parent_id: baseNode.parent_id, visible: baseNode.visible, locked: false, kind: JSON.parse(JSON.stringify(baseMesh)) };
         draft.nodes.push(targetNode);
-      } else if (targetNode.kind.type === 'ArtMesh') {
-        targetNode.kind.texture_id = state.texture_id;
-        if (state.draw_order !== undefined) targetNode.kind.draw_order = state.draw_order;
       }
-
-      let kfBinding = draft.keyforms.find((k) => k.target_node_id === targetId);
-      if (!kfBinding) {
-        const newBinding: KeyformBinding = {
-          target_node_id: targetId,
-          dimensions: [{ param_id, keys }],
-          keyforms: [],
-        };
-        draft.keyforms.push(newBinding);
-        kfBinding = newBinding;
+      if (targetNode.kind.type !== 'ArtMesh') throw new Error('State must be an ArtMesh');
+      targetNode.kind.texture_id = state.texture_id;
+      if (state.draw_order !== undefined) targetNode.kind.draw_order = state.draw_order;
+      if (state.offset) targetNode.kind.vertices = baseMesh.vertices.map(([x, y]) => [x + state.offset![0], y + state.offset![1]]);
+      const existingBinding = draft.keyforms.find(binding => binding.target_node_id === targetId);
+      const geometry = existed ? existingBinding : source;
+      if (geometry?.dimensions.length && !geometry.keyforms.length) throw new Error('Existing geometry binding has no keyform states');
+      const axis = geometry?.dimensions.findIndex(dimension => dimension.param_id === param_id) ?? -1;
+      let binding: KeyformBinding;
+      if (axis >= 0 && geometry) {
+        if (geometry.dimensions[axis].keys.length !== keys.length || geometry.dimensions[axis].keys.some((key, i) => Math.abs(key - keys[i]) > 1e-4)) throw new Error('Existing state keys differ; use a new parameter to preserve geometry');
+        binding = JSON.parse(JSON.stringify(geometry));
+        binding.target_node_id = targetId;
+        for (const form of binding.keyforms) {
+          if (form.payload.kind !== 'ArtMesh') throw new Error('State has non-mesh keyforms');
+          const opacity = Math.max(...geometry.keyforms.filter(candidate => candidate.coordinates.every((coordinate, dimension) => dimension === axis || Math.abs(coordinate - form.coordinates[dimension]) < 1e-4)).map(candidate => candidate.payload.kind === 'ArtMesh' ? candidate.payload.opacity ?? 1 : 0));
+          form.payload.opacity = Math.abs(form.coordinates[axis] - state.value) < 1e-4 ? opacity : 0;
+        }
       } else {
-        kfBinding.dimensions = [{ param_id, keys }];
-        kfBinding.keyforms = [];
+        const forms = geometry?.keyforms.length ? geometry.keyforms : [{ coordinates: [], payload: { kind: 'ArtMesh' as const, vertex_offsets: targetNode.kind.vertices.map(() => [0, 0] as [number, number]) } }];
+        binding = {
+          target_node_id: targetId,
+          dimensions: [...(geometry?.dimensions ?? []), { param_id, keys }],
+          keyforms: forms.flatMap(form => keys.map(key => {
+            if (form.payload.kind !== 'ArtMesh') throw new Error('State has non-mesh keyforms');
+            const payload = JSON.parse(JSON.stringify(form.payload)) as Extract<KeyformPayload, { kind: 'ArtMesh' }>;
+            payload.opacity = Math.abs(key - state.value) < 1e-4 ? (form.payload.opacity ?? 1) : 0;
+            return { coordinates: [...form.coordinates, key], payload };
+          })),
+        };
       }
-
-      const verts = (targetNode.kind as any).vertices as [number, number][];
-      const zeroOffsets = verts ? verts.map(() => [0, 0] as [number, number]) : [];
-
-      for (const k of keys) {
-        const isCurrentState = Math.abs(k - state.value) < 1e-4;
-        kfBinding.keyforms.push({
-          coordinates: [k],
-          payload: {
-            kind: 'ArtMesh',
-            opacity: isCurrentState ? 1 : 0,
-            vertex_offsets: zeroOffsets,
-          },
-        });
+      for (const form of binding.keyforms) {
+        if (form.payload.kind === 'ArtMesh' && form.payload.vertex_offsets.length !== targetNode.kind.vertices.length) throw new Error('State geometry vertex count differs from base mesh');
       }
+      const bindingIndex = draft.keyforms.findIndex(binding => binding.target_node_id === targetId);
+      if (bindingIndex < 0) draft.keyforms.push(binding); else draft.keyforms[bindingIndex] = binding;
     }
   });
 
@@ -746,18 +744,6 @@ export function registerStandardCommands(bus: CommandBus): void {
   });
 
   // Interactive Mesh Editing
-  bus.register<{
-    mesh_id: string;
-    vertex: [number, number];
-    uv: [number, number];
-  }>('mesh.add_vertex', (draft, { mesh_id, vertex, uv }) => {
-    const target = draft.nodes.find((n) => n.id === mesh_id);
-    if (target && target.kind.type === 'ArtMesh') {
-      target.kind.vertices.push(vertex);
-      target.kind.uvs.push(uv);
-    }
-  });
-
   bus.register<{
     mesh_id: string;
     vertex_index: number;
@@ -2525,53 +2511,67 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
   });
 
-  // 18. Manual Mesh Vertex Insertion (`CMD_TOOL_MODE_MESH_ADD_VERTEX` / `CUB3-1120`: メッシュ頂点追加)
+  // Insert in rest space; interpolate every dependent shape with the same weights.
   bus.register<{
     node_id: string;
     pos: [number, number];
     uv?: [number, number];
   }>('mesh.add_vertex', (draft, { node_id, pos, uv }) => {
-    const node = draft.nodes.find((n) => n.id === node_id);
-    if (!node || node.kind.type !== 'ArtMesh') {
-      throw new Error(`ArtMesh node '${node_id}' not found`);
+    const node = draft.nodes.find(n => n.id === node_id);
+    if (!node || node.kind.type !== 'ArtMesh') throw new Error(`ArtMesh node '${node_id}' not found`);
+    if (node.locked) throw new Error(`Node '${node_id}' is locked`);
+    if (!Array.isArray(pos) || pos.length !== 2 || !pos.every(Number.isFinite) ||
+        (uv !== undefined && (!Array.isArray(uv) || uv.length !== 2 || !uv.every(Number.isFinite)))) {
+      throw new Error('Position and UV must be finite coordinate pairs');
     }
     const mesh = node.kind;
+    if (mesh.vertices.some(v => Math.hypot(v[0] - pos[0], v[1] - pos[1]) < 1e-8)) {
+      throw new Error('A vertex already exists at this position');
+    }
+    let face: number[] | undefined;
+    let weights: [number, number, number] | null = null;
+    for (let i = 0; i < mesh.indices.length; i += 3) {
+      const ids = mesh.indices.slice(i, i + 3);
+      if (ids.length !== 3 || ids.some(id => !mesh.vertices[id] || !mesh.uvs[id])) throw new Error('Invalid mesh topology');
+      const candidate = triangleWeights(pos, mesh.vertices[ids[0]], mesh.vertices[ids[1]], mesh.vertices[ids[2]]);
+      if (candidate) { face = ids; weights = candidate; break; }
+    }
+    if (!face || !weights) throw new Error('Position must lie inside an existing mesh triangle');
+    const interpolate = (points: readonly (readonly number[])[]): [number, number] => {
+      if (face!.some(id => !points[id] || !points[id].every(Number.isFinite))) throw new Error('Shape vertex count does not match mesh');
+      return [0, 1].map(axis => face!.reduce((sum, id, i) => sum + points[id][axis] * weights![i], 0)) as [number, number];
+    };
+    const newUv = uv ?? interpolate(mesh.uvs);
     const newIdx = mesh.vertices.length;
-    mesh.vertices.push(pos);
-    mesh.uvs.push(uv || [
-      Math.max(0, Math.min(1, pos[0] / (draft.canvas.width || 1))),
-      Math.max(0, Math.min(1, pos[1] / (draft.canvas.height || 1))),
-    ]);
-
-    // If we have existing triangles, find closest triangle and subdivide into 3 triangles
-    if (mesh.indices.length >= 3) {
-      let bestTriIdx = 0;
-      let bestDist = Infinity;
-      for (let i = 0; i < mesh.indices.length; i += 3) {
-        const i0 = mesh.indices[i];
-        const i1 = mesh.indices[i + 1];
-        const i2 = mesh.indices[i + 2];
-        const p0 = mesh.vertices[i0] || pos;
-        const p1 = mesh.vertices[i1] || pos;
-        const p2 = mesh.vertices[i2] || pos;
-        const cx = (p0[0] + p1[0] + p2[0]) / 3.0;
-        const cy = (p0[1] + p1[1] + p2[1]) / 3.0;
-        const d = Math.hypot(pos[0] - cx, pos[1] - cy);
-        if (d < bestDist) {
-          bestDist = d;
-          bestTriIdx = i;
+    for (const binding of draft.keyforms.filter(binding => binding.target_node_id === node_id)) {
+      for (const state of binding.keyforms) {
+        if (state.payload.kind === 'ArtMesh') {
+          if (state.payload.vertex_offsets.length !== newIdx) throw new Error('Keyform vertex count does not match mesh');
+          state.payload.vertex_offsets.push(interpolate(state.payload.vertex_offsets));
         }
       }
-      const origI0 = mesh.indices[bestTriIdx];
-      const origI1 = mesh.indices[bestTriIdx + 1];
-      const origI2 = mesh.indices[bestTriIdx + 2];
-      // Replace original triangle with (origI0, origI1, newIdx) and append other 2
-      mesh.indices[bestTriIdx] = origI0;
-      mesh.indices[bestTriIdx + 1] = origI1;
-      mesh.indices[bestTriIdx + 2] = newIdx;
-      mesh.indices.push(origI1, origI2, newIdx);
-      mesh.indices.push(origI2, origI0, newIdx);
     }
+    for (const morph of mesh.morph_targets ?? []) {
+      if (morph.vertex_offsets.length !== newIdx) throw new Error('Morph vertex count does not match mesh');
+      morph.vertex_offsets.push(interpolate(morph.vertex_offsets));
+    }
+    const edgeIndex = weights.findIndex(weight => weight === 0);
+    const edge = edgeIndex < 0 ? null : [face[(edgeIndex + 1) % 3], face[(edgeIndex + 2) % 3]];
+    const indices: number[] = [];
+    for (let i = 0; i < mesh.indices.length; i += 3) {
+      const tri = mesh.indices.slice(i, i + 3);
+      if (edge && edge.every(id => tri.includes(id))) {
+        // Split both sides of a shared edge, preserving winding and avoiding T-junctions.
+        const opposite = tri.findIndex(id => !edge.includes(id));
+        const [c, a, b] = [tri[opposite], tri[(opposite + 1) % 3], tri[(opposite + 2) % 3]];
+        indices.push(c, a, newIdx, c, newIdx, b);
+      } else if (!edge && tri.every((id, j) => id === face![j])) {
+        indices.push(tri[0], tri[1], newIdx, tri[1], tri[2], newIdx, tri[2], tri[0], newIdx);
+      } else indices.push(...tri);
+    }
+    mesh.vertices.push(pos);
+    mesh.uvs.push(newUv);
+    mesh.indices = indices;
   });
 
   // 19. Delaunay Edge Flip / Swap (`CMD_MESH_FLIP_EDGE` / `CUB3-1122`: 辺の反転)

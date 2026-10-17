@@ -37,6 +37,16 @@ describe('desktop MCP bridge', () => {
         expect(preview.success).toBe(true);
         expect(preview.patches[0].value.id).toBe('ParamTest');
         expect(JSON.parse(fs.readFileSync(projectPath, 'utf8')).parameters).toEqual([]);
+        const outputDirectory = path.join(directory, 'acceptance');
+        const acceptance = await client.callTool({ name: 'l2d_acceptance', arguments: { projectPath, outputDirectory, plan: { cases: [{ id: 'neutral' }] } } });
+        expect(acceptance.isError).not.toBe(true);
+        const reportPath = path.join(outputDirectory, 'report.json');
+        expect(JSON.parse(fs.readFileSync(reportPath, 'utf8')).completeModelAccepted).toBe(false);
+        const current = await client.callTool({ name: 'l2d_check_acceptance', arguments: { projectPath, reportPath } });
+        expect(current.isError).not.toBe(true);
+        fs.writeFileSync(projectPath, JSON.stringify({ ...project, canvas: { ...project.canvas, width: 101 } }));
+        const stale = await client.callTool({ name: 'l2d_check_acceptance', arguments: { projectPath, reportPath } });
+        expect(stale.isError).toBe(true);
       } finally { fs.rmSync(directory, { recursive: true, force: true }); }
       const result = await client.callTool({ name: 'l2d_gui_select', arguments: { nodeIds: ['face'] } });
       expect(result.isError).not.toBe(true);

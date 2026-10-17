@@ -23,7 +23,7 @@ description: "Operate the current L2DEditor workspace through its MCP stdio serv
 - 暂停、清除表情、关闭自动待机；烘焙了物理时关闭实时物理。明确设置所有相关参数或指定动画帧，避免旧值残留。
 - 截图 `target:model, scale:1` 用于原坐标测量；`target:window` 用于界面/控件验证。不要把缩放后的窗口坐标当作存储网格/UV 坐标。
 - 截图应等实际目标帧完成。不要用 state 中的参数值或固定 sleep 代替像素证据。
-- 保存后核对路径和哈希；跨目录保存只保存 JSON，不自动复制相对纹理。正式包要完整带上资源。
+- 保存后核对路径和哈希；当前另存与 GUI save 会收集纹理，缺资源直接报错。资源路径发生重写时会提示并重置撤销历史；正式包仍需重开验证。
 
 工具的常用调用和录制/验证流程见 [workflows.md](references/workflows.md)。
 

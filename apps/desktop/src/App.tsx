@@ -353,11 +353,28 @@ export function App() {
   const saveProjectTo = async (target = currentFilePath ?? undefined) => {
     const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
     if (!target) throw new Error('No file path. Pass an explicit path to save a new document.');
-    if (!api || !await api.saveProject(target, JSON.stringify(bus.getProject(), null, 2))) throw new Error('Failed to save project');
-    flushSync(() => setCurrentFilePath(target));
-    setSavedProjectJson(JSON.stringify(bus.getProject()));
-    notify(`${t('notify.saved')}: ${target}`, 'success');
+    if (!api) throw new Error('Desktop file API unavailable');
+    const snapshot = bus.getProject();
+    const result = await api.saveProject(target, JSON.stringify(snapshot, null, 2), currentFilePath ?? undefined);
+    const rewritten = acceptSavedProject(result, snapshot);
+    notify(`${t('notify.saved')}: ${target}${rewritten ? ` (${t('notify.resource_paths_reset')})` : ''}`, 'success');
     return target;
+  };
+
+  const acceptSavedProject = (result: { success: boolean; path?: string; content?: string; error?: string }, snapshot: Project) => {
+    if (!result.success || !result.path || !result.content) throw new Error(result.error || 'Failed to save project');
+    if (bus.getProject() !== snapshot) throw new Error('A copy was saved, but the document changed during saving. The active document has not been replaced.');
+    const saved: Project = JSON.parse(result.content);
+    // Most saves retain paths and history. Rewritten external/conflicting paths
+    // establish a new resource base; old undo patches cannot safely target it.
+    const rewritten = saved.textures.some((texture, i) => texture.path !== snapshot.textures[i]?.path);
+    if (rewritten) {
+      bus.setProject(saved);
+      setProject(saved);
+    }
+    setSavedProjectJson(JSON.stringify(rewritten ? saved : snapshot));
+    flushSync(() => setCurrentFilePath(result.path!));
+    return rewritten;
   };
 
   const handleNew = () => {
@@ -395,13 +412,8 @@ export function App() {
         await handleSaveAs();
         return;
       }
-      const success = await (window as any).l2dApi.saveProject(currentFilePath, json);
-      if (success) {
-        setSavedProjectJson(projectJson);
-        notify(`${t('notify.saved')}: ${currentFilePath}`, 'success');
-      } else {
-        notify(`${t('notify.save_failed')}: ${currentFilePath}`, 'error');
-      }
+      try { await saveProjectTo(currentFilePath); }
+      catch (error: any) { notify(error.message, 'error'); }
     } else {
       downloadFile(json, 'project.json', 'application/json');
       setSavedProjectJson(projectJson);
@@ -410,17 +422,19 @@ export function App() {
   };
 
   const handleSaveAs = async () => {
-    const json = JSON.stringify(project, null, 2);
+    const snapshot = bus.getProject();
+    const json = JSON.stringify(snapshot, null, 2);
     if ((window as any).l2dApi) {
-      const res = await (window as any).l2dApi.saveProjectAsDialog(json, 'project.json');
-      if (res && res.success && res.path) {
-        setCurrentFilePath(res.path);
-        setSavedProjectJson(projectJson);
-        notify(`${t('notify.saved')}: ${res.path}`, 'success');
-      }
+      try {
+        const res = await (window as unknown as { l2dApi: L2DApi }).l2dApi.saveProjectAsDialog(json, 'project.json', currentFilePath ?? undefined);
+        if (res) {
+          const rewritten = acceptSavedProject(res, snapshot);
+          notify(`${t('notify.saved')}: ${res.path}${rewritten ? ` (${t('notify.resource_paths_reset')})` : ''}`, 'success');
+        }
+      } catch (error: any) { notify(error.message, 'error'); }
     } else {
       downloadFile(json, 'project.json', 'application/json');
-      setSavedProjectJson(projectJson);
+      setSavedProjectJson(JSON.stringify(snapshot));
       notify(t('notify.saved'), 'success');
     }
   };
