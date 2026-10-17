@@ -4,10 +4,19 @@ import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 import { importPsdBuffer } from '@l2d/psd';
 import { generateTextureAtlas } from '@l2d/renderer';
+import { createRequire } from 'node:module';
+import type { WasmModel } from '@l2d/schema/wasm-node';
+import { startEditorBridge } from './editorBridge.js';
+
+const nodeWasm = createRequire(import.meta.url)('@l2d/schema/wasm-node') as typeof import('@l2d/schema/wasm-node');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
+let evaluatedProjectJson = '';
+let evaluatedModel: WasmModel | null = null;
+let parameterDefaults: Record<string, number> = {};
+let previousParameterKeys: string[] = [];
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -20,11 +29,14 @@ function createWindow() {
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 10 },
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
+      backgroundThrottling: false,
     },
   });
+
+  startEditorBridge(mainWindow, json => { const model = new nodeWasm.WasmModel(json); model.free(); });
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -37,6 +49,10 @@ function createWindow() {
   // until the next window is created.
   mainWindow.on('closed', () => {
     mainWindow = null;
+    evaluatedModel?.free();
+    evaluatedModel = null;
+    evaluatedProjectJson = '';
+    previousParameterKeys = [];
   });
 }
 
@@ -59,6 +75,33 @@ app.on('window-all-closed', () => {
 // IPC Handlers
 ipcMain.handle('l2d:get-system-locale', () => {
   return app.getLocale() || 'en';
+});
+
+ipcMain.handle('l2d:evaluate-frame', (_, projectJson: string, parameters: Record<string, number>) => {
+  if (!evaluatedModel || projectJson !== evaluatedProjectJson) {
+    const nextModel = new nodeWasm.WasmModel(projectJson);
+    evaluatedModel?.free();
+    evaluatedModel = nextModel;
+    evaluatedProjectJson = projectJson;
+    parameterDefaults = Object.fromEntries(JSON.parse(projectJson).parameters.map((p: { id: string; default: number }) => [p.id, p.default]));
+    previousParameterKeys = [];
+  }
+  for (const key of previousParameterKeys) evaluatedModel.setParameter(key, 0);
+  for (const [key, value] of Object.entries(parameterDefaults)) evaluatedModel.setParameter(key, value);
+  for (const [key, value] of Object.entries(parameters)) evaluatedModel.setParameter(key, value);
+  previousParameterKeys = Object.keys(parameters);
+  return evaluatedModel.evaluate();
+});
+
+ipcMain.handle('l2d:read-texture', async (_, projectPath: string, texturePath: string) => {
+  const fullPath = path.isAbsolute(texturePath) ? texturePath : path.resolve(path.dirname(projectPath), texturePath);
+  const mimeTypes: Record<string, string> = {
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+  };
+  const mimeType = mimeTypes[path.extname(fullPath).toLowerCase()];
+  if (!mimeType) throw new Error('Unsupported texture format');
+  const buffer = await fs.promises.readFile(fullPath);
+  return `data:${mimeType};base64,${buffer.toString('base64')}`;
 });
 
 ipcMain.handle('l2d:open-project-dialog', async () => {
@@ -158,7 +201,7 @@ ipcMain.handle('l2d:generate-atlas', async (_, project: any, atlasSize: number, 
       return null;
     };
 
-    const res = generateTextureAtlas(project, textureResolver, atlasSize, padding);
+    const res = await generateTextureAtlas(project, textureResolver, atlasSize, padding);
     const atlasList = res.atlasPngBuffers.map((b) => ({
       id: b.id,
       filename: b.filename,

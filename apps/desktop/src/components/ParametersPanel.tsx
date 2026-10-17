@@ -15,6 +15,8 @@ export const ParametersPanel: React.FC = () => {
     setParameterSearchQuery,
     executeCommand,
     selectedNodeId,
+    activeExpressionId,
+    applyExpression,
     notify,
   } = useEditor();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -160,7 +162,7 @@ export const ParametersPanel: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-dcc-panel border-l border-dcc-border">
       {/* Header */}
-      <div className="flex items-center justify-between h-7 px-2 border-b border-dcc-border bg-dcc-header">
+      <div className="flex shrink-0 items-center justify-between h-7 px-2 overflow-x-auto whitespace-nowrap [&>*]:shrink-0 border-b border-dcc-border bg-dcc-header">
         <div className="flex items-center space-x-1.5 text-dcc font-semibold uppercase tracking-wider text-dcc-muted">
           <SlidersHorizontal className="w-3.5 h-3.5" />
           <span>{t('parameters.title')}</span>
@@ -208,6 +210,18 @@ export const ParametersPanel: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {(project.expressions?.length ?? 0) > 0 && <div className="flex shrink-0 items-center gap-2 border-b border-dcc-border px-2 py-1">
+        <select aria-label="Expression preview" value={activeExpressionId ?? ''} onChange={event => applyExpression(event.target.value || null)}
+          className="h-6 min-w-0 flex-1 rounded border border-dcc-border bg-dcc-bg px-1 text-dcc-sm text-dcc-text">
+          <option value="">{t('parameters.expression_none')}</option>
+          {project.expressions!.map(expression => <option key={expression.id} value={expression.id}>{expression.name || expression.id}</option>)}
+        </select>
+        <button onClick={() => applyExpression(null)} disabled={activeExpressionId === null}
+          className="shrink-0 rounded px-2 py-0.5 text-dcc-sm text-dcc-muted hover:bg-dcc-hover disabled:opacity-40">
+          {t('parameters.expression_clear')}
+        </button>
+      </div>}
 
       {/* Parameter Search Filter */}
       <div className="px-2 py-1 border-b border-dcc-border bg-dcc-bg/40 flex items-center space-x-1.5">

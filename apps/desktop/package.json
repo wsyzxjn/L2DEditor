@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@l2d/command": "workspace:*",
+    "@l2d/mcp-server": "workspace:*",
     "@l2d/psd": "workspace:*",
     "@l2d/renderer": "workspace:*",
     "@l2d/schema": "workspace:*",

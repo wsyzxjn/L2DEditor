@@ -11,7 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./websocket": { "types": "./dist/websocket.d.ts", "default": "./dist/websocket.js" },
+    "./editor-protocol": { "types": "./dist/editor-protocol.d.ts", "default": "./dist/editor-protocol.js" },
+    "./editor-tools": { "types": "./dist/editor-tools.d.ts", "default": "./dist/editor-tools.js" }
   },
   "scripts": {
     "dev": "tsc -w",

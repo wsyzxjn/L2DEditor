@@ -179,7 +179,7 @@ export const HierarchyPanel: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-dcc-panel border-r border-dcc-border">
       {/* Header bar */}
-      <div className="flex items-center justify-between h-7 px-2 border-b border-dcc-border bg-dcc-header">
+      <div className="flex shrink-0 items-center justify-between h-7 px-2 overflow-x-auto whitespace-nowrap [&>*]:shrink-0 border-b border-dcc-border bg-dcc-header">
         <span className="text-dcc font-semibold uppercase tracking-wider text-dcc-muted">{t('hierarchy.title')}</span>
         <div className="flex items-center space-x-1">
           <button

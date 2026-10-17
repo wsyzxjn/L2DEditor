@@ -1,9 +1,8 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CommandBus, registerStandardCommands } from '@l2d/command';
@@ -21,9 +20,10 @@ import {
 import type { Project } from '@l2d/schema';
 // Wasm node bindings
 import { WasmModel, lintProjectJson, getProjectStats, importMtnMotion, bakePhysicsToAnimation } from '@l2d/schema/wasm-node';
+import { registerEditorTools } from './editor-tools.js';
 
-export function createMcpServer(): Server {
-  const server = new Server(
+export function createMcpServer(options: { editorUrl?: string } = {}): Server {
+  const server = new McpServer(
     {
       name: 'l2deditor-mcp-server',
       version: '0.1.0',
@@ -35,9 +35,7 @@ export function createMcpServer(): Server {
     }
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-      tools: [
+  const offlineTools: Tool[] = [
         {
           name: 'l2d_inspect',
           description: 'Inspect a .l2dproj project directory: returns canvas dimensions, parameter lists, node hierarchy tree, and keyform counts.',
@@ -351,13 +349,9 @@ export function createMcpServer(): Server {
             required: ['model3JsonPath', 'outputPath'],
           },
         },
-      ],
-    };
-  });
+  ];
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-
+  const callOfflineTool = async (name: string, args: Record<string, unknown>): Promise<CallToolResult> => {
     try {
       if (name === 'l2d_inspect') {
         const projectPath = resolveProjectJsonPath(args?.projectPath as string);
@@ -459,7 +453,7 @@ export function createMcpServer(): Server {
           return null;
         };
 
-        const pngBuffer = renderFrameToCanvas(
+        const pngBuffer = await renderFrameToCanvas(
           project.canvas.width,
           project.canvas.height,
           frame,
@@ -528,7 +522,7 @@ export function createMcpServer(): Server {
           return null;
         };
 
-        const result = generateTextureAtlas(project, textureResolver, size, 4);
+        const result = await generateTextureAtlas(project, textureResolver, size, 4);
         const texDir = path.join(projectDir, 'textures');
         fs.mkdirSync(texDir, { recursive: true });
 
@@ -567,7 +561,7 @@ export function createMcpServer(): Server {
           return null;
         };
 
-        const res = exportRuntimePackage(project, textureResolver, outDir, {
+        const res = await exportRuntimePackage(project, textureResolver, outDir, {
           modelName,
           zipOutputPath: args?.outputZipPath as string | undefined,
         });
@@ -604,7 +598,7 @@ export function createMcpServer(): Server {
 
         const tempFrames = path.join('/tmp', `l2d_mcp_anim_${Date.now()}`);
         const format = outVideo.endsWith('.webm') ? 'webm' : 'mp4';
-        const res = renderAnimationSequence(project, animId, textureResolver, tempFrames, {
+        const res = await renderAnimationSequence(project, animId, textureResolver, tempFrames, {
           format,
           videoOutputPath: outVideo,
         });
@@ -767,7 +761,7 @@ export function createMcpServer(): Server {
           const fullPath = path.isAbsolute(meta.path) ? meta.path : path.join(projectDir, meta.path);
           return fs.existsSync(fullPath) ? fs.readFileSync(fullPath) : null;
         };
-        const psdBuf = exportModelToPsdBuffer(project, textureResolver, params);
+        const psdBuf = await exportModelToPsdBuffer(project, textureResolver, params);
         fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
         fs.writeFileSync(outPath, psdBuf);
         return {
@@ -830,9 +824,15 @@ export function createMcpServer(): Server {
         content: [{ type: 'text', text: `Error: ${err?.message || String(err)}` }],
       };
     }
-  });
-
-  return server;
+  };
+  for (const tool of offlineTools) {
+    server.registerTool(tool.name, {
+      description: tool.description,
+      inputSchema: z.fromJSONSchema(tool.inputSchema as Parameters<typeof z.fromJSONSchema>[0]) as z.ZodObject,
+    }, args => callOfflineTool(tool.name, args));
+  }
+  registerEditorTools(server, options.editorUrl);
+  return server.server;
 }
 
 function resolveProjectJsonPath(inputPath: string): string {

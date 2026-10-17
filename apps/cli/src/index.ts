@@ -125,7 +125,7 @@ program
   .description('Render an offline PNG snapshot with specified parameters')
   .option('-p, --params <params>', 'Comma-separated parameter values, e.g. ParamAngleX=20,ParamAngleY=-10', '')
   .option('-o, --out <out>', 'Output PNG file path', 'snapshot.png')
-  .action((projectInput, opts) => {
+  .action(async (projectInput, opts) => {
     const file = resolveProjectPath(projectInput);
     const projectDir = path.dirname(file);
     const raw = fs.readFileSync(file, 'utf-8');
@@ -161,7 +161,7 @@ program
       return null;
     };
 
-    const pngBuf = renderFrameToCanvas(
+    const pngBuf = await renderFrameToCanvas(
       project.canvas.width,
       project.canvas.height,
       frame,
@@ -237,7 +237,7 @@ program
   .description('Generate and pack all ArtMesh textures into an optimized texture atlas')
   .option('-s, --size <size>', 'Atlas width and height in pixels', '2048')
   .option('-p, --padding <padding>', 'Pixel padding between packed textures', '4')
-  .action((projectInput, opts) => {
+  .action(async (projectInput, opts) => {
     const file = resolveProjectPath(projectInput);
     const projectDir = path.dirname(file);
     const raw = fs.readFileSync(file, 'utf-8');
@@ -257,7 +257,7 @@ program
 
     const size = Number(opts.size);
     const padding = Number(opts.padding);
-    const result = generateTextureAtlas(project, textureResolver, size, padding);
+    const result = await generateTextureAtlas(project, textureResolver, size, padding);
 
     const texDir = path.join(projectDir, 'textures');
     fs.mkdirSync(texDir, { recursive: true });
@@ -277,7 +277,7 @@ program
   .option('-n, --name <name>', 'Model name', 'model')
   .option('-s, --size <size>', 'Atlas size in pixels', '2048')
   .option('-z, --zip <zip_file>', 'Optionally package output directory into a distribution ZIP archive')
-  .action((projectInput, opts) => {
+  .action(async (projectInput, opts) => {
     const file = resolveProjectPath(projectInput);
     const projectDir = path.dirname(file);
     const raw = fs.readFileSync(file, 'utf-8');
@@ -295,7 +295,7 @@ program
       return null;
     };
 
-    const res = exportRuntimePackage(project, textureResolver, opts.out, {
+    const res = await exportRuntimePackage(project, textureResolver, opts.out, {
       modelName: opts.name,
       atlasSize: Number(opts.size),
       zipOutputPath: opts.zip,
@@ -431,7 +431,7 @@ program
   .description('Render full animation frames and encode into MP4 or WebM video (using bundled/system ffmpeg)')
   .requiredOption('-o, --out <out_file>', 'Output video path (.mp4 or .webm)')
   .option('-r, --fps <fps>', 'Target playback framerate', '30')
-  .action((projectInput, animationId, opts) => {
+  .action(async (projectInput, animationId, opts) => {
     const file = resolveProjectPath(projectInput);
     const projectDir = path.dirname(file);
     const raw = fs.readFileSync(file, 'utf-8');
@@ -451,7 +451,7 @@ program
 
     const tempFramesDir = path.join('/tmp', `l2d_anim_${Date.now()}`);
     const format = opts.out.endsWith('.gif') ? 'gif' : opts.out.endsWith('.webm') ? 'webm' : 'mp4';
-    const res = renderAnimationSequence(project, animationId, textureResolver, tempFramesDir, {
+    const res = await renderAnimationSequence(project, animationId, textureResolver, tempFramesDir, {
       fps: Number(opts.fps),
       format,
       videoOutputPath: opts.out,
@@ -464,7 +464,7 @@ program
   .command('export-psd <project>')
   .description('Export evaluated model layers back into a multi-layer .psd file (CMD_EXPORT_MODEL_AS_PSD)')
   .requiredOption('-o, --out <out_psd>', 'Target .psd output path')
-  .action((projectInput, opts) => {
+  .action(async (projectInput, opts) => {
     const file = resolveProjectPath(projectInput);
     const projectDir = path.dirname(file);
     const project: Project = JSON.parse(fs.readFileSync(file, 'utf-8'));
@@ -474,7 +474,7 @@ program
       const fullPath = path.isAbsolute(meta.path) ? meta.path : path.join(projectDir, meta.path);
       return fs.existsSync(fullPath) ? fs.readFileSync(fullPath) : null;
     };
-    const psdBuf = exportModelToPsdBuffer(project, textureResolver);
+    const psdBuf = await exportModelToPsdBuffer(project, textureResolver);
     fs.mkdirSync(path.dirname(path.resolve(opts.out)), { recursive: true });
     fs.writeFileSync(opts.out, psdBuf);
     console.log(`Successfully exported layered PSD to ${opts.out} (${psdBuf.length} bytes)`);
@@ -610,4 +610,4 @@ program
     console.log(JSON.stringify(stats, null, 2));
   });
 
-program.parse();
+await program.parseAsync();

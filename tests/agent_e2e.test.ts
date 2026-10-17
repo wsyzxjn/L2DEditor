@@ -20,10 +20,14 @@ import {
 } from '../packages/renderer/dist/index.js';
 import { importPsdBuffer, exportModelToPsdBuffer } from '../packages/psd/dist/index.js';
 import { startCubismWebSocketServer, WebSocket } from '../packages/mcp-server/dist/index.js';
-import { evaluateProjectJs, exportModelingTemplate, lintProjectJs, type Project } from '../packages/schema/dist/index.js';
+import { evaluateProjectJs, exportModelingTemplate, getMeshBoundaryLoops, lintProjectJs, type Project } from '../packages/schema/dist/index.js';
 import { detectSystemLanguage, translations } from '../apps/desktop/src/i18n/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { createRequire } from 'node:module';
+import { readPsd, writePsdBuffer } from '../packages/psd/node_modules/ag-psd/dist/index.js';
+
+const { loadImage } = createRequire(new URL('../packages/renderer/package.json', import.meta.url))('@napi-rs/canvas');
 
 describe('Agent-First Full Feature Pipeline', () => {
   const initialProject: Project = {
@@ -44,7 +48,139 @@ describe('Agent-First Full Feature Pipeline', () => {
     animations: [],
   };
 
-  it('should support full headless model assembly, deform path, physics, atlas, and runtime export', () => {
+  it('renders decoded textures without background leaking through shared triangle edges', async () => {
+    const texture = createCanvas(64, 64);
+    const textureContext = texture.getContext('2d');
+    textureContext.fillStyle = '#38bdf8';
+    textureContext.fillRect(0, 0, 64, 64);
+    const project: Project = {
+      ...initialProject,
+      canvas: { ...initialProject.canvas, width: 64, height: 64 },
+      nodes: [{
+        id: 'square', name: 'Square', parent_id: null, visible: true, locked: false,
+        kind: {
+          type: 'ArtMesh', texture_id: 'square_texture',
+          vertices: [[0, 0], [64, 0], [0, 64], [64, 64]],
+          uvs: [[0, 0], [1, 0], [0, 1], [1, 1]], indices: [0, 1, 2, 1, 3, 2],
+          blend_mode: 'normal', opacity: 1, draw_order: 0, mask_ids: [],
+        },
+      }],
+      textures: [{ id: 'square_texture', path: 'square.png', width: 64, height: 64 }],
+    };
+    const model = new WasmModel(JSON.stringify(project));
+    try {
+      const png = await renderFrameToCanvas(64, 64, model.evaluate() as any, () => texture.toBuffer('image/png'), '#000000');
+      const pixels = createCanvas(64, 64).getContext('2d');
+      pixels.drawImage(await loadImage(png), 0, 0);
+      for (let x = 4; x < 60; x++) {
+        const actual = Array.from(pixels.getImageData(x, 63 - x, 1, 1).data) as number[];
+        const expected = [56, 189, 248, 255];
+        expected.forEach((channel, index) => expect(Math.abs(actual[index] - channel)).toBeLessThanOrEqual(2));
+      }
+    } finally {
+      model.free();
+    }
+  });
+
+  it('packs shared textures once without accumulating transparency and rejects atlas overflow', async () => {
+    const texture = createCanvas(64, 64);
+    const context = texture.getContext('2d');
+    context.fillStyle = 'rgba(255, 50, 100, 0.5)';
+    context.fillRect(0, 0, 64, 64);
+    const project: Project = {
+      ...initialProject,
+      textures: [{ id: 'shared', path: 'shared.png', width: 64, height: 64 }],
+      nodes: Array.from({ length: 20 }, (_, index) => ({
+        id: `mesh_${index}`, name: 'Shared artwork', parent_id: null, visible: true, locked: false,
+        kind: {
+          type: 'ArtMesh', texture_id: 'shared', vertices: [[0, 0], [64, 0], [0, 64]],
+          uvs: [[0, 0], [1, 0], [0, 1]], indices: [0, 1, 2],
+          blend_mode: 'normal', opacity: 1, draw_order: index, mask_ids: [],
+        },
+      })),
+    };
+    const result = await generateTextureAtlas(project, () => texture.toBuffer('image/png'), 128, 4);
+    expect(result.updatedProject.nodes.every(node => node.kind.type === 'ArtMesh' && node.kind.texture_id === 'tex_atlas_00')).toBe(true);
+    const pixels = createCanvas(128, 128).getContext('2d');
+    pixels.drawImage(await loadImage(result.atlasPngBuffers[0].buffer), 0, 0);
+    expect(pixels.getImageData(20, 20, 1, 1).data[3]).toBeGreaterThanOrEqual(127);
+    expect(pixels.getImageData(20, 20, 1, 1).data[3]).toBeLessThanOrEqual(129);
+    await expect(generateTextureAtlas(project, () => texture.toBuffer('image/png'), 64, 4)).rejects.toMatch(/do not fit/);
+  });
+
+  it('composites drawable opacity once and preserves translucent texels along triangle seams', async () => {
+    for (const [textureAlpha, opacity] of [[1, 0.5], [0.5, 1], [0.5, 0.5]]) {
+      const texture = createCanvas(32, 32);
+      const textureContext = texture.getContext('2d');
+      textureContext.fillStyle = `rgba(255, 0, 0, ${textureAlpha})`;
+      textureContext.fillRect(0, 0, 32, 32);
+      const frame = {
+        meshes: [{
+          id: 'semi', texture_id: 'semi', vertices: [0, 0, 64, 0, 0, 64, 64, 64],
+          uvs: [0, 0, 1, 0, 0, 1, 1, 1], indices: [0, 1, 2, 1, 3, 2],
+          opacity, draw_order: 0, blend_mode: 'normal' as const, mask_ids: [],
+        }],
+        total_vertices: 4, total_indices: 6,
+      };
+      const result = await renderFrameToCanvas(64, 64, frame, () => texture.toBuffer('image/png'), '#000000');
+      const pixels = createCanvas(64, 64).getContext('2d');
+      pixels.drawImage(await loadImage(result), 0, 0);
+      const expectedRed = Math.round(255 * textureAlpha * opacity);
+      for (const [x, y] of [[18, 18], [31, 32], [32, 31], [45, 45]]) {
+        const rgba = pixels.getImageData(x, y, 1, 1).data;
+        expect(Math.abs(rgba[0] - expectedRed)).toBeLessThanOrEqual(2);
+        expect(rgba[1]).toBe(0);
+        expect(rgba[2]).toBe(0);
+      }
+    }
+  });
+
+  it('preserves holes when clipping a mesh by its boundaries', async () => {
+    const indices = [0, 1, 4, 1, 5, 4, 1, 2, 5, 2, 6, 5, 2, 3, 6, 3, 7, 6, 3, 0, 7, 0, 4, 7];
+    const loops = getMeshBoundaryLoops(indices);
+    expect(loops).toHaveLength(2);
+    expect(loops.flat().sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    const texture = createCanvas(64, 64);
+    texture.getContext('2d').fillStyle = '#38bdf8';
+    texture.getContext('2d').fillRect(0, 0, 64, 64);
+    const frame = { meshes: [{
+      id: 'ring', texture_id: 'blue', vertices: [4, 4, 60, 4, 60, 60, 4, 60, 20, 20, 44, 20, 44, 44, 20, 44],
+      uvs: [4, 4, 60, 4, 60, 60, 4, 60, 20, 20, 44, 20, 44, 44, 20, 44].map(value => value / 64),
+      indices, opacity: 1, draw_order: 0, blend_mode: 'normal' as const, mask_ids: [],
+    }], total_vertices: 8, total_indices: indices.length };
+    const rendered = await renderFrameToCanvas(64, 64, frame, () => texture.toBuffer('image/png'), '#000000');
+    const pixels = createCanvas(64, 64).getContext('2d');
+    pixels.drawImage(await loadImage(rendered), 0, 0);
+    expect([...pixels.getImageData(32, 32, 1, 1).data]).toEqual([0, 0, 0, 255]);
+    expect([...pixels.getImageData(12, 32, 1, 1).data]).toEqual([56, 189, 248, 255]);
+  });
+
+  it('preserves PSD layer order and writes a matching merged preview', async () => {
+    const red = createCanvas(64, 64), blue = createCanvas(32, 32);
+    red.getContext('2d').fillStyle = '#ff0000';
+    red.getContext('2d').fillRect(0, 0, 64, 64);
+    blue.getContext('2d').fillStyle = '#0000ff';
+    blue.getContext('2d').fillRect(0, 0, 32, 32);
+    const input = writePsdBuffer({ width: 64, height: 64, children: [
+      { name: 'top_blue', left: 16, top: 16, imageData: blue.getContext('2d').getImageData(0, 0, 32, 32) },
+      { name: 'bottom_red', left: 0, top: 0, imageData: red.getContext('2d').getImageData(0, 0, 64, 64) },
+    ] });
+    const imported = await importPsdBuffer(Buffer.from(input));
+    const resolver = (id: string) => imported.extractedTextures.find(texture => texture.id === id)?.buffer ?? null;
+    const model = new WasmModel(JSON.stringify(imported.project));
+    const rendered = await renderFrameToCanvas(64, 64, model.evaluate(), resolver, '#000000');
+    model.free();
+    const pixels = createCanvas(64, 64).getContext('2d');
+    pixels.drawImage(await loadImage(rendered), 0, 0);
+    expect([...pixels.getImageData(32, 32, 1, 1).data]).toEqual([0, 0, 255, 255]);
+    expect([...pixels.getImageData(8, 8, 1, 1).data]).toEqual([255, 0, 0, 255]);
+    const exported = readPsd(await exportModelToPsdBuffer(imported.project, resolver), { useImageData: true });
+    expect(exported.children?.[0].name).toBe('top_blue');
+    const index = (32 * 64 + 32) * 4;
+    expect([...exported.imageData!.data.slice(index, index + 4)]).toEqual([0, 0, 255, 255]);
+  });
+
+  it('should support full headless model assembly, deform path, physics, atlas, and runtime export', async () => {
     const bus = new CommandBus(initialProject);
     registerStandardCommands(bus);
 
@@ -179,7 +315,7 @@ describe('Agent-First Full Feature Pipeline', () => {
     ctx.fillRect(0, 0, 200, 200);
     const texBuf = dummyCanvas.toBuffer('image/png');
 
-    const atlasRes = generateTextureAtlas(assembled, () => texBuf, 1024, 4);
+    const atlasRes = await generateTextureAtlas(assembled, () => texBuf, 1024, 4);
     expect(atlasRes.atlasPngBuffers.length).toBe(1);
     expect(atlasRes.atlasPngBuffers[0].buffer.length).toBeGreaterThan(500);
 
@@ -192,7 +328,7 @@ describe('Agent-First Full Feature Pipeline', () => {
 
     // 9. Test Standard Runtime Export Package
     const tempExportDir = path.join('/tmp', `l2d_export_${Date.now()}`);
-    const exportRes = exportRuntimePackage(assembled, () => texBuf, tempExportDir, {
+    const exportRes = await exportRuntimePackage(assembled, () => texBuf, tempExportDir, {
       modelName: 'chara_test',
       atlasSize: 1024,
     });
@@ -207,6 +343,17 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(model3Content.FileReferences.Physics).toBe('chara_test.physics3.json');
     expect(model3Content.FileReferences.Textures[0]).toBe('textures/texture_00.png');
 
+    // Encoded PNG size alone cannot detect drawing before image decode.
+    for (const buffer of [
+      atlasRes.atlasPngBuffers[0].buffer,
+      fs.readFileSync(path.join(tempExportDir, 'textures/texture_00.png')),
+    ]) {
+      const image = await loadImage(buffer);
+      const pixels = createCanvas(image.width, image.height).getContext('2d');
+      pixels.drawImage(image, 0, 0);
+      expect(Array.from(pixels.getImageData(20, 20, 1, 1).data)).toEqual([255, 105, 180, 255]);
+    }
+
     // 10. Reversibility check
     bus.undo(); // macro
     bus.undo(); // physics
@@ -219,7 +366,7 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(bus.getProject()).toEqual(initialProject);
   });
 
-  it('should verify Part opacity inheritance, clipping mask, and multiply/screen color filters', () => {
+  it('should verify Part opacity inheritance, clipping mask, and multiply/screen color filters', async () => {
     const projectWithFeatures: Project = {
       format_version: 1,
       canvas: {
@@ -305,7 +452,7 @@ describe('Agent-First Full Feature Pipeline', () => {
     ctx.fillRect(0, 0, 100, 100);
     const buf = dummyC.toBuffer('image/png');
 
-    const png = renderFrameToCanvas(
+    const png = await renderFrameToCanvas(
       projectWithFeatures.canvas.width,
       projectWithFeatures.canvas.height,
       frame,
@@ -316,7 +463,7 @@ describe('Agent-First Full Feature Pipeline', () => {
   });
 
 
-  it('should analyze audio WAV buffer and generate lip-sync keyframes and export userdata3.json', () => {
+  it('should analyze audio WAV buffer and generate lip-sync keyframes and export userdata3.json', async () => {
     // 1. Generate 1-second 440Hz test WAV
     const wavBuf = createSyntheticWavBuffer(1.0, 440, 44100);
     expect(wavBuf.length).toBeGreaterThan(1000);
@@ -367,7 +514,7 @@ describe('Agent-First Full Feature Pipeline', () => {
     const texBuf = dummyC.toBuffer('image/png');
 
     const tempDir = path.join('/tmp', `l2d_userdata_test_${Date.now()}`);
-    const exportRes = exportRuntimePackage(projectWithUserData, () => texBuf, tempDir, {
+    const exportRes = await exportRuntimePackage(projectWithUserData, () => texBuf, tempDir, {
       modelName: 'userdata_model',
     });
 
@@ -386,7 +533,7 @@ describe('Agent-First Full Feature Pipeline', () => {
   });
 
 
-  it('should export pose3.json, exp3.json, and motionsync3.json matching Live2D specifications', () => {
+  it('should export pose3.json, exp3.json, and motionsync3.json matching Live2D specifications', async () => {
     const fullProject: Project = {
       format_version: 1,
       canvas: { width: 800, height: 800, origin_x: 0.5, origin_y: 0.5, background_color: '#000000' },
@@ -442,7 +589,7 @@ describe('Agent-First Full Feature Pipeline', () => {
     const texBuf = dummyC.toBuffer('image/png');
 
     const tempDir = path.join('/tmp', `l2d_full_spec_${Date.now()}`);
-    const res = exportRuntimePackage(fullProject, () => texBuf, tempDir, {
+    const res = await exportRuntimePackage(fullProject, () => texBuf, tempDir, {
       modelName: 'full_spec_model',
     });
 
@@ -476,7 +623,7 @@ describe('Agent-First Full Feature Pipeline', () => {
   });
 
 
-  it('should render animation sequence of frames and encode to MP4 video', () => {
+  it('should render animation sequence of frames and encode to MP4 video', async () => {
     const animProject: Project = {
       format_version: 1,
       canvas: { width: 400, height: 400, origin_x: 0.5, origin_y: 0.5, background_color: '#18181b' },
@@ -532,7 +679,7 @@ describe('Agent-First Full Feature Pipeline', () => {
     const outFramesDir = path.join('/tmp', `l2d_frames_${Date.now()}`);
     const outVideoPath = path.join(outFramesDir, 'test_turn.mp4');
 
-    const seqRes = renderAnimationSequence(animProject, 'turn_motion', () => texBuf, outFramesDir, {
+    const seqRes = await renderAnimationSequence(animProject, 'turn_motion', () => texBuf, outFramesDir, {
       fps: 30,
       format: 'mp4',
       videoOutputPath: outVideoPath,
@@ -542,6 +689,11 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(fs.existsSync(path.join(outFramesDir, 'frame_0000.png'))).toBe(true);
     expect(fs.existsSync(path.join(outFramesDir, 'frame_0005.png'))).toBe(true);
     expect(fs.existsSync(outVideoPath)).toBe(true);
+
+    const image = await loadImage(fs.readFileSync(path.join(outFramesDir, 'frame_0000.png')));
+    const pixels = createCanvas(image.width, image.height).getContext('2d');
+    pixels.drawImage(image, 0, 0);
+    expect(Array.from(pixels.getImageData(70, 70, 1, 1).data)).toEqual([56, 189, 248, 255]);
   });
 
 
@@ -1645,7 +1797,7 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(bus.getProject().keyforms[0].keyforms.length).toBe(9);
   });
 
-  it('should support ArtPath creation, contour fitting, Wasm + JS evaluation, and headless PNG rendering', () => {
+  it('should support ArtPath creation, contour fitting, Wasm + JS evaluation, and headless PNG rendering', async () => {
     const bus = new CommandBus(initialProject);
     registerStandardCommands(bus);
 
@@ -1698,7 +1850,7 @@ describe('Agent-First Full Feature Pipeline', () => {
     expect(artPathMesh.texture_id).toBe('__artpath_solid__');
 
     // Headless render including solid ArtPath stroke
-    const png = renderFrameToCanvas(1000, 1000, wasmFrame, () => null);
+    const png = await renderFrameToCanvas(1000, 1000, wasmFrame, () => null);
     expect(png.subarray(0, 4).toString('hex')).toBe('89504e47');
   });
 
@@ -2089,13 +2241,13 @@ describe('Agent-First Full Feature Pipeline', () => {
       ],
       textures: [{ id: 'tex_face', path: 'textures/face.png', width: 64, height: 64 }],
     };
-    const exportedPsd = exportModelToPsdBuffer(psdProj, () => texPng);
+    const exportedPsd = await exportModelToPsdBuffer(psdProj, () => texPng);
     expect(exportedPsd.toString('ascii', 0, 4)).toBe('8BPS'); // Official Adobe PSD magic signature
     const reimported = await importPsdBuffer(exportedPsd);
     expect(reimported.project.nodes.some((n) => n.id === 'Face_Layer')).toBe(true);
   });
 
-  it('should support DeformPath Auto-Skinning (CUB3-1677), Atlas Unpacking, and Mask Target Hidden Warning (CUB3-1999)', () => {
+  it('should support DeformPath Auto-Skinning (CUB3-1677), Atlas Unpacking, and Mask Target Hidden Warning (CUB3-1999)', async () => {
     const bus = new CommandBus(initialProject);
     registerStandardCommands(bus);
 
@@ -2171,7 +2323,7 @@ describe('Agent-First Full Feature Pipeline', () => {
     // 3. Test unpackAtlasTextures
     const dummyAtlasCanvas = createCanvas(512, 512);
     const dummyAtlasBuf = dummyAtlasCanvas.toBuffer('image/png');
-    const unpacked = unpackAtlasTextures(bus.getProject(), dummyAtlasBuf);
+    const unpacked = await unpackAtlasTextures(bus.getProject(), dummyAtlasBuf);
     expect(unpacked.length).toBeGreaterThanOrEqual(1);
     expect(unpacked[0].buffer.subarray(0, 4).toString('hex')).toBe('89504e47');
   });
@@ -2283,7 +2435,7 @@ describe('Agent-First Full Feature Pipeline', () => {
       const canvas = createCanvas(128, 128);
       return canvas.toBuffer('image/png');
     };
-    const exportRes = exportRuntimePackage(bus.getProject(), dummyTexResolver, testExportDir, {
+    const exportRes = await exportRuntimePackage(bus.getProject(), dummyTexResolver, testExportDir, {
       modelName: 'roundtrip_model',
     });
     expect(fs.existsSync(exportRes.model3JsonPath)).toBe(true);

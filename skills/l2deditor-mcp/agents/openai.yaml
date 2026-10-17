@@ -1,0 +1,4 @@
+interface:
+  display_name: "L2DEditor with MCP"
+  short_description: "Operate L2DEditor through shared GUI and headless MCP tools"
+  default_prompt: "Use $l2deditor-mcp to inspect and edit the current L2DEditor project through MCP, then verify actual rendered results."

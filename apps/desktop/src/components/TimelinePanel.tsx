@@ -124,7 +124,7 @@ export const TimelinePanel: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-dcc-panel border-t border-dcc-border select-none">
       {/* Timeline Controls Header */}
-      <div className="flex items-center justify-between h-8 px-3 border-b border-dcc-border bg-dcc-header">
+      <div className="flex shrink-0 items-center justify-between h-8 px-3 overflow-x-auto whitespace-nowrap [&>*]:shrink-0 border-b border-dcc-border bg-dcc-header">
         <div className="flex items-center space-x-2">
           <div className="flex items-center space-x-1.5 text-dcc font-semibold uppercase tracking-wider text-dcc-muted mr-2">
             <Film className="w-3.5 h-3.5" />

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import {
   DockviewReact,
   type DockviewReadyEvent,
+  type DockviewApi,
 } from 'dockview-react';
 import {
   evaluateAnimationAtFrameJs,
@@ -11,7 +13,7 @@ import {
   type EvaluatedFrameJs,
   type Project,
 } from '@l2d/schema';
-import { CommandBus, registerStandardCommands } from '@l2d/command';
+import { CommandBus, registerStandardCommands, type Command } from '@l2d/command';
 import { EditorContext } from './context/EditorContext.js';
 import { HierarchyPanel } from './components/HierarchyPanel.js';
 import { ParametersPanel } from './components/ParametersPanel.js';
@@ -23,6 +25,9 @@ import { HistoryPanel } from './components/HistoryPanel.js';
 import { AtlasModal } from './components/AtlasModal.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import { useI18n, type LanguageSetting } from './i18n/index.js';
+import type { L2DApi } from '../electron/preload.js';
+import type { EditorViewportControls } from '@l2d/mcp-server/editor-protocol';
+import { EditorAutomation } from './components/EditorAutomation.js';
 import {
   FilePlus,
   FolderOpen,
@@ -88,6 +93,8 @@ export function App() {
   const [atlasModalOpen, setAtlasModalOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dockviewRef = useRef<DockviewApi | null>(null);
+  const viewportControls = useRef<EditorViewportControls | null>(null);
 
   // Mesh editing state
   const [isMeshEditMode, setIsMeshEditMode] = useState(false);
@@ -104,6 +111,7 @@ export function App() {
   const [isPlayingAnimation, setIsPlayingAnimation] = useState(false);
   const [currentPlayheadFrame, setCurrentPlayheadFrame] = useState(0);
   const [activeAnimationId, setActiveAnimationId] = useState<string | null>(null);
+  const [activeExpressionId, setActiveExpressionId] = useState<string | null>(null);
   const [waveformPeaks, setWaveformPeaks] = useState<number[]>([]);
   const physicsSimRef = useRef<PhysicsSimulatorJs>(new PhysicsSimulatorJs());
 
@@ -123,15 +131,33 @@ export function App() {
 
   // Evaluated frame representation
   const [frame, setFrame] = useState<EvaluatedFrameJs | null>(null);
+  const [evaluatedInputs, setEvaluatedInputs] = useState<{ project: Project; parameters: Record<string, number> } | null>(null);
+  const frameReady = evaluatedInputs?.project === project && evaluatedInputs.parameters === parameterValues;
+  const projectJson = useMemo(() => JSON.stringify(project), [project]);
 
   // Update evaluator when project, parameters, or active animation frame change
   useEffect(() => {
+    const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
+    const hasFormTracks = project.animations?.some(animation => animation.form_tracks?.length);
+    if (api?.evaluateFrame && !hasFormTracks) {
+      let active = true;
+      void api.evaluateFrame(projectJson, parameterValues).then(evaluated => {
+        if (active) {
+          setFrame(evaluated);
+          setEvaluatedInputs({ project, parameters: parameterValues });
+        }
+      }).catch(error => {
+        if (active) setStatusMessage({ text: `Model evaluation: ${String(error)}`, type: 'error' });
+      });
+      return () => { active = false; };
+    }
     const evaluated = evaluateProjectJs(project, parameterValues, {
       currentFrame: currentPlayheadFrame,
       activeAnimationId,
     });
     setFrame(evaluated);
-  }, [project, parameterValues, currentPlayheadFrame, activeAnimationId]);
+    setEvaluatedInputs({ project, parameters: parameterValues });
+  }, [project, projectJson, parameterValues, currentPlayheadFrame, activeAnimationId]);
 
   // Live Animation Playback Loop
   useEffect(() => {
@@ -226,38 +252,74 @@ export function App() {
     return () => cancelAnimationFrame(animHandle);
   }, [isAutoIdleEnabled]);
 
-  const executeCommand = (cmd: any) => {
-    const res = bus.execute(cmd);
+  const executeCommand = (cmd: Command<object>) => {
+    const res = bus.execute({ ...cmd, params: { ...cmd.params } });
     if (res.success) {
       setProject({ ...bus.getProject() });
     } else {
       console.error('Command failed:', res.error);
       notify(`Error: ${res.error}`, 'error');
     }
+    return res;
   };
 
-  const handleNew = () => {
-    bus.setProject(defaultInitialProject);
-    setProject({ ...defaultInitialProject });
-    setCurrentFilePath(null);
+  const loadProject = (loaded: Project, filePath: string | null) => {
+    bus.setProject(loaded);
+    setProject(loaded);
+    setCurrentFilePath(filePath);
     setSelectedNodeId(null);
     setSelectedNodeIds([]);
     setParameterValues({});
+    setIsPlayingAnimation(false);
+    setCurrentPlayheadFrame(0);
+    setActiveAnimationId(loaded.animations?.[0]?.id ?? null);
+    setActiveExpressionId(null);
+    setIsPhysicsEnabled(false);
+    setIsAutoIdleEnabled(false);
+  };
+  const applyExpression = (id: string | null) => {
+    if (id !== null && !project.expressions?.some(expression => expression.id === id)) throw new Error(`Unknown expression '${id}'`);
+    setParameterValues(previous => ({
+      ...previous,
+      ...Object.fromEntries((project.expressions ?? []).map(expression => [`__expression_weight:${expression.id}`, expression.id === id ? 1 : 0])),
+    }));
+    setActiveExpressionId(id);
+  };
+  const seekAnimationFrame = (targetFrame: number, animationId = activeAnimationId ?? undefined) => {
+    const animation = project.animations?.find(item => item.id === animationId) ?? project.animations?.[0];
+    setCurrentPlayheadFrame(targetFrame);
+    if (animation) setParameterValues(previous => ({ ...previous, ...evaluateAnimationAtFrameJs(animation, targetFrame) }));
+  };
+  const saveProjectTo = async (target = currentFilePath ?? undefined) => {
+    const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
+    if (!target) throw new Error('No file path. Pass an explicit path to save a new document.');
+    if (!api || !await api.saveProject(target, JSON.stringify(bus.getProject(), null, 2))) throw new Error('Failed to save project');
+    flushSync(() => setCurrentFilePath(target));
+    notify(`${t('notify.saved')}: ${target}`, 'success');
+    return target;
+  };
+
+  const handleNew = () => {
+    loadProject(defaultInitialProject, null);
     notify(t('notify.new_project'), 'info');
   };
 
   const handleUndo = () => {
-    if (bus.undo()) {
+    const success = bus.undo();
+    if (success) {
       setProject({ ...bus.getProject() });
       notify(t('notify.undo'), 'info');
     }
+    return success;
   };
 
   const handleRedo = () => {
-    if (bus.redo()) {
+    const success = bus.redo();
+    if (success) {
       setProject({ ...bus.getProject() });
       notify(t('notify.redo'), 'info');
     }
+    return success;
   };
 
   const jumpToHistory = (targetIndex: number) => {
@@ -304,11 +366,7 @@ export function App() {
       if (res) {
         try {
           const parsed: Project = JSON.parse(res.content);
-          bus.setProject(parsed);
-          setProject(parsed);
-          setCurrentFilePath(res.path);
-          setSelectedNodeId(null);
-          setSelectedNodeIds([]);
+          loadProject(parsed, res.path);
           notify(`${t('notify.opened')}: ${res.path}`, 'success');
         } catch (e: any) {
           notify(`Failed to parse project: ${e?.message || e}`, 'error');
@@ -325,11 +383,7 @@ export function App() {
       if (res) {
         try {
           const parsed: Project = JSON.parse(res.projectContent);
-          bus.setProject(parsed);
-          setProject(parsed);
-          setCurrentFilePath(res.outputPath);
-          setSelectedNodeId(null);
-          setSelectedNodeIds([]);
+          loadProject(parsed, res.outputPath);
           notify(`${t('notify.psd_imported')} (${parsed.nodes.length})`, 'success');
         } catch (e: any) {
           notify(`Failed to import PSD: ${e?.message || e}`, 'error');
@@ -371,6 +425,7 @@ export function App() {
   }, [project, currentFilePath]);
 
   const onReady = (event: DockviewReadyEvent) => {
+    dockviewRef.current = event.api;
     const left = event.api.addPanel({
       id: 'hierarchy_panel',
       component: 'hierarchy',
@@ -416,13 +471,17 @@ export function App() {
     });
 
     // Add Timeline at bottom
-    event.api.addPanel({
+    const timeline = event.api.addPanel({
       id: 'timeline_panel',
       component: 'timeline',
       title: t('timeline.title'),
       position: { referencePanel: center, direction: 'below' },
       initialHeight: 220,
     });
+    left.api.setSize({ width: 260 });
+    rightTop.api.setSize({ width: 320 });
+    timeline.api.setSize({ height: 220 });
+    rightTop.api.setActive();
   };
 
   const toggleSelectNodeId = (id: string, multi: boolean = false) => {
@@ -442,6 +501,9 @@ export function App() {
     project,
     bus,
     frame,
+    frameReady,
+    activeExpressionId,
+    applyExpression,
     selectedNodeId,
     selectedNodeIds,
     parameterValues,
@@ -461,6 +523,16 @@ export function App() {
     gridSize,
     setGridSize,
     executeCommand,
+    loadProject,
+    saveProjectTo,
+    undo: handleUndo,
+    redo: handleRedo,
+    viewportControls,
+    showPanel: (panel: string) => {
+      const target = dockviewRef.current?.getPanel(`${panel}_panel`);
+      if (!target) throw new Error(`Panel '${panel}' is closed`);
+      target.api.setActive();
+    },
     jumpToHistory,
     notify,
     // Mesh editing mode
@@ -485,7 +557,8 @@ export function App() {
     isPlayingAnimation,
     setIsPlayingAnimation,
     currentPlayheadFrame,
-    setCurrentPlayheadFrame,
+    setCurrentPlayheadFrame: seekAnimationFrame,
+    seekAnimationFrame,
     activeAnimationId,
     setActiveAnimationId,
     waveformPeaks,
@@ -494,6 +567,7 @@ export function App() {
 
   return (
     <EditorContext.Provider value={contextValue}>
+      <EditorAutomation />
       <div className="flex flex-col w-screen h-screen bg-dcc-bg text-dcc-text">
         {/* Top Menu / App Toolbar */}
         <header
@@ -589,7 +663,8 @@ export function App() {
 
             {statusMessage && (
               <span
-                className={`flex items-center text-dcc-sm px-2 py-0.5 rounded font-medium transition-all ${
+                title={statusMessage.text}
+                className={`fixed right-3 top-11 z-50 max-w-[70vw] truncate whitespace-nowrap text-dcc-sm px-2 py-0.5 rounded font-medium transition-all ${
                   statusMessage.type === 'success'
                     ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800'
                     : statusMessage.type === 'error'
@@ -607,7 +682,7 @@ export function App() {
             )}
 
             {currentFilePath && (
-              <span className="text-dcc-sm text-dcc-muted font-mono truncate max-w-[120px] lg:max-w-xs hidden sm:inline" title={currentFilePath}>
+              <span className="text-dcc-sm text-dcc-muted font-mono truncate max-w-xs hidden xl:inline" title={currentFilePath}>
                 {currentFilePath.split('/').pop()}
               </span>
             )}
@@ -707,9 +782,7 @@ export function App() {
               const text = await file.text();
               try {
                 const parsed = JSON.parse(text);
-                bus.setProject(parsed);
-                setProject(parsed);
-                setCurrentFilePath(file.name);
+                loadProject(parsed, file.name);
                 notify(`Opened ${file.name}`, 'success');
               } catch (err: any) {
                 notify(`Failed to parse file: ${err?.message || err}`, 'error');

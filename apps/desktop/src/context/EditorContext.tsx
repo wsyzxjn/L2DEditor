@@ -1,11 +1,15 @@
 import React, { createContext, useContext } from 'react';
 import type { Project, EvaluatedFrameJs } from '@l2d/schema';
-import type { CommandBus } from '@l2d/command';
+import type { CommandBus, Command, CommandExecutionResult } from '@l2d/command';
+import type { EditorViewportControls } from '@l2d/mcp-server/editor-protocol';
 
 export interface EditorContextValue {
   project: Project;
   bus: CommandBus;
   frame: EvaluatedFrameJs | null;
+  frameReady: boolean;
+  activeExpressionId: string | null;
+  applyExpression: (id: string | null) => void;
   selectedNodeId: string | null;
   selectedNodeIds: string[];
   parameterValues: Record<string, number>;
@@ -20,7 +24,13 @@ export interface EditorContextValue {
   setIsGridSnapEnabled: (val: boolean) => void;
   gridSize: number;
   setGridSize: (size: number) => void;
-  executeCommand: (cmd: any) => void;
+  executeCommand: (cmd: Command<object>) => CommandExecutionResult;
+  loadProject: (project: Project, path: string | null) => void;
+  saveProjectTo: (path?: string) => Promise<string>;
+  undo: () => boolean;
+  redo: () => boolean;
+  viewportControls: React.RefObject<EditorViewportControls | null>;
+  showPanel: (panel: string) => void;
   jumpToHistory: (targetIndex: number) => void;
   notify: (text: string, type?: 'info' | 'success' | 'error') => void;
   // Mesh Editing Mode
@@ -46,6 +56,7 @@ export interface EditorContextValue {
   setIsPlayingAnimation: (val: boolean) => void;
   currentPlayheadFrame: number;
   setCurrentPlayheadFrame: (frame: number) => void;
+  seekAnimationFrame: (frame: number, animationId?: string) => void;
   activeAnimationId: string | null;
   setActiveAnimationId: (id: string | null) => void;
   waveformPeaks: number[];

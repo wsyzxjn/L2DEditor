@@ -1,6 +1,8 @@
-import { readPsd, writePsdBuffer, initializeCanvas } from 'ag-psd';
-import { clearAllCache, createCanvas, Image } from '@napi-rs/canvas';
-import { evaluateProjectJs, type Project, type Node, type ArtMeshData, type TextureMeta } from '@l2d/schema';
+import { readPsd, writePsdBuffer, initializeCanvas, type Layer } from 'ag-psd';
+import { clearAllCache, createCanvas, loadImage, type Canvas } from '@napi-rs/canvas';
+import type { Project, Node, ArtMeshData, TextureMeta, EvaluatedFrameJs } from '@l2d/schema';
+import { createRequire } from 'node:module';
+import { renderFrameToCanvas } from '@l2d/renderer/headless';
 import { generateGridMesh } from './mesh.js';
 
 // Initialize ag-psd canvas factory using @napi-rs/canvas
@@ -65,7 +67,7 @@ export async function importPsdBuffer(
         kind: { type: 'Part', collapsed: false },
       });
       // Process children in reverse so top layer renders on top
-      for (const child of layer.children) {
+      for (const child of [...layer.children].reverse()) {
         processLayer(child, layerId);
       }
       return;
@@ -161,7 +163,7 @@ export async function importPsdBuffer(
   }
 
   if (psd.children) {
-    for (const child of psd.children) {
+    for (const child of [...psd.children].reverse()) {
       processLayer(child, null);
     }
   }
@@ -245,119 +247,63 @@ function sanitizeId(name: string): string {
 /**
  * Exports an L2DEditor `Project` (evaluated at optional `params`) into a layered `.psd` Buffer (`CMD_EXPORT_MODEL_AS_PSD`).
  */
-export function exportModelToPsdBuffer(
+export async function exportModelToPsdBuffer(
   project: Project,
   textureResolver: (textureId: string) => Buffer | null,
   params: Record<string, number> = {}
-): Buffer {
-  const frame = evaluateProjectJs(project, params);
-  const tempCanvases: any[] = [];
-
+): Promise<Buffer> {
+  const wasm = createRequire(import.meta.url)('@l2d/schema/wasm-node') as typeof import('@l2d/schema/wasm-node');
+  const model = new wasm.WasmModel(JSON.stringify(project));
+  const tempCanvases: Canvas[] = [];
   try {
-    const children: any[] = [];
-
+    for (const [id, value] of Object.entries(params)) model.setParameter(id, value);
+    const frame: EvaluatedFrameJs = model.evaluate();
+    const children: Layer[] = [];
     for (const mesh of frame.meshes) {
       if (mesh.opacity <= 0.001 || mesh.vertices.length < 6) continue;
-      const node = project.nodes.find((n) => n.id === mesh.id);
-
+      const node = project.nodes.find(node => node.id === mesh.id);
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (let i = 0; i < mesh.vertices.length; i += 2) {
-        const vx = mesh.vertices[i];
-        const vy = mesh.vertices[i + 1];
-        if (vx < minX) minX = vx;
-        if (vx > maxX) maxX = vx;
-        if (vy < minY) minY = vy;
-        if (vy > maxY) maxY = vy;
+      for (let index = 0; index < mesh.vertices.length; index += 2) {
+        minX = Math.min(minX, mesh.vertices[index]);
+        maxX = Math.max(maxX, mesh.vertices[index]);
+        minY = Math.min(minY, mesh.vertices[index + 1]);
+        maxY = Math.max(maxY, mesh.vertices[index + 1]);
       }
-
-      const left = Math.max(0, Math.floor(minX));
-      const top = Math.max(0, Math.floor(minY));
-      const right = Math.min(project.canvas.width, Math.ceil(maxX));
-      const bottom = Math.min(project.canvas.height, Math.ceil(maxY));
-      const lw = Math.max(1, right - left);
-      const lh = Math.max(1, bottom - top);
-
-      const layerCanvas = createCanvas(lw, lh);
+      const left = Math.max(0, Math.floor(minX)), top = Math.max(0, Math.floor(minY));
+      const right = Math.min(project.canvas.width, Math.ceil(maxX)), bottom = Math.min(project.canvas.height, Math.ceil(maxY));
+      if (right <= left || bottom <= top) continue;
+      // Reuse the PNG renderer, including clipping and seam handling. The
+      // drawable opacity is kept on the PSD layer, rather than baked twice.
+      const sources = frame.meshes.filter(source => mesh.mask_ids.includes(source.id));
+      const isolated = [...sources.map(source => ({ ...source, opacity: 0 })), { ...mesh, opacity: 1, blend_mode: 'normal' as const }];
+      const localFrame = { ...frame, meshes: isolated.map(source => ({
+        ...source, vertices: source.vertices.map((coordinate, index) => coordinate - (index % 2 === 0 ? left : top)),
+      })) };
+      const png = await renderFrameToCanvas(right - left, bottom - top, localFrame, textureResolver, 'rgba(0,0,0,0)');
+      const layerCanvas = createCanvas(right - left, bottom - top);
       tempCanvases.push(layerCanvas);
-      const ctx = layerCanvas.getContext('2d');
-      ctx.translate(-left, -top);
-
-      if (mesh.texture_id === '__artpath_solid__') {
-        const mc = mesh.multiply_color || [0.15, 0.15, 0.18, 1];
-        ctx.fillStyle = `rgba(${Math.round(mc[0] * 255)}, ${Math.round(mc[1] * 255)}, ${Math.round(mc[2] * 255)}, ${mc[3] ?? 1})`;
-        for (let i = 0; i < mesh.indices.length; i += 3) {
-          const i0 = mesh.indices[i] * 2;
-          const i1 = mesh.indices[i + 1] * 2;
-          const i2 = mesh.indices[i + 2] * 2;
-          ctx.beginPath();
-          ctx.moveTo(mesh.vertices[i0], mesh.vertices[i0 + 1]);
-          ctx.lineTo(mesh.vertices[i1], mesh.vertices[i1 + 1]);
-          ctx.lineTo(mesh.vertices[i2], mesh.vertices[i2 + 1]);
-          ctx.closePath();
-          ctx.fill();
-        }
-      } else {
-        const buf = textureResolver(mesh.texture_id);
-        if (buf) {
-          const img = new Image();
-          img.src = buf;
-          const texW = img.width;
-          const texH = img.height;
-          for (let i = 0; i < mesh.indices.length; i += 3) {
-            const i0 = mesh.indices[i];
-            const i1 = mesh.indices[i + 1];
-            const i2 = mesh.indices[i + 2];
-            const x0 = mesh.vertices[i0 * 2], y0 = mesh.vertices[i0 * 2 + 1];
-            const x1 = mesh.vertices[i1 * 2], y1 = mesh.vertices[i1 * 2 + 1];
-            const x2 = mesh.vertices[i2 * 2], y2 = mesh.vertices[i2 * 2 + 1];
-            const u0 = mesh.uvs[i0 * 2] * texW, v0 = mesh.uvs[i0 * 2 + 1] * texH;
-            const u1 = mesh.uvs[i1 * 2] * texW, v1 = mesh.uvs[i1 * 2 + 1] * texH;
-            const u2 = mesh.uvs[i2 * 2] * texW, v2 = mesh.uvs[i2 * 2 + 1] * texH;
-            const delta = u0 * (v1 - v2) - v0 * (u1 - u2) + (u1 * v2 - u2 * v1);
-            if (Math.abs(delta) > 1e-6) {
-              ctx.save();
-              ctx.beginPath();
-              ctx.moveTo(x0, y0);
-              ctx.lineTo(x1, y1);
-              ctx.lineTo(x2, y2);
-              ctx.closePath();
-              ctx.clip();
-              const a = -(v0 * (x1 - x2) - v1 * x0 + v2 * x0 + (v1 * x2 - v2 * x1)) / delta;
-              const b = -(v0 * (y1 - y2) - v1 * y0 + v2 * y0 + (v1 * y2 - v2 * y1)) / delta;
-              const c = (u0 * (x1 - x2) - u1 * x0 + u2 * x0 + (u1 * x2 - u2 * x1)) / delta;
-              const d = (u0 * (y1 - y2) - u1 * y0 + u2 * y0 + (u1 * y2 - u2 * y1)) / delta;
-              const e = (u0 * (v1 * x2 - v2 * x1) - v0 * (u1 * x2 - u2 * x1) + (u1 * v2 - u2 * v1) * x0) / delta;
-              const f = (u0 * (v1 * y2 - v2 * y1) - v0 * (u1 * y2 - u2 * y1) + (u1 * v2 - u2 * v1) * y0) / delta;
-              ctx.transform(a, b, c, d, e, f);
-              ctx.drawImage(img, 0, 0);
-              ctx.restore();
-            }
-          }
-          img.src = '';
-        }
-      }
-
+      const image = await loadImage(png);
+      layerCanvas.getContext('2d').drawImage(image, 0, 0);
+      image.src = '';
       children.push({
-        name: node?.name || mesh.id,
-        left,
-        top,
-        opacity: mesh.opacity,
-        blendMode: mesh.blend_mode === 'multiply' ? 'multiply' : mesh.blend_mode === 'screen' ? 'screen' : 'normal',
-        canvas: layerCanvas as any,
+        name: node?.name || mesh.id, left, top, opacity: mesh.opacity,
+        blendMode: mesh.blend_mode === 'multiply' ? 'multiply' : mesh.blend_mode === 'screen' ? 'screen' : mesh.blend_mode === 'additive' ? 'linear dodge' : 'normal',
+        imageData: layerCanvas.getContext('2d').getImageData(0, 0, layerCanvas.width, layerCanvas.height),
       });
     }
-
-    const psd = {
-      width: project.canvas.width,
-      height: project.canvas.height,
-      children,
-    };
-
-    return Buffer.from(writePsdBuffer(psd as any));
+    const composite = createCanvas(project.canvas.width, project.canvas.height);
+    tempCanvases.push(composite);
+    const compositeImage = await loadImage(await renderFrameToCanvas(project.canvas.width, project.canvas.height, frame, textureResolver, 'rgba(0,0,0,0)'));
+    composite.getContext('2d').drawImage(compositeImage, 0, 0);
+    compositeImage.src = '';
+    return Buffer.from(writePsdBuffer({
+      width: project.canvas.width, height: project.canvas.height,
+      // ag-psd stores the topmost layer first; evaluated draw order is ascending.
+      children: children.reverse(), imageData: composite.getContext('2d').getImageData(0, 0, composite.width, composite.height),
+    }));
   } finally {
-    for (const c of tempCanvases) {
-      releaseCanvas(c);
-    }
+    model.free();
+    for (const canvas of tempCanvases) releaseCanvas(canvas);
     clearAllCache();
   }
 }

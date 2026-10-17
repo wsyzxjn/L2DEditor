@@ -1,4 +1,4 @@
-import { createCanvas, Image } from '@napi-rs/canvas';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 import type { Project } from '@l2d/schema';
 import type { TextureResolver } from './headless.js';
 import { createRequire } from 'module';
@@ -15,12 +15,12 @@ export interface AtlasPackResult {
  * Packs all individual ArtMesh textures into a single texture atlas
  * using the pure-Rust 2D Shelf bin-packing & UV remapper (`crates/l2d-core/src/exporter.rs`).
  */
-export function generateTextureAtlas(
+export async function generateTextureAtlas(
   project: Project,
   textureResolver: TextureResolver,
   atlasSize: number = 2048,
   padding: number = 4
-): AtlasPackResult {
+): Promise<AtlasPackResult> {
   const bundle = wasmNode.exportRuntimeBundle(
     JSON.stringify(project),
     'model',
@@ -45,14 +45,16 @@ export function generateTextureAtlas(
   const atlasId = 'tex_atlas_00';
   const atlasFilename = 'texture_00.png';
 
+  const drawnTextures = new Set<string>();
   for (const p of bundle.atlas_placements) {
+    if (drawnTextures.has(p.texture_id)) continue;
     const buf = textureResolver(p.texture_id);
     if (buf) {
-      const img = new Image();
-      img.src = buf;
+      const img = await loadImage(buf);
       ctx.drawImage(img, p.x, p.y, p.width, p.height);
       img.src = '';
     }
+    drawnTextures.add(p.texture_id);
   }
 
   const atlasBuffer = canvas.toBuffer('image/png');
@@ -73,12 +75,11 @@ export function generateTextureAtlas(
  * Reconstructs individual cropped ArtMesh texture PNGs from a packed atlas image
  * and mesh UV coordinates (`CMD_GENERATE_RAW_IMAGE_FROM_TEXTURE_ATLAS`).
  */
-export function unpackAtlasTextures(
+export async function unpackAtlasTextures(
   project: Project,
   atlasBuffer: Buffer
-): { textureId: string; filename: string; buffer: Buffer }[] {
-  const atlasImg = new Image();
-  atlasImg.src = atlasBuffer;
+): Promise<{ textureId: string; filename: string; buffer: Buffer }[]> {
+  const atlasImg = await loadImage(atlasBuffer);
   const atlasW = atlasImg.width;
   const atlasH = atlasImg.height;
   const results: { textureId: string; filename: string; buffer: Buffer }[] = [];

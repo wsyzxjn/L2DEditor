@@ -3,7 +3,7 @@ use crate::math::interpolation::{blend_points, compute_multidim_weights_ext};
 use crate::math::rotation::transform_point_by_rotation;
 use crate::math::warp::transform_point_by_warp_ext;
 use crate::model::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct EvaluatedMesh {
@@ -112,6 +112,16 @@ pub fn evaluate_project(
         .keyforms
         .iter()
         .map(|k| (k.target_node_id.as_str(), k))
+        .collect();
+    let mask_sources: HashSet<&str> = project
+        .nodes
+        .iter()
+        .flat_map(|node| match &node.kind {
+            NodeKind::ArtMesh(mesh) => mesh.mask_ids.iter(),
+            NodeKind::ArtPath(path) => path.mask_ids.iter(),
+            _ => [].iter(),
+        })
+        .map(String::as_str)
         .collect();
 
     // 1. Evaluate deformed state for each deformer node
@@ -333,7 +343,8 @@ pub fn evaluate_project(
                 }
             }
 
-            if !inherited_visible || opacity <= 1e-5 {
+            // A transparent drawable can still supply clipping geometry.
+            if !inherited_visible || (opacity <= 1e-5 && !mask_sources.contains(node.id.as_str())) {
                 continue;
             }
 
@@ -445,7 +456,7 @@ pub fn evaluate_project(
                 }
             }
 
-            if !inherited_visible || opacity <= 1e-5 {
+            if !inherited_visible || (opacity <= 1e-5 && !mask_sources.contains(node.id.as_str())) {
                 continue;
             }
 

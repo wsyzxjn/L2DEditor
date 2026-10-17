@@ -8,6 +8,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./pixi": {
+      "types": "./dist/pixi.d.ts",
+      "default": "./dist/pixi.js"
+    },
+    "./headless": {
+      "types": "./dist/headless.d.ts",
+      "default": "./dist/headless.js"
     }
   },
   "scripts": {

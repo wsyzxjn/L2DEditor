@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
+import { Image } from '@napi-rs/canvas';
 
 const req = createRequire(import.meta.url);
 const wasmNode = req('@l2d/schema/wasm-node');
@@ -19,12 +20,12 @@ export interface RuntimeExportOptions {
  * Exports the complete Live2D Cubism runtime distribution bundle using the pure-Rust
  * `export_runtime_bundle` kernel (`crates/l2d-core/src/exporter.rs`).
  */
-export function exportRuntimePackage(
+export async function exportRuntimePackage(
   project: Project,
   textureResolver: TextureResolver,
   outDir: string,
   options: RuntimeExportOptions = {}
-): { model3JsonPath: string; moc3Path: string; numTextures: number; numMotions: number; zipPath?: string } {
+): Promise<{ model3JsonPath: string; moc3Path: string; numTextures: number; numMotions: number; zipPath?: string }> {
   const modelName = options.modelName || 'model';
   const atlasSize = options.atlasSize || 2048;
 
@@ -35,7 +36,7 @@ export function exportRuntimePackage(
   fs.mkdirSync(motionsDir, { recursive: true });
 
   // 1. Render packed atlas PNGs
-  const atlasResult = generateTextureAtlas(project, textureResolver, atlasSize, 4);
+  const atlasResult = await generateTextureAtlas(project, textureResolver, atlasSize, 4);
   for (const atlas of atlasResult.atlasPngBuffers) {
     const texPath = path.join(texDir, atlas.filename);
     fs.writeFileSync(texPath, atlas.buffer);
@@ -136,13 +137,25 @@ export function importRuntimePackage(model3JsonPath: string): {
 
   // 1. Reconstruct Textures
   const textureList = fileRefs.Textures || [];
+  const parsedTextures = project.textures;
   project.textures = textureList.map((relTex: string, idx: number) => {
     const fullTexPath = path.resolve(modelDir, relTex);
+    const image = new Image();
+    image.src = fs.readFileSync(fullTexPath);
+    const width = image.naturalWidth;
+    const height = image.naturalHeight;
+    if (!image.complete || width <= 0 || height <= 0) {
+      throw new Error(`Invalid runtime texture: ${relTex}`);
+    }
+    image.src = '';
+    // Lossless MOC metadata already assigns texture IDs to the mesh UVs.
+    // Without that metadata, the Rust section parser uses texture_00.
+    const id = parsedTextures[idx]?.id ?? `texture_${String(idx).padStart(2, '0')}`;
     return {
-      id: `tex_${idx}`,
+      id,
       path: path.relative(modelDir, fullTexPath),
-      width: 2048,
-      height: 2048,
+      width,
+      height,
     };
   });
 

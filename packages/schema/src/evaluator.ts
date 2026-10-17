@@ -289,6 +289,9 @@ export function evaluateProjectJs(
 
   const nodeMap = new Map<string, Node>();
   for (const n of project.nodes) nodeMap.set(n.id, n);
+  const maskSources = new Set(project.nodes.flatMap(node =>
+    node.kind.type === 'ArtMesh' || node.kind.type === 'ArtPath' ? node.kind.mask_ids ?? [] : []
+  ));
   const kfMap = new Map<string, KeyformBinding>();
   for (const k of project.keyforms) kfMap.set(k.target_node_id, k);
 
@@ -505,7 +508,8 @@ export function evaluateProjectJs(
         ancestors.push(currPid);
         currPid = pNode.parent_id;
       }
-      if (!inheritedVisible || opacity <= 1e-5) continue;
+      // A transparent drawable can still supply clipping geometry.
+      if (!inheritedVisible || (opacity <= 1e-5 && !maskSources.has(node.id))) continue;
 
       for (const ancId of ancestors) {
         const def = deformerStates.get(ancId);
@@ -593,7 +597,7 @@ export function evaluateProjectJs(
         ancestors.push(currPid);
         currPid = pNode.parent_id;
       }
-      if (!inheritedVisible || opacity <= 1e-5) continue;
+      if (!inheritedVisible || (opacity <= 1e-5 && !maskSources.has(node.id))) continue;
 
       for (const ancId of ancestors) {
         const def = deformerStates.get(ancId);

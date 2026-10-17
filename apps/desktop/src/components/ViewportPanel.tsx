@@ -1,7 +1,7 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
-import { evaluateProjectJs } from '@l2d/schema';
+import { evaluateProjectJs, type EvaluatedFrameJs } from '@l2d/schema';
 import {
   MousePointer,
   Plus,
@@ -21,11 +21,13 @@ import {
   Grid,
 } from 'lucide-react';
 import earcut from 'earcut';
+import { ModelArtwork } from './ModelArtwork.js';
 
 export const ViewportPanel: React.FC = () => {
   const { t } = useI18n();
   const {
     project,
+    currentFilePath,
     frame,
     selectedNodeId,
     parameterValues,
@@ -48,10 +50,16 @@ export const ViewportPanel: React.FC = () => {
     isGridSnapEnabled,
     setIsGridSnapEnabled,
     gridSize,
+    viewportControls,
     notify,
   } = useEditor();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [artworkReady, setArtworkReady] = useState(false);
+  const renderedFrame = useRef<EvaluatedFrameJs | null>(null);
+  const captureRef = useRef<((scale: number) => Promise<string>) | null>(null);
+  const onArtworkRendered = useCallback((rendered: EvaluatedFrameJs | null) => { renderedFrame.current = rendered; }, []);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(0.8);
   const isPanning = useRef(false);
@@ -260,8 +268,8 @@ export const ViewportPanel: React.FC = () => {
           ctx.lineTo(verts[i1], verts[i1 + 1]);
           ctx.lineTo(verts[i2], verts[i2 + 1]);
           ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
+          if (!artworkReady || isArtPathMesh) ctx.fill();
+          if (!artworkReady || selectedNodeId === mesh.id || isCurrentlyEdited) ctx.stroke();
         }
         ctx.restore();
       }
@@ -467,6 +475,8 @@ export const ViewportPanel: React.FC = () => {
     selectedVertexIndex,
     draggingVertexIndex,
     draggingCpIndex,
+    artworkReady,
+    canvasSize,
   ]);
 
   // Resize observer
@@ -476,11 +486,41 @@ export const ViewportPanel: React.FC = () => {
     const updateSize = () => {
       canvas.width = canvas.parentElement?.clientWidth || 800;
       canvas.height = canvas.parentElement?.clientHeight || 600;
+      setCanvasSize({ width: canvas.width, height: canvas.height });
     };
     updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
+    const observer = new ResizeObserver(updateSize);
+    if (canvas.parentElement) observer.observe(canvas.parentElement);
+    return () => observer.disconnect();
   }, []);
+
+  const fitModel = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setPan({ x: 0, y: 0 });
+    setZoom(Math.max(0.1, Math.min((canvas.width - 64) / project.canvas.width, (canvas.height - 112) / project.canvas.height)));
+  }, [project.canvas.width, project.canvas.height]);
+
+  useEffect(() => { fitModel(); }, [currentFilePath, fitModel]);
+
+  useEffect(() => {
+    viewportControls.current = {
+      getState: () => ({ zoom, pan, flipped: isFlipScreenX, solo: isSoloMode, texturesReady: artworkReady, frameRendered: frame !== null && renderedFrame.current === frame }),
+      hasRenderedFrame: expected => expected !== null && renderedFrame.current === expected,
+      update: request => {
+        if (request.fit) fitModel();
+        if (request.zoom !== undefined) setZoom(request.zoom);
+        if (request.pan !== undefined) setPan(request.pan);
+        if (request.flipped !== undefined) setIsFlipScreenX(request.flipped);
+        if (request.solo !== undefined) setIsSoloMode(request.solo);
+      },
+      captureModel: scale => {
+        if (!captureRef.current) throw new Error('Model renderer is not ready');
+        return captureRef.current(scale);
+      },
+    };
+    return () => { viewportControls.current = null; };
+  }, [viewportControls, zoom, pan, isFlipScreenX, isSoloMode, artworkReady, fitModel, frame]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -703,9 +743,13 @@ export const ViewportPanel: React.FC = () => {
 
   return (
     <div className="relative w-full h-full bg-[#101012] overflow-hidden select-none">
+      <ModelArtwork project={project} frame={frame} projectPath={currentFilePath} pan={pan} zoom={zoom}
+        flipped={isFlipScreenX} soloNodeId={isSoloMode ? selectedNodeId : null} onReady={setArtworkReady}
+        onRendered={onArtworkRendered} captureRef={captureRef} />
       <canvas
         ref={canvasRef}
-        className="w-full h-full cursor-crosshair"
+        data-textures-ready={artworkReady}
+        className="relative w-full h-full cursor-crosshair"
         onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -713,7 +757,10 @@ export const ViewportPanel: React.FC = () => {
       />
 
       {/* Top Floating Viewport Toolbar (Mesh Edit & Physics) */}
-      <div className="absolute top-2 left-2 z-10 flex items-center space-x-1.5 bg-dcc-panel/90 backdrop-blur px-2 py-1 rounded border border-dcc-border shadow-lg">
+      <div className="absolute top-2 left-2 z-10 flex max-w-[calc(100%_-_1rem)] items-center space-x-1.5 overflow-x-auto whitespace-nowrap [&>button]:shrink-0 [&>div]:shrink-0 bg-dcc-panel/90 backdrop-blur px-2 py-1 rounded border border-dcc-border shadow-lg">
+        <button className="p-1 rounded text-zinc-300 hover:bg-zinc-700" onClick={fitModel} title="Fit Model to View (适应视口)">
+          <Maximize2 className="w-3 h-3" />
+        </button>
         {selectedMesh && (
           <button
             className={`flex items-center px-2 py-0.5 text-dcc-sm rounded font-medium transition-colors ${

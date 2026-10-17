@@ -15,6 +15,7 @@
     "build": "tsc"
   },
   "dependencies": {
+    "@l2d/renderer": "workspace:*",
     "@l2d/schema": "workspace:*",
     "@napi-rs/canvas": "^1.0.11",
     "ag-psd": "^31.0.3",

@@ -45,6 +45,9 @@ importers:
       '@l2d/command':
         specifier: workspace:*
         version: link:../../packages/command
+      '@l2d/mcp-server':
+        specifier: workspace:*
+        version: link:../../packages/mcp-server
       '@l2d/psd':
         specifier: workspace:*
         version: link:../../packages/psd
@@ -159,6 +162,9 @@ importers:
 
   packages/psd:
     dependencies:
+      '@l2d/renderer':
+        specifier: workspace:*
+        version: link:../renderer
       '@l2d/schema':
         specifier: workspace:*
         version: link:../schema

@@ -67,6 +67,8 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     // Parameters Panel
     'parameters.title': '参数控制台',
     'parameters.reset_all': '全部重置',
+    'parameters.expression_none': '不叠加表情',
+    'parameters.expression_clear': '清除表情',
     'parameters.add_group': '新建分组',
     'parameters.preset': '官方标准预设',
     'parameters.add_param': '新建参数',
@@ -246,6 +248,8 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     // Parameters Panel
     'parameters.title': 'パラメータ',
     'parameters.reset_all': 'すべてデフォルトに戻す',
+    'parameters.expression_none': '表情なし',
+    'parameters.expression_clear': '表情を解除',
     'parameters.add_group': 'グループ作成',
     'parameters.preset': '標準パラメータプリセット',
     'parameters.add_param': 'パラメータ追加',
@@ -425,6 +429,8 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     // Parameters Panel
     'parameters.title': 'Parameters',
     'parameters.reset_all': 'Reset All',
+    'parameters.expression_none': 'No expression',
+    'parameters.expression_clear': 'Clear expression',
     'parameters.add_group': 'Group',
     'parameters.preset': '+ Preset',
     'parameters.add_param': 'Add',

@@ -14,13 +14,13 @@ export interface RenderSequenceOptions {
   audioWavPath?: string;
 }
 
-export function renderAnimationSequence(
+export async function renderAnimationSequence(
   project: Project,
   animationId: string,
   textureResolver: TextureResolver,
   outFramesDir: string,
   options: RenderSequenceOptions = {}
-): { totalFrames: number; videoPath?: string } {
+): Promise<{ totalFrames: number; videoPath?: string }> {
   const anim = project.animations?.find((a) => a.id === animationId);
   if (!anim) {
     throw new Error(`Animation '${animationId}' not found in project`);
@@ -47,7 +47,7 @@ export function renderAnimationSequence(
     const frameData = model.evaluate() as any;
 
     // 3. Render to PNG
-    const pngBuf = renderFrameToCanvas(
+    const pngBuf = await renderFrameToCanvas(
       project.canvas.width,
       project.canvas.height,
       frameData,

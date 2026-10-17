@@ -1,5 +1,6 @@
 import {
   evaluateAnimationAtFrameJs,
+  getMeshBoundaryLoops,
   generateStrokeMeshTopology,
   type ModelingTemplate,
   PhysicsSimulatorJs,
@@ -1435,43 +1436,8 @@ export function registerStandardCommands(bus: CommandBus): void {
     const verts = mesh.kind.vertices;
     const inds = mesh.kind.indices;
 
-    const edgeCounts = new Map<string, { a: number; b: number; count: number }>();
-    const addEdge = (a: number, b: number) => {
-      const k = a < b ? `${a}_${b}` : `${b}_${a}`;
-      const ex = edgeCounts.get(k);
-      if (ex) ex.count++;
-      else edgeCounts.set(k, { a, b, count: 1 });
-    };
-    for (let i = 0; i < inds.length; i += 3) {
-      addEdge(inds[i], inds[i + 1]);
-      addEdge(inds[i + 1], inds[i + 2]);
-      addEdge(inds[i + 2], inds[i]);
-    }
-
-    const boundaryEdges = Array.from(edgeCounts.values()).filter((e) => e.count === 1);
-    const orderedPoints: [number, number][] = [];
-
-    if (boundaryEdges.length >= 2) {
-      const adj = new Map<number, number[]>();
-      for (const e of boundaryEdges) {
-        if (!adj.has(e.a)) adj.set(e.a, []);
-        if (!adj.has(e.b)) adj.set(e.b, []);
-        adj.get(e.a)!.push(e.b);
-        adj.get(e.b)!.push(e.a);
-      }
-      const visited = new Set<number>();
-      let curr = boundaryEdges[0].a;
-      while (!visited.has(curr)) {
-        visited.add(curr);
-        if (verts[curr]) orderedPoints.push([verts[curr][0], verts[curr][1]]);
-        const neighbors = adj.get(curr) || [];
-        const next = neighbors.find((n) => !visited.has(n));
-        if (next === undefined) break;
-        curr = next;
-      }
-    } else {
-      for (const v of verts) orderedPoints.push([v[0], v[1]]);
-    }
+    const boundary = getMeshBoundaryLoops(inds)[0];
+    const orderedPoints: [number, number][] = boundary ? boundary.map(index => [verts[index][0], verts[index][1]]) : verts.map(vertex => [vertex[0], vertex[1]]);
 
     const pathId = art_path_id || `artpath_${mesh.id}`;
     draft.nodes.push({

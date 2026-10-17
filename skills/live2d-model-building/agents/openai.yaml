@@ -1,0 +1,4 @@
+interface:
+  display_name: "Live2D Model Building"
+  short_description: "Build faithful Live2D rigs with measurable quality gates"
+  default_prompt: "Use $live2d-model-building to build and validate a complete Live2D model while preserving the approved artwork."

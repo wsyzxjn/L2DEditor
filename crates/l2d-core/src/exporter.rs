@@ -3,6 +3,7 @@ use crate::moc3::{export_moc3_binary, DEFAULT_MOC3_VERSION};
 use crate::model::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExportedTextFile {
@@ -61,8 +62,18 @@ pub fn compute_atlas_layout_and_remap_uvs(
     let mut cur_x = padding;
     let mut cur_y = padding;
     let mut shelf_h = 0u32;
+    let mut packed_textures: HashMap<String, AtlasPlacement> = HashMap::new();
 
     for (mesh_id, texture_id, w, h) in items {
+        if let Some(existing) = packed_textures.get(&texture_id) {
+            placements.push(AtlasPlacement { mesh_id, ..existing.clone() });
+            continue;
+        }
+        if w.saturating_add(padding.saturating_mul(2)) > atlas_size
+            || h.saturating_add(padding.saturating_mul(2)) > atlas_size
+        {
+            break;
+        }
         if cur_x + w + padding > atlas_size {
             cur_x = padding;
             cur_y += shelf_h + padding;
@@ -71,14 +82,16 @@ pub fn compute_atlas_layout_and_remap_uvs(
         if cur_y + h + padding > atlas_size {
             break;
         }
-        placements.push(AtlasPlacement {
+        let placement = AtlasPlacement {
             mesh_id,
             texture_id,
             x: cur_x,
             y: cur_y,
             width: w,
             height: h,
-        });
+        };
+        packed_textures.insert(placement.texture_id.clone(), placement.clone());
+        placements.push(placement);
         cur_x += w + padding;
         shelf_h = shelf_h.max(h);
     }
@@ -139,6 +152,13 @@ pub fn export_runtime_bundle(
     // 1. Compute Atlas layout & UV remapping
     let (updated_project, atlas_placements) =
         compute_atlas_layout_and_remap_uvs(project, atlas_size, padding);
+
+    let textured_mesh_count = project.nodes.iter().filter(|node| {
+        matches!(&node.kind, NodeKind::ArtMesh(mesh) if project.textures.iter().any(|t| t.id == mesh.texture_id))
+    }).count();
+    if atlas_placements.len() != textured_mesh_count {
+        return Err(format!("Textures do not fit in the {}x{} atlas; increase the atlas size", atlas_size, atlas_size));
+    }
 
     // 2. Serialize .moc3 binary
     let moc3_bytes = export_moc3_binary(&updated_project, DEFAULT_MOC3_VERSION)
@@ -697,5 +717,35 @@ mod tests {
         assert!(bundle.motionsync3_json.is_some());
         assert_eq!(bundle.motion_files.len(), 1);
         assert_eq!(bundle.atlas_placements.len(), 1);
+
+        // A character's separated meshes can all sample the same artwork.
+        // Twenty copies must occupy a single texture slot, not twenty slots.
+        let template = project.nodes[0].clone();
+        for index in 1..20 {
+            let mut node = template.clone();
+            node.id = format!("mesh_{}", index);
+            project.nodes.push(node);
+        }
+        let shared = export_runtime_bundle(&project, "shared", 512, 4, &[]).unwrap();
+        assert_eq!(shared.atlas_placements.len(), 20);
+        for placement in &shared.atlas_placements {
+            assert_eq!((placement.x, placement.y), (4, 4));
+        }
+        for node in &shared.updated_project.nodes {
+            if let NodeKind::ArtMesh(mesh) = &node.kind {
+                assert_eq!(mesh.texture_id, "tex_atlas_00");
+                assert_eq!(mesh.uvs[0], [4.0 / 512.0, 4.0 / 512.0]);
+            }
+        }
+        // Reject oversized textures and an atlas that cannot fit distinct
+        // textures rather than returning a bundle with missing parts.
+        assert!(export_runtime_bundle(&project, "too_small", 256, 4, &[]).is_err());
+        project.textures.push(TextureMeta {
+            id: "second_texture".into(), path: "second.png".into(), width: 256, height: 256,
+        });
+        if let NodeKind::ArtMesh(mesh) = &mut project.nodes[1].kind {
+            mesh.texture_id = "second_texture".into();
+        }
+        assert!(export_runtime_bundle(&project, "overflow", 512, 4, &[]).is_err());
     }
 }

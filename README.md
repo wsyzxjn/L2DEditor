@@ -100,6 +100,55 @@ To allow coding assistants (Codex, Claude Desktop, Cursor) to manage L2DEditor m
 }
 ```
 
+### Control the running desktop window
+
+The same MCP server also provides 12 `l2d_gui_*` tools. Start the desktop app before using them. They inspect or change the open window's document and preview; the existing tools with `projectPath` operate on files on disk.
+
+| Tool | GUI operation |
+| --- | --- |
+| `l2d_gui_state` | Current file, paginated nodes, parameters, selection, viewport, timeline and history |
+| `l2d_gui_open_project` | Open a `project.json` file or `.l2dproj` directory |
+| `l2d_gui_select` | Select node IDs in the hierarchy and inspector |
+| `l2d_gui_set_parameters` | Set live preview values with atomic ID/range validation |
+| `l2d_gui_viewport` | Fit, zoom, pan, flip, solo, mesh editing and preview switches |
+| `l2d_gui_playback` | Choose a motion, seek, play or pause |
+| `l2d_gui_expression` | Preview or clear a named expression |
+| `l2d_gui_show_panel` | Activate a panel tab |
+| `l2d_gui_exec` | Run a Command Bus edit or dry run in the open document |
+| `l2d_gui_history` | Undo, redo or jump to an undo-stack index (`-1` is the initial state) |
+| `l2d_gui_save` | Save the open document to its current or an explicit path |
+| `l2d_gui_screenshot` | Return the editor window or clean model canvas as PNG after rendering is ready |
+
+For example, inspect the current window, preview a blink, then capture it:
+
+```json
+{"name":"l2d_gui_state","arguments":{"nodeOffset":0,"nodeLimit":50}}
+{"name":"l2d_gui_set_parameters","arguments":{"values":{"ParamEyeLOpen":0,"ParamEyeROpen":0}}}
+{"name":"l2d_gui_screenshot","arguments":{}}
+```
+
+To capture the artwork without panels, grids or selection gizmos, use `{"target":"model","scale":1}` with `l2d_gui_screenshot`. It uses the same Pixi renderer as the viewport and waits for a paused pose to finish rendering. This also supports deterministic frame capture for animation previews. Use `l2d_gui_expression` with an `expressionId` returned by GUI state, or `null` to clear the expression.
+
+To edit the open document with the same undo stack used by mouse operations:
+
+```json
+{"name":"l2d_gui_exec","arguments":{"command":{"id":"rename-head","name":"node.update","params":{"id":"head","changes":{"name":"Head"}}},"dryRun":true}}
+{"name":"l2d_gui_exec","arguments":{"command":{"id":"rename-head","name":"node.update","params":{"id":"head","changes":{"name":"Head"}}}}}
+{"name":"l2d_gui_history","arguments":{"operation":"undo"}}
+```
+
+To preview an existing motion (use IDs returned by `l2d_gui_state`):
+
+```json
+{"name":"l2d_gui_playback","arguments":{"animationId":"idle","frame":24,"playing":false}}
+{"name":"l2d_gui_viewport","arguments":{"fit":true}}
+{"name":"l2d_gui_playback","arguments":{"playing":true}}
+```
+
+GUI parameter and camera changes do not write the document to disk. Commands remain undoable; saving is explicit. Opening another project replaces the current document, so save pending edits first. Saving a JSON file into a different directory does not copy its relative texture assets.
+
+The desktop reuses the loopback WebSocket service on `127.0.0.1:22033`, including the existing parameter-integration messages. Browser-origin requests are rejected. To use another instance or port, set `L2D_EDITOR_PORT` for the desktop and the matching `L2D_EDITOR_URL` (for example `ws://127.0.0.1:22034`) for the MCP process. Inspect `filePath` before changing a document to confirm the target window.
+
 ---
 
 ## 📄 License

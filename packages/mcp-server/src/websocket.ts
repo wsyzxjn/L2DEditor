@@ -1,11 +1,13 @@
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer, WebSocket, type VerifyClientCallbackSync } from 'ws';
 import type { Project } from '@l2d/schema';
+import { editorRequestSchema, type EditorRequest } from './editor-protocol.js';
 
 export interface CubismWebSocketServerOptions {
   port?: number;
   getProject: () => Project;
   getParameterValues: () => Record<string, number>;
-  setParameterValues: (values: Record<string, number>) => void;
+  setParameterValues: (values: Record<string, number>) => void | Promise<void>;
+  handleEditorRequest?: (request: EditorRequest) => Promise<Record<string, unknown>>;
 }
 
 /**
@@ -13,17 +15,29 @@ export interface CubismWebSocketServerOptions {
  * Runs on port 22033 by default and responds to official JSON-RPC commands.
  */
 export function startCubismWebSocketServer(options: CubismWebSocketServerOptions): WebSocketServer {
-  const port = options.port || 22033;
-  const wss = new WebSocketServer({ port, host: '127.0.0.1' });
+  const port = options.port ?? 22033;
+  const verifyClient: VerifyClientCallbackSync = info => !options.handleEditorRequest || !info.origin;
+  const wss = new WebSocketServer({ port, host: '127.0.0.1', verifyClient });
 
   wss.on('error', (err) => {
     console.warn(`[CubismWebSocketServer] Server error on port ${port}:`, err.message);
   });
 
   wss.on('connection', (ws: WebSocket) => {
-    ws.on('message', (message: string | Buffer) => {
+    ws.on('message', async (message: string | Buffer) => {
+      let rpcId: string | number | null = null;
+      let isRpc = false;
       try {
         const payload = JSON.parse(message.toString());
+        if (payload.jsonrpc === '2.0') {
+          isRpc = true;
+          rpcId = payload.id ?? null;
+          if (payload.method !== 'l2d.editor') throw new Error(`Unknown method '${payload.method}'`);
+          if (!options.handleEditorRequest) throw new Error('This endpoint is not connected to a desktop window');
+          const result = await options.handleEditorRequest(editorRequestSchema.parse(payload.params));
+          ws.send(JSON.stringify({ jsonrpc: '2.0', id: rpcId, result }));
+          return;
+        }
         const type = payload.Type || payload.type;
         const data = payload.Data || payload.data || {};
 
@@ -96,7 +110,7 @@ export function startCubismWebSocketServer(options: CubismWebSocketServerOptions
                 updates[item.Id] = item.Value;
               }
             }
-            options.setParameterValues(updates);
+            await options.setParameterValues(updates);
             response = {
               Type: 'SetParameterValuesResponse',
               Data: {
@@ -144,6 +158,10 @@ export function startCubismWebSocketServer(options: CubismWebSocketServerOptions
           ws.send(JSON.stringify(response));
         }
       } catch (err: any) {
+        if (isRpc) {
+          ws.send(JSON.stringify({ jsonrpc: '2.0', id: rpcId, error: { code: -32000, message: err?.message || String(err) } }));
+          return;
+        }
         ws.send(
           JSON.stringify({
             Type: 'ErrorResponse',
