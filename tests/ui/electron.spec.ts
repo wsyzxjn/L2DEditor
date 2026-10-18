@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -185,4 +185,50 @@ desktopTest('AI activity is visible and its change can be undone safely', async 
   expect(state.nodeCount).toBe(0);
   expect(state.selectedNodeIds).toEqual([]);
   await page.screenshot({ path: test.info().outputPath('ai-activity-undone.png') });
+});
+
+desktopTest('playback keeps redrawing a large project', async ({ page, editorPort }) => {
+  // A 40 MB project JSON: playback used to resend it on every frame and discard each
+  // pending evaluation, so the viewport only redrew after pausing.
+  const dir = test.info().outputPath('playback-fixture');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'solid.png'), Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+  const quad = (x: number, y: number, w: number, h: number) => [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+  const project = {
+    format_version: 1,
+    canvas: { width: 200, height: 120, origin_x: 0.5, origin_y: 0.5, background_color: '#ffffff' },
+    parameters: [{ id: 'ParamMove', name: 'Move', min: -1, max: 1, default: 0 }],
+    textures: [{ id: 'solid', path: 'solid.png', width: 1, height: 1 }],
+    nodes: [{
+      id: 'box', name: 'box', parent_id: null, visible: true, locked: false,
+      kind: {
+        type: 'ArtMesh', texture_id: 'solid', vertices: quad(80, 40, 40, 40), uvs: [[0, 0], [1, 0], [0, 1], [1, 1]],
+        indices: [0, 1, 2, 1, 3, 2], opacity: 1, draw_order: 0, blend_mode: 'normal', mask_ids: [], is_mask_inverted: false,
+        user_data: 'x'.repeat(40_000_000),
+      },
+    }],
+    keyforms: [{
+      target_node_id: 'box', dimensions: [{ param_id: 'ParamMove', keys: [-1, 1] }],
+      keyforms: [-1, 1].map(k => ({ coordinates: [k], payload: { kind: 'ArtMesh', vertex_offsets: quad(0, 0, 0, 0).map(() => [k * 70, 0]), opacity: 1 } })),
+    }],
+    animations: [{
+      id: 'move', name: 'move', duration_frames: 48, fps: 24, loop_playback: true,
+      tracks: [{ target_param_id: 'ParamMove', keyframes: [0, 24, 47].map((frame, i) => ({ frame, value: i === 1 ? 1 : -1, curve: 'linear' })) }],
+    }],
+  };
+  const file = path.join(dir, 'project.json');
+  fs.writeFileSync(file, JSON.stringify(project));
+
+  await callEditor(editorPort, { action: 'open_project', path: file });
+  const canvas = page.locator('canvas[data-textures-ready="true"]').first();
+  await canvas.waitFor();
+  await callEditor(editorPort, { action: 'playback', animationId: 'move', frame: 0, playing: true });
+  await page.waitForTimeout(500);
+  const screens = new Set<string>();
+  for (let i = 0; i < 12; i++) {
+    screens.add(createHash('sha256').update(await canvas.screenshot()).digest('hex'));
+    await page.waitForTimeout(120);
+  }
+  expect(screens.size).toBeGreaterThanOrEqual(9);
 });

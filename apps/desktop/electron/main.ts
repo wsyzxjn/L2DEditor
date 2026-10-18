@@ -14,7 +14,7 @@ const nodeWasm = createRequire(import.meta.url)('@l2d/schema/wasm-node') as type
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
-let evaluatedProjectJson = '';
+let evaluatedRevision = -1;
 let evaluatedModel: WasmModel | null = null;
 let parameterDefaults: Record<string, number> = {};
 let previousParameterKeys: string[] = [];
@@ -64,7 +64,7 @@ function createWindow() {
     mainWindow = null;
     evaluatedModel?.free();
     evaluatedModel = null;
-    evaluatedProjectJson = '';
+    evaluatedRevision = -1;
     previousParameterKeys = [];
   });
 }
@@ -134,15 +134,19 @@ ipcMain.handle('l2d:copy-text', (_, text: unknown) => {
   clipboard.writeText(text);
 });
 
-ipcMain.handle('l2d:evaluate-frame', (_, projectJson: string, parameters: Record<string, number>) => {
-  if (!evaluatedModel || projectJson !== evaluatedProjectJson) {
-    const nextModel = new nodeWasm.WasmModel(projectJson);
-    evaluatedModel?.free();
-    evaluatedModel = nextModel;
-    evaluatedProjectJson = projectJson;
-    parameterDefaults = Object.fromEntries(JSON.parse(projectJson).parameters.map((p: { id: string; default: number }) => [p.id, p.default]));
-    previousParameterKeys = [];
-  }
+// The project is uploaded once per revision; per-frame evaluation only sends parameters,
+// so playback does not re-transfer (and re-compare) multi-megabyte project JSON every frame.
+ipcMain.handle('l2d:set-evaluation-project', (_, projectJson: string, revision: number) => {
+  const nextModel = new nodeWasm.WasmModel(projectJson);
+  evaluatedModel?.free();
+  evaluatedModel = nextModel;
+  evaluatedRevision = revision;
+  parameterDefaults = Object.fromEntries(JSON.parse(projectJson).parameters.map((p: { id: string; default: number }) => [p.id, p.default]));
+  previousParameterKeys = [];
+});
+
+ipcMain.handle('l2d:evaluate-frame', (_, revision: number, parameters: Record<string, number>) => {
+  if (!evaluatedModel || revision !== evaluatedRevision) throw new Error(`Evaluation project revision ${revision} is not loaded`);
   for (const key of previousParameterKeys) evaluatedModel.setParameter(key, 0);
   for (const [key, value] of Object.entries(parameterDefaults)) evaluatedModel.setParameter(key, value);
   for (const [key, value] of Object.entries(parameters)) evaluatedModel.setParameter(key, value);

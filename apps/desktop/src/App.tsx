@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import {
   DockviewReact,
@@ -214,30 +214,63 @@ export function App() {
   const [evaluatedInputs, setEvaluatedInputs] = useState<{ project: Project; parameters: Record<string, number> } | null>(null);
   const frameReady = evaluatedInputs?.project === project && evaluatedInputs.parameters === parameterValues;
   const projectJson = useMemo(() => JSON.stringify(project), [project]);
+  const evalProjectRef = useRef<{ json: string; revision: number; upload: Promise<void> } | null>(null);
+  const evalLatestRef = useRef<{ project: Project; parameters: Record<string, number>; revision: number } | null>(null);
+  const evalBusyRef = useRef(false);
+
+  // One main-process evaluation is in flight at a time. Its result is always shown and the newest
+  // parameters are evaluated next, so continuous playback updates the viewport instead of
+  // discarding every pending frame.
+  const pumpEvaluation = useCallback(async () => {
+    const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
+    const request = evalLatestRef.current;
+    const target = evalProjectRef.current;
+    if (!api || evalBusyRef.current || !request || !target || request.revision !== target.revision) return;
+    evalBusyRef.current = true;
+    try {
+      await target.upload;
+      const evaluated = await api.evaluateFrame(target.revision, request.parameters);
+      if (evalProjectRef.current?.revision === request.revision) {
+        setFrame(evaluated);
+        setEvaluatedInputs({ project: request.project, parameters: request.parameters });
+      }
+    } catch (error) {
+      if (evalProjectRef.current?.revision === request.revision) setStatusMessage({ text: `Model evaluation: ${String(error)}`, type: 'error' });
+    } finally {
+      evalBusyRef.current = false;
+    }
+    if (evalLatestRef.current !== request) void pumpEvaluation();
+  }, []);
 
   // Update evaluator when project, parameters, or active animation frame change
   useEffect(() => {
     const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
     const hasFormTracks = project.animations?.some(animation => animation.form_tracks?.length);
-    if (api?.evaluateFrame && !hasFormTracks) {
-      let active = true;
-      void api.evaluateFrame(projectJson, parameterValues).then(evaluated => {
-        if (active) {
-          setFrame(evaluated);
-          setEvaluatedInputs({ project, parameters: parameterValues });
-        }
-      }).catch(error => {
-        if (active) setStatusMessage({ text: `Model evaluation: ${String(error)}`, type: 'error' });
-      });
-      return () => { active = false; };
+    if (api?.evaluateFrame && api.setEvaluationProject && !hasFormTracks) {
+      let target = evalProjectRef.current;
+      if (!target || target.json !== projectJson) {
+        const revision = (target?.revision ?? 0) + 1;
+        const upload = api.setEvaluationProject(projectJson, revision);
+        upload.catch(() => undefined); // reported by pumpEvaluation
+        target = { json: projectJson, revision, upload };
+        evalProjectRef.current = target;
+      }
+      const latest = evalLatestRef.current;
+      if (latest?.project !== project || latest.parameters !== parameterValues || latest.revision !== target.revision) {
+        evalLatestRef.current = { project, parameters: parameterValues, revision: target.revision };
+        void pumpEvaluation();
+      }
+      return;
     }
+    evalProjectRef.current = null;
+    evalLatestRef.current = null;
     const evaluated = evaluateProjectJs(project, parameterValues, {
       currentFrame: currentPlayheadFrame,
       activeAnimationId,
     });
     setFrame(evaluated);
     setEvaluatedInputs({ project, parameters: parameterValues });
-  }, [project, projectJson, parameterValues, currentPlayheadFrame, activeAnimationId]);
+  }, [project, projectJson, parameterValues, currentPlayheadFrame, activeAnimationId, pumpEvaluation]);
 
   // Live Animation Playback Loop
   useEffect(() => {
