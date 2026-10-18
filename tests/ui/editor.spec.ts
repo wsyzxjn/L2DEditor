@@ -5,6 +5,17 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('.viewport-welcome')).toBeVisible();
 });
 
+test('application icon assets are available to the renderer', async ({ page }) => {
+  await expect(page.locator('link[rel="icon"][sizes="32x32"]')).toHaveAttribute('href', /(?:^\.?\/)app-icon-32\.png$/);
+  const largeIcon = await page.request.get('/app-icon.png');
+  const smallIcon = await page.request.get('/app-icon-32.png');
+  expect(largeIcon.status()).toBe(200);
+  expect(smallIcon.status()).toBe(200);
+  expect(largeIcon.headers()['content-type']).toContain('image/png');
+  expect((await largeIcon.body()).byteLength).toBeGreaterThan(10_000);
+  expect((await smallIcon.body()).byteLength).toBeGreaterThan(300);
+});
+
 test('empty state, hierarchy search and clearing', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '开始创建你的模型' })).toBeVisible();
   await addNode(page);

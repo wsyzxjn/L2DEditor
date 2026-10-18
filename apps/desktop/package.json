@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "icons": "node scripts/build-icons.mjs",
+    "build": "node scripts/build-icons.mjs && tsc && vite build",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

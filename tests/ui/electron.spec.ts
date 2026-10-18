@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
@@ -73,6 +74,8 @@ const desktopTest = test.extend<{ app: ElectronApplication; page: Page; editorPo
 desktopTest('the packaged renderer boots in a real Electron window', async ({ app, page }) => {
   expect(await page.evaluate(() => typeof (window as unknown as { l2dApi?: unknown }).l2dApi)).toBe('object');
   await expect(page).toHaveTitle(/L2DEditor$/);
+  expect(fs.statSync(path.resolve('apps/desktop/dist/app-icon.png')).size).toBeGreaterThan(10_000);
+  expect(fs.statSync(path.resolve('apps/desktop/build/AppIcon.icns')).size).toBeGreaterThan(100_000);
 
   // The custom title bar is draggable and leaves room for the macOS window controls.
   const header = page.locator('header');

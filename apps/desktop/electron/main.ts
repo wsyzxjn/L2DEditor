@@ -19,7 +19,18 @@ let evaluatedModel: WasmModel | null = null;
 let parameterDefaults: Record<string, number> = {};
 let previousParameterKeys: string[] = [];
 
+function getAppIconPath(): string | undefined {
+  const candidates = process.env.VITE_DEV_SERVER_URL
+    ? [path.join(app.getAppPath(), 'public/app-icon.png')]
+    : [
+        path.join(__dirname, '../dist/app-icon.png'),
+        path.join(app.getAppPath(), 'public/app-icon.png'),
+      ];
+  return candidates.find(candidate => fs.existsSync(candidate));
+}
+
 function createWindow() {
+  const icon = getAppIconPath();
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -29,6 +40,7 @@ function createWindow() {
     title: 'L2DEditor',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 10 },
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
@@ -93,6 +105,8 @@ function getAgentSetupInfo() {
 }
 
 app.whenReady().then(() => {
+  const icon = getAppIconPath();
+  if (process.platform === 'darwin' && app.dock && icon) app.dock.setIcon(icon);
   createWindow();
 
   app.on('activate', () => {
