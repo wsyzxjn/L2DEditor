@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { EvaluatedFrameJs, Project } from '@l2d/schema';
 import type { EditorRequestMessage, EditorResponseMessage } from '@l2d/mcp-server/editor-protocol';
+import type { AppUpdateState } from './update-service.js';
+
+export type { AppUpdateState } from './update-service.js';
 
 export interface SaveProjectResult {
   path?: string;
@@ -68,6 +71,11 @@ export interface L2DApi {
     padding: number,
     projectPath?: string,
   ) => Promise<GenerateAtlasResult>;
+  getUpdateState: () => Promise<AppUpdateState>;
+  onUpdateState: (handler: (state: AppUpdateState) => void) => () => void;
+  checkForUpdates: () => Promise<AppUpdateState>;
+  downloadUpdate: () => Promise<AppUpdateState>;
+  installUpdate: () => void;
 }
 
 const api: L2DApi = {
@@ -90,6 +98,15 @@ const api: L2DApi = {
   importPsdDialog: () => ipcRenderer.invoke('l2d:import-psd-dialog'),
   generateAtlas: (project, atlasSize, padding, projectPath) =>
     ipcRenderer.invoke('l2d:generate-atlas', project, atlasSize, padding, projectPath),
+  getUpdateState: () => ipcRenderer.invoke('l2d:update-get-state'),
+  onUpdateState: handler => {
+    const listener = (_event: Electron.IpcRendererEvent, state: AppUpdateState) => handler(state);
+    ipcRenderer.on('l2d:update-state', listener);
+    return () => { ipcRenderer.removeListener('l2d:update-state', listener); };
+  },
+  checkForUpdates: () => ipcRenderer.invoke('l2d:update-check'),
+  downloadUpdate: () => ipcRenderer.invoke('l2d:update-download'),
+  installUpdate: () => ipcRenderer.send('l2d:update-install'),
 };
 
 contextBridge.exposeInMainWorld('l2dApi', api);

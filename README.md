@@ -128,6 +128,31 @@ node apps/cli/dist/index.js export-moc3 MyModel.l2dproj \
 
 Run `node apps/cli/dist/index.js --help` for the full command list.
 
+## Desktop releases and in-app updates
+
+Desktop packages are built with Electron Builder and published to GitHub
+Releases. The application uses Electron Updater with the generated
+`app-update.yml`; it checks once after launch and every six hours, then lets the
+user explicitly download and restart to install the update. The same check is
+available from the application update button in the toolbar.
+
+Build a local package after building the desktop and its dependencies:
+
+```bash
+pnpm --filter l2d-desktop... build
+pnpm --filter l2d-desktop package:desktop
+```
+
+Artifacts are written to `apps/desktop/release/`. Tagging a commit with `v*`
+triggers `.github/workflows/release-desktop.yml`, which builds macOS arm64,
+Windows x64, and Linux x64 packages plus `latest*.yml` update metadata.
+
+macOS automatic updates require a stable Developer ID signature. Set
+`MAC_CSC_LINK` and `MAC_CSC_KEY_PASSWORD` as repository secrets for signed CI
+builds. Set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` to
+enable notarization. Windows signing is optional but recommended through
+`WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`.
+
 ## MCP integration
 
 Build the MCP server first with `pnpm run build`, then register it with an MCP

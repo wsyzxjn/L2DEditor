@@ -4,10 +4,12 @@ packages:
 
 onlyBuiltDependencies:
   - electron
+  - electron-winstaller
   - esbuild
   - '@napi-rs/canvas'
 allowBuilds:
   electron: true
+  electron-winstaller: true
   esbuild: true
 minimumReleaseAgeExclude:
   - zod@4.6.6

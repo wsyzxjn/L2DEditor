@@ -1,0 +1,52 @@
+appId: io.github.wsyzxjn.l2deditor
+productName: L2DEditor
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+asar: true
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+  - '!**/.v8-cache/**'
+
+extraMetadata:
+  main: dist-electron/main.js
+
+publish:
+  provider: github
+  owner: wsyzxjn
+  repo: L2DEditor
+  releaseType: release
+
+mac:
+  category: public.app-category.graphics-design
+  icon: build/AppIcon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  target:
+    - dmg
+    - zip
+
+win:
+  icon: public/app-icon.png
+  target:
+    - nsis
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+
+linux:
+  icon: public/app-icon.png
+  category: Graphics
+  executableName: l2deditor
+  synopsis: Agent-first 2D puppet rigging editor
+  target:
+    - AppImage

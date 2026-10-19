@@ -1,0 +1,185 @@
+name: Release Desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  wasm:
+    name: Build shared Wasm bindings
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: v0.13.1
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:wasm
+      - run: pnpm run build:wasm:node
+
+      - name: Archive Wasm bindings
+        run: tar -czf l2d-wasm-bindings.tar.gz packages/schema/wasm-web packages/schema/wasm-node
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shared-wasm-bindings
+          path: l2d-wasm-bindings.tar.gz
+          if-no-files-found: error
+
+  package:
+    name: Package ${{ matrix.target }}
+    needs: wasm
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: darwin-arm64
+            builder_args: --mac --arm64
+          - os: ubuntu-24.04
+            target: linux-x64
+            builder_args: --linux --x64
+          - os: windows-2022
+            target: win32-x64
+            builder_args: --win --x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: v0.13.1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: shared-wasm-bindings
+          path: .
+
+      - name: Restore Wasm bindings
+        run: tar -xzf l2d-wasm-bindings.tar.gz
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build desktop and dependencies
+        run: pnpm --filter l2d-desktop... run build
+
+      - name: Package desktop
+        run: pnpm --filter l2d-desktop exec electron-builder ${{ matrix.builder_args }} --publish never
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.target }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/latest*.yml
+            apps/desktop/release/*.blockmap
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches desktop version
+        run: |
+          node -e "const p=require('./apps/desktop/package.json'); const expected='v'+p.version; if (process.env.GITHUB_REF_NAME !== expected) { console.error('Tag '+process.env.GITHUB_REF_NAME+' does not match desktop version '+expected); process.exit(1) }"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: release
+          merge-multiple: true
+
+      - name: Verify update metadata and create checksums
+        working-directory: release
+        run: |
+          test -f latest-mac.yml
+          test -f latest.yml
+          test -f latest-linux.yml
+          find . -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' \) -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: release
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          assets=(
+            *.dmg
+            *.zip
+            *.exe
+            *.AppImage
+            latest*.yml
+            *.blockmap
+            SHA256SUMS.txt
+          )
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber
+          else
+            prerelease=()
+            case "$tag" in
+              *-*) prerelease=(--prerelease) ;;
+            esac
+            gh release create "$tag" "${assets[@]}" \
+              --verify-tag \
+              --generate-notes \
+              --title "$tag" \
+              "${prerelease[@]}"
+          fi

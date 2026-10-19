@@ -28,8 +28,9 @@ import { CommandPalette } from './components/CommandPalette.js';
 import { StatusBar, type StatusMessage } from './components/StatusBar.js';
 import { OverflowMenu, OverflowMenuItem } from './components/OverflowMenu.js';
 import { AgentActivityCard, type AgentActivity } from './components/AgentActivityCard.js';
+import { UpdateDialog } from './components/UpdateDialog.js';
 import { useI18n } from './i18n/index.js';
-import type { AgentSetupInfo, L2DApi } from '../electron/preload.js';
+import type { AgentSetupInfo, AppUpdateState, L2DApi } from '../electron/preload.js';
 import type { EditorViewportControls } from '@l2d/mcp-server/editor-protocol';
 import { EditorAutomation } from './components/EditorAutomation.js';
 import {
@@ -51,6 +52,7 @@ import {
   Info,
   Film,
   Waypoints,
+  Download,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -81,6 +83,20 @@ const defaultInitialProject: Project = {
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 
 const LAYOUT_STORAGE_KEY = 'l2d_layout_v1';
+
+const initialUpdateState: AppUpdateState = {
+  status: 'disabled',
+  currentVersion: '',
+  version: null,
+  releaseName: null,
+  releaseNotes: null,
+  releaseDate: null,
+  percent: 0,
+  bytesPerSecond: 0,
+  transferred: 0,
+  total: 0,
+  error: null,
+};
 
 const panelTitleKeys = {
   hierarchy_panel: 'hierarchy.title',
@@ -153,6 +169,8 @@ export function App() {
   const [atlasModalOpen, setAtlasModalOpen] = useState(false);
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
   const [agentSetupInfo, setAgentSetupInfo] = useState<AgentSetupInfo | null>(null);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [updateState, setUpdateState] = useState<AppUpdateState>(initialUpdateState);
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
   const [agentActivities, setAgentActivities] = useState<AgentActivity[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -197,6 +215,44 @@ export function App() {
   useEffect(() => {
     void refreshAgentSetupInfo();
   }, [refreshAgentSetupInfo]);
+
+  useEffect(() => {
+    const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
+    if (!api?.getUpdateState) return;
+    let active = true;
+    const unsubscribe = api.onUpdateState?.((next) => {
+      if (active) setUpdateState(next);
+    });
+    void api.getUpdateState()
+      .then((next) => { if (active) setUpdateState(next); })
+      .catch((error) => {
+        if (active) setUpdateState((current) => ({ ...current, status: 'error', error: String(error) }));
+      });
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const checkForUpdates = useCallback(async () => {
+    const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
+    if (!api?.checkForUpdates) return;
+    try {
+      setUpdateState(await api.checkForUpdates());
+    } catch (error) {
+      setUpdateState((current) => ({ ...current, status: 'error', error: String(error) }));
+    }
+  }, []);
+
+  const downloadUpdate = useCallback(async () => {
+    const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
+    if (!api?.downloadUpdate) return;
+    try {
+      setUpdateState(await api.downloadUpdate());
+    } catch (error) {
+      setUpdateState((current) => ({ ...current, status: 'error', error: String(error) }));
+    }
+  }, []);
 
   const notify = (text: string, type: StatusMessage['type'] = 'info') => {
     const message = { text, type };
@@ -1067,6 +1123,18 @@ export function App() {
           {/* Right Info & Palette */}
           <div className="editor-toolbar-info flex shrink-0 items-center gap-1.5 app-no-drag">
             <button
+              className="btn relative"
+              title={t('toolbar.updates')}
+              aria-label={t('toolbar.updates')}
+              onClick={() => setUpdateDialogOpen(true)}
+            >
+              <Download className={`w-3.5 h-3.5 ${updateState.status === 'downloading' || updateState.status === 'checking' ? 'animate-pulse' : 'text-dcc-muted'}`} />
+              <span className="toolbar-label">{t('toolbar.updates')}</span>
+              {(updateState.status === 'available' || updateState.status === 'downloaded') && (
+                <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]" aria-hidden />
+              )}
+            </button>
+            <button
               className="btn"
               title={agentSetupInfo
                 ? `${t('toolbar.agent_setup')} · ${agentSetupInfo.mcpServerBuilt
@@ -1135,6 +1203,19 @@ export function App() {
           message={statusMessage}
           nodeCount={project.nodes.length}
           selectedCount={selectedNodeIds.length}
+        />
+
+        <UpdateDialog
+          open={updateDialogOpen}
+          onOpenChange={setUpdateDialogOpen}
+          state={updateState}
+          onCheck={() => { void checkForUpdates(); }}
+          onDownload={() => { void downloadUpdate(); }}
+          onInstall={() => {
+            if (!confirmDiscardUnsavedChanges()) return;
+            const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
+            api?.installUpdate?.();
+          }}
         />
 
         {/* Command Palette Modal */}

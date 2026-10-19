@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import type { WasmModel } from '@l2d/schema/wasm-node';
 import { getEditorBridgeTokenPath, startEditorBridge } from './editorBridge.js';
 import { saveProjectFile } from './project-files.js';
+import { createDesktopUpdateService } from './update-service.js';
 
 const nodeWasm = createRequire(import.meta.url)('@l2d/schema/wasm-node') as typeof import('@l2d/schema/wasm-node');
 
@@ -19,6 +20,7 @@ let evaluatedModel: WasmModel | null = null;
 let parameterDefaults: Record<string, number> = {};
 let previousParameterKeys: string[] = [];
 const allowedExternalTextures = new Set<string>();
+const desktopUpdates = createDesktopUpdateService(() => mainWindow);
 
 function assertString(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
@@ -161,6 +163,7 @@ app.whenReady().then(() => {
   const icon = getAppIconPath();
   if (process.platform === 'darwin' && app.dock && icon) app.dock.setIcon(icon);
   createWindow();
+  desktopUpdates.start();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -181,6 +184,11 @@ ipcMain.handle('l2d:get-system-locale', () => {
 });
 
 ipcMain.handle('l2d:get-agent-setup-info', () => getAgentSetupInfo());
+
+ipcMain.handle('l2d:update-get-state', () => desktopUpdates.getState());
+ipcMain.handle('l2d:update-check', () => desktopUpdates.checkForUpdates());
+ipcMain.handle('l2d:update-download', () => desktopUpdates.downloadUpdate());
+ipcMain.on('l2d:update-install', () => desktopUpdates.installUpdate());
 
 ipcMain.handle('l2d:copy-text', (_, text: unknown) => {
   if (typeof text !== 'string' || text.length > 100_000) throw new Error('Invalid clipboard text');
