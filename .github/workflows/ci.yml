@@ -44,6 +44,11 @@ jobs:
         with:
           version: v0.13.1
 
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
