@@ -19,7 +19,7 @@
 | `packages/psd` | Layered PSD import (`importPsdBuffer`), non-destructive artwork reload, `earcut` Delaunay mesh generation, and layered PSD export (`exportModelToPsdBuffer`). |
 | `packages/renderer` | PixiJS v8 WebGL2 viewport adapter, `@napi-rs/canvas` headless deterministic PNG/GIF/WebM/MP4 renderer, WAV lip-sync analyzer (`analyzeWavForLipSync`), texture atlas composer (`generateTextureAtlas`), and runtime bundle exporter (`exportRuntimePackage`). |
 | `apps/cli` | Headless `l2d` CLI tool providing 100% terminal parity with GUI operations. |
-| `packages/mcp-server` | Official Model Context Protocol (MCP) stdio server + WebSocket External Integration server (port `22033`, compatible with Cubism 5.1–5.4 JSON-RPC actions). |
+| `packages/mcp-server` | Official Model Context Protocol (MCP) stdio server + loopback editor WebSocket (port `22033`). It implements a documented subset of Cubism-style `Type`/`Data` messages for read-only inspection and parameter updates, plus authenticated JSON-RPC desktop automation. |
 | `apps/desktop` | Electron + `coss` (24px high-density DCC dark theme) + `dockview-react` 4-pane desktop editor + trilingual i18n (`zh-CN`, `ja`, `en`) with automatic system language detection. |
 
 ---
@@ -47,17 +47,18 @@ Agents can drive the entire 2D puppet rigging lifecycle without opening a GUI wi
    - MCP: `l2d_import_psd`
 2. **Auto-Rig & AI Face Deformer Generation**:
    - CLI: `node apps/cli/dist/index.js auto-rig ./char.l2dproj && node apps/cli/dist/index.js ai-face-rig ./char.l2dproj`
-   - MCP: `l2d_exec` (`macro.auto_rig` / `macro.ai_full_body_deformers`) + `l2d_ai_face_rig`
+   - MCP: `l2d_exec_command` (`macro.auto_rig` / `macro.ai_full_body_deformers`) + `l2d_ai_face_rig`
 3. **Fine-Grained Command Execution & Dry-Run**:
    - CLI: `node apps/cli/dist/index.js exec ./char.l2dproj '{"id":"1","name":"keyform.reflect_horizontal","params":{"node_id":"FACE","param_id":"ParamAngleX"}}' --dry-run`
    - Mesh Editing & 4-Corner Synthesis: `macro.synthesize_4_corners`, `deform.soft_brush`, `mesh.add_vertex`, `mesh.flip_edge`, `glue.paint_weights`, `mesh.auto_generate_mesh`, `node.batch_reparent`
-   - MCP: `l2d_exec`, `l2d_batch_exec`
+   - MCP: `l2d_exec_command` (one command per call; use a transaction command/macro for multi-step edits)
 4. **Dual-Loop Verification (Numerical Lint + Visual Snapshot)**:
    - Numerical Lint: `node apps/cli/dist/index.js lint ./char.l2dproj` (`l2d_lint`)
-   - Visual Snapshot: `node apps/cli/dist/index.js render ./char.l2dproj -p ParamAngleX=20,ParamAngleY=-10 -o snap.png` (`l2d_render_snapshot`)
+   - Visual Snapshot: `node apps/cli/dist/index.js render ./char.l2dproj -p ParamAngleX=20,ParamAngleY=-10 -o snap.png` (`l2d_snapshot`)
 5. **Runtime Bundle & Standalone `.moc3` Export**:
    - Full Runtime Bundle: `node apps/cli/dist/index.js export ./char.l2dproj -o ./dist -n haru -s 2048` (`l2d_export`)
    - Standalone `.moc3`: `node apps/cli/dist/index.js export-moc3 ./char.l2dproj -o ./haru.moc3 -v 5` (`l2d_export_moc3`)
+   - Editable source embedding is opt-in: add `--embed-source` to either export command (default OFF). The standard `.moc3` body is self-contained; the `L2D0` trailer is accepted on import for backwards compatibility but is never required.
    - Import `.moc3`: `node apps/cli/dist/index.js import-moc3 ./haru.moc3 -o ./imported.l2dproj` (`l2d_import_moc3`)
    - Import Full Runtime Package: `node apps/cli/dist/index.js import-bundle ./dist/model.model3.json -o ./imported_pkg.l2dproj` (`l2d_import_bundle`)
 

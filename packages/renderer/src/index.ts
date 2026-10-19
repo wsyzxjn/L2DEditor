@@ -5,3 +5,4 @@ export * from './export.js';
 export * from './headless.js';
 export * from './pixi.js';
 export * from './cubism_bridge.js';
+export * from './fs-utils.js';

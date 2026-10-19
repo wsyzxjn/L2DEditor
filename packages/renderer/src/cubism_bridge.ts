@@ -59,8 +59,16 @@ export function runCubismLayerClassifierOnnx(
 /**
  * Serializes a Project into a .moc3 binary format via pure Rust.
  */
-export function serializeMoc3Container(project: Project, version: number = 5): Buffer {
-  const bytes = wasmNode.exportMoc3Binary(JSON.stringify(project), version);
+export function serializeMoc3Container(
+  project: Project,
+  version: number = 5,
+  embedSourceProject: boolean = false
+): Buffer {
+  const bytes = wasmNode.exportMoc3BinaryWithOptions(
+    JSON.stringify(project),
+    version,
+    embedSourceProject
+  );
   return Buffer.from(bytes);
 }
 

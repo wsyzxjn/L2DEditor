@@ -36,8 +36,13 @@ impl PhysicsSimulator {
         current_parameters: &HashMap<String, f32>,
         dt: f32,
     ) -> HashMap<String, f32> {
-        let dt = dt.clamp(0.001, 0.1); // Clamp dt to prevent explosion on frame drops
         let mut output_params: HashMap<String, f32> = HashMap::new();
+        if !dt.is_finite() || dt <= 0.0 {
+            return output_params;
+        }
+        let dt = dt.min(0.1);
+        let substeps = ((dt / (1.0 / 120.0)).ceil() as usize).clamp(1, 64);
+        let step_dt = dt / substeps as f32;
 
         for group in &project.physics {
             let num_pendulums = group.pendulums.len();
@@ -52,81 +57,145 @@ impl PhysicsSimulator {
                 .or_insert_with(|| vec![PendulumState::default(); num_pendulums]);
 
             if states.len() != num_pendulums {
+                states.clear();
                 states.resize(num_pendulums, PendulumState::default());
+            }
+            if states.iter().any(|state| {
+                !state.position[0].is_finite()
+                    || !state.position[1].is_finite()
+                    || !state.velocity[0].is_finite()
+                    || !state.velocity[1].is_finite()
+                    || !state.angle.is_finite()
+                    || !state.angular_velocity.is_finite()
+            }) {
+                states.fill(PendulumState::default());
             }
 
             // 1. Calculate input acceleration from parameter deltas
             let mut total_force_x = 0.0;
 
             for input in &group.inputs {
-                let curr_val = current_parameters.get(&input.param_id).copied().unwrap_or(0.0);
+                let curr_val = current_parameters
+                    .get(&input.param_id)
+                    .copied()
+                    .filter(|value| value.is_finite())
+                    .unwrap_or(0.0);
                 let prev_val = self
                     .prev_parameters
                     .get(&input.param_id)
                     .copied()
+                    .filter(|value| value.is_finite())
                     .unwrap_or(curr_val);
 
                 let delta = curr_val - prev_val;
                 let sign = if input.reflect { -1.0 } else { 1.0 };
-                total_force_x += delta * input.weight * sign * 10.0;
+                let weight = if input.weight.is_finite() {
+                    input.weight
+                } else {
+                    0.0
+                };
+                total_force_x += delta * weight * sign * 10.0;
+            }
+            if !total_force_x.is_finite() {
+                total_force_x = 0.0;
             }
 
             // 2. Simulate pendulum chain
-            let mut parent_pos = [0.0, 0.0];
-            for (idx, pendulum) in group.pendulums.iter().enumerate() {
-                let state = &mut states[idx];
+            for _ in 0..substeps {
+                let mut parent_pos = [0.0, 0.0];
+                for (idx, pendulum) in group.pendulums.iter().enumerate() {
+                    let state = &mut states[idx];
+                    let mass = if pendulum.mass.is_finite() {
+                        pendulum.mass.max(0.05)
+                    } else {
+                        1.0
+                    };
+                    let damping = if pendulum.damping.is_finite() {
+                        pendulum.damping.max(0.0)
+                    } else {
+                        0.0
+                    };
+                    let length = if pendulum.length.is_finite() {
+                        pendulum.length.max(1e-4)
+                    } else {
+                        1e-4
+                    };
 
-                // Angular physics: spring force restoring to 0, plus input force, plus gravity
-                let restoring_spring = -15.0 * state.angle;
-                let damping_force = -pendulum.damping * state.angular_velocity * 4.0;
-                let external_torque = total_force_x * 0.1;
-
-                let angular_accel = (restoring_spring + damping_force + external_torque) / pendulum.mass.max(0.1);
-
-                state.angular_velocity += angular_accel * dt;
-                state.angle += state.angular_velocity * dt;
-
-                // Clamp angle to [-PI/2, PI/2]
-                state.angle = state.angle.clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
-
-                // Compute position based on parent and length
-                let sin_a = state.angle.sin();
-                let cos_a = state.angle.cos();
-                state.position = [
-                    parent_pos[0] + sin_a * pendulum.length,
-                    parent_pos[1] + cos_a * pendulum.length,
-                ];
-
-                // Ground line collision clamping (Cubism 5.0 地面判定)
-                if let Some(gy) = group.ground_y {
-                    if state.position[1] > gy {
-                        state.position[1] = gy;
-                        // Dampen angular velocity and bounce
-                        state.angular_velocity = -state.angular_velocity * 0.3;
-                        let dy = (gy - parent_pos[1]).max(0.0);
-                        let clamped_cos = (dy / pendulum.length.max(1.0)).clamp(0.0, 1.0);
-                        let sign = if state.angle >= 0.0 { 1.0 } else { -1.0 };
-                        state.angle = sign * clamped_cos.acos();
+                    // Angular physics: spring force restoring to 0, plus input force, plus gravity.
+                    let restoring_spring = -15.0 * state.angle;
+                    let damping_force = -damping * state.angular_velocity * 4.0;
+                    let external_torque = total_force_x * 0.1;
+                    let angular_accel =
+                        (restoring_spring + damping_force + external_torque) / mass;
+                    if !angular_accel.is_finite() {
+                        *state = PendulumState::default();
+                        continue;
                     }
-                }
 
-                // Radial boundary limit
-                if let Some(mr) = group.max_radius {
-                    let r = (state.position[0].powi(2) + state.position[1].powi(2)).sqrt();
-                    if r > mr && r > 1e-4 {
-                        state.position[0] = (state.position[0] / r) * mr;
-                        state.position[1] = (state.position[1] / r) * mr;
+                    state.angular_velocity =
+                        (state.angular_velocity + angular_accel * step_dt).clamp(-20.0, 20.0);
+                    state.angle = (state.angle + state.angular_velocity * step_dt)
+                        .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+
+                    let sin_a = state.angle.sin();
+                    let cos_a = state.angle.cos();
+                    state.position = [
+                        parent_pos[0] + sin_a * length,
+                        parent_pos[1] + cos_a * length,
+                    ];
+
+                    // Ground line collision clamping (Cubism 5.0 地面判定).
+                    if let Some(gy) = group.ground_y.filter(|value| value.is_finite()) {
+                        if state.position[1] > gy {
+                            state.position[1] = gy;
+                            state.angular_velocity = (-state.angular_velocity * 0.3).clamp(-20.0, 20.0);
+                            let dy = (gy - parent_pos[1]).max(0.0);
+                            let clamped_cos = (dy / length).clamp(0.0, 1.0);
+                            let sign = if state.angle >= 0.0 { 1.0 } else { -1.0 };
+                            state.angle = sign * clamped_cos.acos();
+                        }
                     }
-                }
 
-                parent_pos = state.position;
+                    // Radial boundary limit.
+                    if let Some(mr) = group.max_radius.filter(|value| value.is_finite() && *value > 0.0)
+                    {
+                        let r = (state.position[0].powi(2) + state.position[1].powi(2)).sqrt();
+                        if r.is_finite() && r > mr && r > 1e-4 {
+                            state.position[0] = (state.position[0] / r) * mr;
+                            state.position[1] = (state.position[1] / r) * mr;
+                        }
+                    }
+
+                    if !state.position[0].is_finite()
+                        || !state.position[1].is_finite()
+                        || !state.angle.is_finite()
+                        || !state.angular_velocity.is_finite()
+                    {
+                        *state = PendulumState::default();
+                    }
+
+                    parent_pos = state.position;
+                }
             }
 
             // 3. Map to output parameters
             for output in &group.outputs {
                 if output.pendulum_index < states.len() {
                     let angle_deg = states[output.pendulum_index].angle.to_degrees();
-                    let val = angle_deg * output.angle_scale * output.weight;
+                    let scale = if output.angle_scale.is_finite() {
+                        output.angle_scale
+                    } else {
+                        0.0
+                    };
+                    let weight = if output.weight.is_finite() {
+                        output.weight
+                    } else {
+                        0.0
+                    };
+                    let val = angle_deg * scale * weight;
+                    if !val.is_finite() {
+                        continue;
+                    }
 
                     // Blend or accumulate into output_params
                     let entry = output_params.entry(output.param_id.clone()).or_insert(0.0);
@@ -136,7 +205,13 @@ impl PhysicsSimulator {
         }
 
         // Store previous parameter values for delta calculation next frame
-        self.prev_parameters = current_parameters.clone();
+        self.prev_parameters.clear();
+        self.prev_parameters.extend(
+            current_parameters
+                .iter()
+                .filter(|(_, value)| value.is_finite())
+                .map(|(id, value)| (id.clone(), *value)),
+        );
 
         output_params
     }
@@ -158,9 +233,23 @@ pub fn bake_physics_to_animation(
         .position(|a| a.id == animation_id)
         .ok_or_else(|| format!("Animation '{}' not found", animation_id))?;
 
-    let fps = project.animations[anim_idx].fps.max(1.0);
-    let duration = project.animations[anim_idx].duration_frames.max(1.0);
+    let fps = if project.animations[anim_idx].fps.is_finite() {
+        project.animations[anim_idx].fps.max(1.0)
+    } else {
+        30.0
+    };
+    let duration = if project.animations[anim_idx].duration_frames.is_finite() {
+        project.animations[anim_idx].duration_frames.max(1.0)
+    } else {
+        1.0
+    };
     let total_frames = duration.ceil() as usize;
+    if total_frames > 1_000_000 {
+        return Err(format!(
+            "animation '{}' is too long to bake physics ({total_frames} frames)",
+            animation_id
+        ));
+    }
     let dt = 1.0 / fps;
 
     // Collect all output parameter IDs driven by physics
@@ -410,5 +499,50 @@ mod tests {
         let states = sim.group_states.get("skirt").unwrap();
         // Y position must not penetrate ground line 50.0
         assert!(states[0].position[1] <= 50.001);
+    }
+
+    #[test]
+    fn test_physics_nan_dt_and_stiff_integration_stay_finite() {
+        let mut project = Project::default();
+        project.physics.push(PhysicsGroup {
+            id: "stiff".into(),
+            name: "Stiff".into(),
+            inputs: vec![PhysicsInput {
+                param_id: "ParamAngleX".into(),
+                weight: 1.0,
+                reflect: false,
+            }],
+            outputs: vec![PhysicsOutput {
+                param_id: "ParamHair".into(),
+                pendulum_index: 0,
+                angle_scale: 1.0,
+                weight: 1.0,
+            }],
+            pendulums: vec![PhysicsPendulum {
+                length: 20.0,
+                damping: 10.0,
+                mass: 0.1,
+            }],
+            ground_y: None,
+            max_radius: None,
+        });
+        let mut sim = PhysicsSimulator::new();
+        let mut params = HashMap::from([("ParamAngleX".to_string(), 0.0f32)]);
+        let initial = sim.update(&project, &params, 1.0 / 30.0);
+        assert!(initial.values().all(|value| value.is_finite()));
+        assert!(sim.update(&project, &params, f32::NAN).is_empty());
+
+        params.insert("ParamAngleX".into(), 90.0);
+        for _ in 0..200 {
+            let output = sim.update(&project, &params, 1.0 / 30.0);
+            assert!(output.values().all(|value| value.is_finite()));
+        }
+        let states = sim.group_states.get("stiff").unwrap();
+        assert!(states.iter().all(|state| {
+            state.angle.is_finite()
+                && state.angular_velocity.is_finite()
+                && state.position[0].is_finite()
+                && state.position[1].is_finite()
+        }));
     }
 }

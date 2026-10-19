@@ -12,8 +12,11 @@ import {
   renderAnimationSequence,
   applyCubismAiFaceRig,
   importRuntimePackage,
+  copyRuntimePackageTextures,
   serializeMoc3Container,
   parseMoc3ToProject,
+  safeResolveWithin,
+  writeFileAtomicSync,
 } from '@l2d/renderer';
 import { runAcceptance, checkAcceptanceRevision, type AcceptancePlan } from '@l2d/renderer/acceptance';
 import { exportModelingTemplate, type Project } from '@l2d/schema';
@@ -67,7 +70,7 @@ program
       textures: [],
     };
     const jsonFile = path.join(dir, 'project.json');
-    fs.writeFileSync(jsonFile, JSON.stringify(project, null, 2), 'utf-8');
+    writeFileAtomicSync(jsonFile, JSON.stringify(project, null, 2));
     console.log(`Created new L2DEditor project at: ${dir}`);
   });
 
@@ -192,7 +195,7 @@ program
     );
 
     fs.mkdirSync(path.dirname(opts.out), { recursive: true });
-    fs.writeFileSync(opts.out, pngBuf);
+    writeFileAtomicSync(opts.out, pngBuf);
     console.log(`Rendered ${project.canvas.width}x${project.canvas.height} snapshot to ${opts.out} (${pngBuf.length} bytes)`);
   });
 
@@ -227,7 +230,7 @@ program
       process.exit(1);
     }
 
-    fs.writeFileSync(file, JSON.stringify(bus.getProject(), null, 2), 'utf-8');
+    writeFileAtomicSync(file, JSON.stringify(bus.getProject(), null, 2));
     console.log(`Successfully executed command '${cmd.name}', patches applied: ${res.patches.length}`);
   });
 
@@ -236,6 +239,7 @@ program
   .description('Import a Photoshop PSD file and generate a project directory')
   .requiredOption('-o, --out <out_dir>', 'Target .l2dproj directory')
   .option('-d, --density <density>', 'Mesh subdivision density', '2')
+  .option('--force', 'Overwrite an existing project.json')
   .action(async (psdFile, opts) => {
     const buf = fs.readFileSync(psdFile);
     const density = Number(opts.density);
@@ -243,14 +247,18 @@ program
 
     const outDir = opts.out;
     fs.mkdirSync(outDir, { recursive: true });
+    const projPath = path.join(outDir, 'project.json');
+    if (fs.existsSync(projPath) && !opts.force) {
+      throw new Error(`Refusing to overwrite existing project: ${projPath} (pass --force)`);
+    }
     const texDir = path.join(outDir, 'textures');
     fs.mkdirSync(texDir, { recursive: true });
 
     for (const t of extractedTextures) {
-      fs.writeFileSync(path.join(texDir, t.filename), t.buffer);
+      writeFileAtomicSync(safeResolveWithin(texDir, t.filename, 'PSD texture'), t.buffer);
     }
 
-    fs.writeFileSync(path.join(outDir, 'project.json'), JSON.stringify(project, null, 2), 'utf-8');
+    writeFileAtomicSync(projPath, JSON.stringify(project, null, 2));
     console.log(`Imported PSD to '${outDir}': ${project.nodes.length} nodes, ${extractedTextures.length} textures.`);
   });
 
@@ -285,10 +293,10 @@ program
     fs.mkdirSync(texDir, { recursive: true });
 
     for (const atlas of result.atlasPngBuffers) {
-      fs.writeFileSync(path.join(texDir, atlas.filename), atlas.buffer);
+      writeFileAtomicSync(path.join(texDir, atlas.filename), atlas.buffer);
     }
 
-    fs.writeFileSync(file, JSON.stringify(result.updatedProject, null, 2), 'utf-8');
+    writeFileAtomicSync(file, JSON.stringify(result.updatedProject, null, 2));
     console.log(`Successfully generated texture atlas (${size}x${size}) and remapped mesh UVs.`);
   });
 
@@ -299,6 +307,7 @@ program
   .option('-n, --name <name>', 'Model name', 'model')
   .option('-s, --size <size>', 'Atlas size in pixels', '2048')
   .option('-z, --zip <zip_file>', 'Optionally package output directory into a distribution ZIP archive')
+  .option('--embed-source', 'Embed the editable project JSON inside the exported .moc3 (off by default)')
   .action(async (projectInput, opts) => {
     const file = resolveProjectPath(projectInput);
     const projectDir = path.dirname(file);
@@ -321,6 +330,7 @@ program
       modelName: opts.name,
       atlasSize: Number(opts.size),
       zipOutputPath: opts.zip,
+      embedSourceProject: Boolean(opts.embedSource),
     });
 
     console.log(`Successfully exported runtime package to '${opts.out}':`);
@@ -336,13 +346,14 @@ program
   .description('Export project directly to a spec-compliant Live2D .moc3 binary (v1..v5) in pure Rust')
   .requiredOption('-o, --out <out_moc3>', 'Target .moc3 binary path')
   .option('-v, --moc-version <ver>', 'Target MOC3 version (1=V3.00, 2=V3.03, 3=V4.00, 4=V4.02, 5=V5.00)', '5')
+  .option('--embed-source', 'Embed the editable project JSON inside the .moc3 (off by default)')
   .action((projectInput, opts) => {
     const file = resolveProjectPath(projectInput);
     const project: Project = JSON.parse(fs.readFileSync(file, 'utf-8'));
     const ver = Number(opts.mocVersion) || 5;
-    const moc3Buf = serializeMoc3Container(project, ver);
+    const moc3Buf = serializeMoc3Container(project, ver, Boolean(opts.embedSource));
     fs.mkdirSync(path.dirname(path.resolve(opts.out)), { recursive: true });
-    fs.writeFileSync(opts.out, moc3Buf);
+    writeFileAtomicSync(opts.out, moc3Buf);
     console.log(`Successfully exported .moc3 (v${ver}, ${moc3Buf.length} bytes) to ${opts.out}`);
   });
 
@@ -355,7 +366,7 @@ program
     const { mocVersion, project } = parseMoc3ToProject(buf);
     const targetFile = opts.out.endsWith('.json') ? opts.out : path.join(opts.out, 'project.json');
     fs.mkdirSync(path.dirname(path.resolve(targetFile)), { recursive: true });
-    fs.writeFileSync(targetFile, JSON.stringify(project, null, 2), 'utf-8');
+    writeFileAtomicSync(targetFile, JSON.stringify(project, null, 2));
     console.log(`Imported .moc3 (v${mocVersion}, ${project.nodes.length} nodes, ${project.parameters.length} parameters) to ${targetFile}`);
   });
 
@@ -363,12 +374,17 @@ program
   .command('import-bundle <model3_json>')
   .description('Import an entire Live2D runtime bundle (.model3.json, .moc3, .physics3, .cdi3, expressions, pose) into an L2DEditor project')
   .requiredOption('-o, --out <out_dir>', 'Target .l2dproj directory')
+  .option('--force', 'Overwrite an existing project.json')
   .action((model3JsonFile, opts) => {
     const { project, modelName, mocVersion } = importRuntimePackage(model3JsonFile);
     fs.mkdirSync(opts.out, { recursive: true });
     const jsonFile = path.join(opts.out, 'project.json');
-    fs.writeFileSync(jsonFile, JSON.stringify(project, null, 2), 'utf-8');
-    console.log(`Successfully imported runtime bundle '${modelName}' (.moc3 v${mocVersion}, ${project.nodes.length} nodes, ${project.parameters.length} params) into ${opts.out}`);
+    if (fs.existsSync(jsonFile) && !opts.force) {
+      throw new Error(`Refusing to overwrite existing project: ${jsonFile} (pass --force)`);
+    }
+    const textureCount = copyRuntimePackageTextures(model3JsonFile, project, opts.out);
+    writeFileAtomicSync(jsonFile, JSON.stringify(project, null, 2));
+    console.log(`Successfully imported runtime bundle '${modelName}' (.moc3 v${mocVersion}, ${project.nodes.length} nodes, ${project.parameters.length} params, ${textureCount} textures) into ${opts.out}`);
   });
 
 program
@@ -414,7 +430,7 @@ program
       }
       formTrack.keyframes = result.mouthFormKeyframes;
     }
-    fs.writeFileSync(file, JSON.stringify(project, null, 2), 'utf-8');
+    writeFileAtomicSync(file, JSON.stringify(project, null, 2));
     console.log(`Generated ${result.keyframes.length} lip-sync keyframes for ${opts.param} over ${result.durationFrames} frames.`);
   });
 
@@ -433,7 +449,7 @@ program
     const idx = project.animations.findIndex((a) => a.id === anim.id);
     if (idx >= 0) project.animations[idx] = anim;
     else project.animations.push(anim);
-    fs.writeFileSync(file, JSON.stringify(project, null, 2), 'utf-8');
+    writeFileAtomicSync(file, JSON.stringify(project, null, 2));
     console.log(`Imported .mtn motion '${anim.name}' (${anim.tracks.length} tracks, ${anim.duration_frames} frames @ ${anim.fps}fps)`);
   });
 
@@ -444,7 +460,7 @@ program
     const file = resolveProjectPath(projectInput);
     const raw = fs.readFileSync(file, 'utf-8');
     const updatedJson = bakePhysicsToAnimation(raw, animationId);
-    fs.writeFileSync(file, updatedJson, 'utf-8');
+    writeFileAtomicSync(file, updatedJson);
     console.log(`Successfully baked pendulum physics into animation '${animationId}'.`);
   });
 
@@ -452,7 +468,7 @@ program
   .command('render-video <project> <animation_id>')
   .description('Render full animation frames and encode into MP4 or WebM video (using bundled/system ffmpeg)')
   .requiredOption('-o, --out <out_file>', 'Output video path (.mp4 or .webm)')
-  .option('-r, --fps <fps>', 'Target playback framerate', '30')
+  .option('-r, --fps <fps>', 'Target playback framerate (defaults to the animation FPS)')
   .action(async (projectInput, animationId, opts) => {
     const file = resolveProjectPath(projectInput);
     const projectDir = path.dirname(file);
@@ -473,13 +489,17 @@ program
 
     const tempFramesDir = path.join('/tmp', `l2d_anim_${Date.now()}`);
     const format = opts.out.endsWith('.gif') ? 'gif' : opts.out.endsWith('.webm') ? 'webm' : 'mp4';
-    const res = await renderAnimationSequence(project, animationId, textureResolver, tempFramesDir, {
-      fps: Number(opts.fps),
-      format,
-      videoOutputPath: opts.out,
-    });
-
-    console.log(`Successfully rendered ${res.totalFrames} frames to video: ${res.videoPath || opts.out}`);
+    try {
+      const res = await renderAnimationSequence(project, animationId, textureResolver, tempFramesDir, {
+        fps: opts.fps === undefined ? undefined : Number(opts.fps),
+        format,
+        videoOutputPath: opts.out,
+      });
+      if (!res.videoPath) throw new Error('Video encoder did not produce an output file');
+      console.log(`Successfully rendered ${res.totalFrames} frames to video: ${res.videoPath}`);
+    } finally {
+      fs.rmSync(tempFramesDir, { recursive: true, force: true });
+    }
   });
 
 program
@@ -498,7 +518,7 @@ program
     };
     const psdBuf = await exportModelToPsdBuffer(project, textureResolver);
     fs.mkdirSync(path.dirname(path.resolve(opts.out)), { recursive: true });
-    fs.writeFileSync(opts.out, psdBuf);
+    writeFileAtomicSync(opts.out, psdBuf);
     console.log(`Successfully exported layered PSD to ${opts.out} (${psdBuf.length} bytes)`);
   });
 
@@ -509,7 +529,7 @@ program
     const file = resolveProjectPath(projectInput);
     const project: Project = JSON.parse(fs.readFileSync(file, 'utf-8'));
     const updated = applyCubismAiFaceRig(project);
-    fs.writeFileSync(file, JSON.stringify(updated, null, 2), 'utf-8');
+    writeFileAtomicSync(file, JSON.stringify(updated, null, 2));
     console.log(`Successfully generated ONNX AI 3x3 Face Deformer keyforms on ${file}`);
   });
 
@@ -522,7 +542,7 @@ program
     const project: Project = JSON.parse(fs.readFileSync(file, 'utf-8'));
     const tpl = exportModelingTemplate(project);
     fs.mkdirSync(path.dirname(path.resolve(opts.out)), { recursive: true });
-    fs.writeFileSync(opts.out, JSON.stringify(tpl, null, 2), 'utf-8');
+    writeFileAtomicSync(opts.out, JSON.stringify(tpl, null, 2));
     console.log(`Exported modeling template (${tpl.deformers.length} deformers, ${tpl.keyforms.length} keyforms) to ${opts.out}`);
   });
 
@@ -536,18 +556,22 @@ program
     const existingProject: Project = JSON.parse(raw);
 
     const buf = fs.readFileSync(newPsdFile);
-    const { project: updatedProject, extractedTextures } = await importPsdBuffer(buf, {
+    const { project: updatedProject, extractedTextures, report } = await importPsdBuffer(buf, {
       existingProject,
     });
 
     const texDir = path.join(projectDir, 'textures');
     fs.mkdirSync(texDir, { recursive: true });
     for (const t of extractedTextures) {
-      fs.writeFileSync(path.join(texDir, t.filename), t.buffer);
+      writeFileAtomicSync(safeResolveWithin(texDir, t.filename, 'PSD texture'), t.buffer);
     }
 
-    fs.writeFileSync(file, JSON.stringify(updatedProject, null, 2), 'utf-8');
-    console.log(`Successfully reloaded PSD artwork into '${projectDir}': preserved existing deformers and keyforms.`);
+    writeFileAtomicSync(file, JSON.stringify(updatedProject, null, 2));
+    console.log(
+      `Successfully reloaded PSD artwork into '${projectDir}': ` +
+      `${report.updatedLayers.length} updated, ${report.addedLayers.length} added, ` +
+      `${report.removedLayers.length} source layers no longer present (nodes preserved).`
+    );
   });
 
 program
@@ -572,7 +596,7 @@ program
       process.exit(1);
     }
 
-    fs.writeFileSync(file, JSON.stringify(bus.getProject(), null, 2), 'utf-8');
+    writeFileAtomicSync(file, JSON.stringify(bus.getProject(), null, 2));
     console.log(`Successfully auto-rigged project: created hierarchical deformers and turn XY spaces.`);
   });
 

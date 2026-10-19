@@ -1,8 +1,10 @@
 use l2d_core::{
     auto_smooth_track_tangents,
     bake_physics_to_animation, classify_artmesh_pure_rust, evaluate_mlp_forward, evaluate_project,
-    export_moc3_binary, export_project_schema, export_runtime_bundle, import_moc3_binary,
-    lint_project, Animation, Diagnostic, DiagnosticSeverity, Node, Project,
+    export_moc3_binary, export_moc3_binary_with_options, export_project_schema,
+    export_runtime_bundle, export_runtime_bundle_with_options, import_moc3_binary, lint_project,
+    Animation, Diagnostic, DiagnosticSeverity, Moc3ExportOptions, Node, Project,
+    RuntimeBundleOptions,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -71,14 +73,26 @@ impl WasmModel {
     #[wasm_bindgen(js_name = setParameter)]
     pub fn set_parameter(&mut self, param_id: &str, value: f32) {
         let val = if let Some(p) = self.project.parameters.iter().find(|param| param.id == param_id) {
-            if p.repeats && (p.max - p.min).abs() > 1e-5 {
+            let parameter_valid = p.min.is_finite() && p.max.is_finite() && p.min <= p.max;
+            let default = if p.default.is_finite() { p.default } else { 0.0 };
+            if !value.is_finite() || !parameter_valid {
+                if parameter_valid {
+                    default.max(p.min).min(p.max)
+                } else {
+                    default
+                }
+            } else if p.repeats && (p.max - p.min).abs() > 1e-5 {
                 let span = p.max - p.min;
                 p.min + (value - p.min).rem_euclid(span)
             } else {
-                value.clamp(p.min, p.max)
+                value.max(p.min).min(p.max)
             }
         } else {
-            value
+            if value.is_finite() {
+                value
+            } else {
+                0.0
+            }
         };
         self.parameters.insert(param_id.to_string(), val);
     }
@@ -257,6 +271,24 @@ pub fn export_moc3_binary_wasm(project_json: &str, version: u8) -> Result<Vec<u8
     export_moc3_binary(&project, version).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+#[wasm_bindgen(js_name = exportMoc3BinaryWithOptions)]
+pub fn export_moc3_binary_with_options_wasm(
+    project_json: &str,
+    version: u8,
+    embed_source_project: bool,
+) -> Result<Vec<u8>, JsValue> {
+    let project: Project = serde_json::from_str(project_json)
+        .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+    export_moc3_binary_with_options(
+        &project,
+        version,
+        Moc3ExportOptions {
+            embed_source_project,
+        },
+    )
+    .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 #[wasm_bindgen(js_name = importMoc3Binary)]
 pub fn import_moc3_binary_wasm(bytes: &[u8]) -> Result<JsValue, JsValue> {
     let project = import_moc3_binary(bytes).map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -309,6 +341,31 @@ pub fn export_runtime_bundle_wasm(
         atlas_size,
         padding,
         &["textures/texture_00.png".to_string()],
+    )
+    .map_err(|e| JsValue::from_str(&e))?;
+    serde_wasm_bindgen::to_value(&bundle)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+}
+
+#[wasm_bindgen(js_name = exportRuntimeBundleWithOptions)]
+pub fn export_runtime_bundle_with_options_wasm(
+    project_json: &str,
+    model_name: &str,
+    atlas_size: u32,
+    padding: u32,
+    embed_source_project: bool,
+) -> Result<JsValue, JsValue> {
+    let project: Project = serde_json::from_str(project_json)
+        .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+    let bundle = export_runtime_bundle_with_options(
+        &project,
+        model_name,
+        atlas_size,
+        padding,
+        &["textures/texture_00.png".to_string()],
+        RuntimeBundleOptions {
+            embed_source_project,
+        },
     )
     .map_err(|e| JsValue::from_str(&e))?;
     serde_wasm_bindgen::to_value(&bundle)

@@ -1,5 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -22,7 +23,10 @@ pub struct TimelineKeyframe {
     pub value: f32,
     #[serde(default)]
     pub curve: CurveType,
-    /// Tangents for cubic bezier: [cx1, cy1, cx2, cy2]
+    /// Cubic Bézier handles in absolute timeline coordinates:
+    /// `[in_frame, in_value, out_frame, out_value]`. The out-handle shapes the segment that
+    /// starts at this keyframe, the in-handle shapes the segment that ends here.
+    /// See [`bezier_segment_controls`] for defaults and clamping.
     #[serde(default)]
     pub bezier_handles: Option<[f32; 4]>,
 }
@@ -83,70 +87,23 @@ fn default_fps() -> f32 {
 
 impl Animation {
     /// Evaluates all parameter values at the given frame position.
+    ///
+    /// Never panics: a NaN frame is treated as frame 0, and a negative/NaN `duration_frames`
+    /// is treated as 0. Keyframes are evaluated in frame order (see [`sanitized_keyframes`]),
+    /// exactly as they are written to `.motion3.json`, so preview matches export.
     pub fn evaluate_at_frame(&self, frame: f32) -> HashMap<String, f32> {
         let mut result = HashMap::new();
-        let target_frame = if self.loop_playback && self.duration_frames > 0.0 {
-            frame.rem_euclid(self.duration_frames)
+        let frame = if frame.is_nan() { 0.0 } else { frame };
+        let duration = if self.duration_frames > 0.0 { self.duration_frames } else { 0.0 };
+        let target_frame = if self.loop_playback && duration > 0.0 && duration.is_finite() && frame.is_finite() {
+            frame.rem_euclid(duration)
         } else {
-            frame.clamp(0.0, self.duration_frames)
+            frame.max(0.0).min(duration)
         };
 
         for track in &self.tracks {
-            if track.keyframes.is_empty() {
-                continue;
-            }
-            if track.keyframes.len() == 1 {
-                result.insert(track.target_param_id.clone(), track.keyframes[0].value);
-                continue;
-            }
-
-            // Before first keyframe
-            if target_frame <= track.keyframes[0].frame {
-                result.insert(track.target_param_id.clone(), track.keyframes[0].value);
-                continue;
-            }
-
-            // After last keyframe
-            let last_idx = track.keyframes.len() - 1;
-            if target_frame >= track.keyframes[last_idx].frame {
-                result.insert(track.target_param_id.clone(), track.keyframes[last_idx].value);
-                continue;
-            }
-
-            // Find segment [kf_i, kf_{i+1}]
-            for i in 0..track.keyframes.len() - 1 {
-                let k0 = &track.keyframes[i];
-                let k1 = &track.keyframes[i + 1];
-
-                if target_frame >= k0.frame && target_frame <= k1.frame {
-                    let span = k1.frame - k0.frame;
-                    let t = if span.abs() < 1e-6 {
-                        0.0
-                    } else {
-                        (target_frame - k0.frame) / span
-                    };
-
-                    let val = match k0.curve {
-                        CurveType::Stepped => k0.value,
-                        CurveType::Linear => k0.value + t * (k1.value - k0.value),
-                        CurveType::Bezier => {
-                            // Smooth Hermite / Bezier ease
-                            let t2 = t * t;
-                            let t3 = t2 * t;
-                            let h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
-                            let h10 = t3 - 2.0 * t2 + t;
-                            let h01 = -2.0 * t3 + 3.0 * t2;
-                            let h11 = t3 - t2;
-                            // Tangents default to smooth curve
-                            let m0 = k1.value - k0.value;
-                            let m1 = m0;
-                            h00 * k0.value + h10 * m0 + h01 * k1.value + h11 * m1
-                        }
-                    };
-
-                    result.insert(track.target_param_id.clone(), val);
-                    break;
-                }
+            if let Some(val) = evaluate_keyframes(&sanitized_keyframes(&track.keyframes), target_frame) {
+                result.insert(track.target_param_id.clone(), val);
             }
         }
 
@@ -157,6 +114,102 @@ impl Animation {
     pub fn evaluate_at_time(&self, time_sec: f32) -> HashMap<String, f32> {
         self.evaluate_at_frame(time_sec * self.fps)
     }
+}
+
+/// Returns the keyframes that can actually be played back: entries with a non-finite frame or
+/// value are dropped and the rest are stably sorted by frame. Shared by preview evaluation and
+/// the motion3 exporter so both see the same curve.
+pub fn sanitized_keyframes(keyframes: &[TimelineKeyframe]) -> Cow<'_, [TimelineKeyframe]> {
+    let all_finite = keyframes.iter().all(|k| k.frame.is_finite() && k.value.is_finite());
+    let sorted = keyframes.windows(2).all(|w| w[0].frame <= w[1].frame);
+    if all_finite && sorted {
+        return Cow::Borrowed(keyframes);
+    }
+    let mut out: Vec<TimelineKeyframe> = keyframes
+        .iter()
+        .filter(|k| k.frame.is_finite() && k.value.is_finite())
+        .cloned()
+        .collect();
+    out.sort_by(|a, b| a.frame.total_cmp(&b.frame));
+    Cow::Owned(out)
+}
+
+/// Cubic Bézier control points `(P1, P2)` for the segment `k0 -> k1`, in absolute
+/// (frame, value) coordinates.
+///
+/// Handle convention (`bezier_handles = [in_frame, in_value, out_frame, out_value]`, absolute
+/// timeline coordinates, as written by [`auto_smooth_track_tangents`]):
+/// - `P1` is `k0`'s out-handle, `P2` is `k1`'s in-handle.
+/// - A missing handle defaults to a flat tangent placed at one third of the segment
+///   (`(f0 + span/3, v0)` / `(f1 - span/3, v1)`), i.e. an ease-in-out.
+/// - Handle frames are clamped into `[f0, f1]` so the curve stays a function of time
+///   (the motion3 runtime requires this as well). Non-finite handles fall back to the default.
+pub fn bezier_segment_controls(k0: &TimelineKeyframe, k1: &TimelineKeyframe) -> ([f32; 2], [f32; 2]) {
+    let (f0, f1) = (k0.frame, k1.frame);
+    let third = (f1 - f0) / 3.0;
+    let finite = |h: &[f32; 4], a: usize| h[a].is_finite() && h[a + 1].is_finite();
+    let p1 = match &k0.bezier_handles {
+        Some(h) if finite(h, 2) => [h[2].max(f0).min(f1), h[3]],
+        _ => [f0 + third, k0.value],
+    };
+    let p2 = match &k1.bezier_handles {
+        Some(h) if finite(h, 0) => [h[0].max(f0).min(f1), h[1]],
+        _ => [f1 - third, k1.value],
+    };
+    (p1, p2)
+}
+
+fn cubic(a: f64, b: f64, c: f64, d: f64, t: f64) -> f64 {
+    let u = 1.0 - t;
+    u * u * u * a + 3.0 * u * u * t * b + 3.0 * u * t * t * c + t * t * t * d
+}
+
+/// Evaluates the cubic Bézier segment `k0 -> k1` at `frame` by solving `x(t) = frame`
+/// (bisection; `x(t)` is monotonic because the control frames are clamped into the segment).
+pub fn evaluate_bezier_segment(k0: &TimelineKeyframe, k1: &TimelineKeyframe, frame: f32) -> f32 {
+    let (p1, p2) = bezier_segment_controls(k0, k1);
+    let (x0, x1, x2, x3) = (k0.frame as f64, p1[0] as f64, p2[0] as f64, k1.frame as f64);
+    if (x3 - x0).abs() < 1e-9 {
+        return k1.value;
+    }
+    let x = (frame as f64).clamp(x0, x3);
+    let (mut lo, mut hi) = (0.0f64, 1.0f64);
+    for _ in 0..48 {
+        let mid = 0.5 * (lo + hi);
+        if cubic(x0, x1, x2, x3, mid) < x {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let t = 0.5 * (lo + hi);
+    cubic(k0.value as f64, p1[1] as f64, p2[1] as f64, k1.value as f64, t) as f32
+}
+
+/// Evaluates a sorted keyframe list at `frame`; `None` for an empty list.
+fn evaluate_keyframes(keyframes: &[TimelineKeyframe], frame: f32) -> Option<f32> {
+    let first = keyframes.first()?;
+    let last = keyframes.last()?;
+    if frame <= first.frame {
+        return Some(first.value);
+    }
+    if frame >= last.frame {
+        return Some(last.value);
+    }
+    // First segment whose end is past `frame` (keyframes are sorted).
+    let i = keyframes.partition_point(|k| k.frame <= frame).max(1) - 1;
+    let k0 = &keyframes[i];
+    let k1 = &keyframes[(i + 1).min(keyframes.len() - 1)];
+    let span = k1.frame - k0.frame;
+    if span <= 1e-6 {
+        return Some(k1.value);
+    }
+    let t = (frame - k0.frame) / span;
+    Some(match k0.curve {
+        CurveType::Stepped => k0.value,
+        CurveType::Linear => k0.value + t * (k1.value - k0.value),
+        CurveType::Bezier => evaluate_bezier_segment(k0, k1, frame),
+    })
 }
 
 /// Automatically computes smooth cubic Bézier tangent handles for all keyframes in an animation track.
@@ -238,6 +291,42 @@ mod tests {
         // At frame 30 -> 30
         let val30 = anim.evaluate_at_frame(30.0);
         assert!((val30.get("ParamAngleX").unwrap() - 30.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_animation_bezier_uses_cubic_segment_not_linear() {
+        let anim = Animation {
+            id: "bezier".into(),
+            name: "Bezier".into(),
+            duration_frames: 30.0,
+            fps: 30.0,
+            loop_playback: false,
+            tracks: vec![AnimationTrack {
+                target_param_id: "ParamAngleX".into(),
+                keyframes: vec![
+                    TimelineKeyframe {
+                        frame: 0.0,
+                        value: 0.0,
+                        curve: CurveType::Bezier,
+                        bezier_handles: None,
+                    },
+                    TimelineKeyframe {
+                        frame: 30.0,
+                        value: 30.0,
+                        curve: CurveType::Linear,
+                        bezier_handles: None,
+                    },
+                ],
+                fade_in_ms: None,
+                fade_out_ms: None,
+                frozen: false,
+            }],
+            markers: Vec::new(),
+            form_tracks: Vec::new(),
+        };
+        let value = anim.evaluate_at_frame(7.5)["ParamAngleX"];
+        assert!((value - 4.6875).abs() < 1e-3, "got {value}");
+        assert!((value - 7.5).abs() > 1.0);
     }
 }
 

@@ -59,17 +59,18 @@ pub fn transform_point_by_warp_ext(
     let raw_s = gx - cell_x as f32;
     let raw_t = gy - cell_y as f32;
 
-    let s = if smooth {
-        raw_s * raw_s * (3.0 - 2.0 * raw_s)
-    } else {
-        raw_s
+    // Smoothstep is only meaningful inside a cell; outside the grid (raw coordinate < 0 or > 1
+    // in the clamped edge cell) it would fold points back, so keep the same linear
+    // extrapolation as the non-smooth path there.
+    let smooth_step = |x: f32| {
+        if smooth && (0.0..=1.0).contains(&x) {
+            x * x * (3.0 - 2.0 * x)
+        } else {
+            x
+        }
     };
-
-    let t = if smooth {
-        raw_t * raw_t * (3.0 - 2.0 * raw_t)
-    } else {
-        raw_t
-    };
+    let s = smooth_step(raw_s);
+    let t = smooth_step(raw_t);
 
     let stride = cols + 1;
     let p00 = control_points[cell_y * stride + cell_x];
@@ -116,5 +117,24 @@ mod tests {
         let p_out = transform_point_by_warp(p_in, 1, 1, bounds, &grid);
         assert!((p_out[0] - 75.0).abs() < 1e-4);
         assert!((p_out[1] - 25.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_bezier_smooth_extrapolates_linearly_outside_bounds() {
+        let bounds = [0.0, 0.0, 100.0, 100.0];
+        let mut grid = generate_default_grid(2, 2, bounds);
+        for pt in &mut grid {
+            pt[0] *= 2.0;
+        }
+        for p_in in [[-50.0, 50.0], [150.0, 50.0], [50.0, -40.0], [50.0, 140.0], [-20.0, 130.0]] {
+            let linear = transform_point_by_warp_ext(p_in, 2, 2, bounds, &grid, false);
+            let smooth = transform_point_by_warp_ext(p_in, 2, 2, bounds, &grid, true);
+            assert!((linear[0] - smooth[0]).abs() < 1e-4, "{p_in:?}: {linear:?} vs {smooth:?}");
+            assert!((linear[1] - smooth[1]).abs() < 1e-4, "{p_in:?}: {linear:?} vs {smooth:?}");
+        }
+        // Monotonic outside the grid: farther input maps farther out (no folding).
+        let a = transform_point_by_warp_ext([-10.0, 50.0], 2, 2, bounds, &grid, true);
+        let b = transform_point_by_warp_ext([-60.0, 50.0], 2, 2, bounds, &grid, true);
+        assert!(b[0] < a[0] && a[0] < 0.0);
     }
 }

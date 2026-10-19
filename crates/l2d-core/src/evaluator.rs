@@ -52,6 +52,62 @@ pub fn evaluate_project(
     project: &Project,
     params: &HashMap<String, f32>,
 ) -> EvaluatedFrame {
+    evaluate_project_with_options(project, params, EvaluateOptions::default())
+}
+
+/// Options for [`evaluate_project_with_options`]. The default reproduces the rendering result
+/// of [`evaluate_project`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EvaluateOptions {
+    /// Keep drawables that rendering culls: fully transparent meshes, hidden nodes, and nodes
+    /// below a hidden ancestor. Their geometry is still deformed through the full ancestor chain
+    /// and their real (possibly zero) opacity is reported. Used by `.moc3` keyform baking, where
+    /// visibility is carried by separate flags and every keyform needs real geometry/opacity.
+    pub keep_culled_drawables: bool,
+}
+
+/// Returns the ids of nodes targeted by more than one `KeyformBinding`, in first-occurrence
+/// order. The evaluator (and `.moc3` export) deterministically uses the LAST binding listed in
+/// `project.keyforms` for such a node and ignores earlier ones; lint can surface this list.
+pub fn duplicate_keyform_targets(project: &Project) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut dups: Vec<String> = Vec::new();
+    for kb in &project.keyforms {
+        if !seen.insert(kb.target_node_id.as_str()) && !dups.iter().any(|d| d == &kb.target_node_id) {
+            dups.push(kb.target_node_id.clone());
+        }
+    }
+    dups
+}
+
+/// Blends per-keyform point arrays for a deformer. A keyform with a mismatched payload kind or
+/// point count contributes the node's base points, so weights always describe a full average.
+fn blend_keyform_points(
+    kf: &KeyformBinding,
+    weights: &[f32],
+    base: &[[f32; 2]],
+    extract: impl Fn(&KeyformPayload) -> Option<&[[f32; 2]]>,
+) -> Vec<[f32; 2]> {
+    let states: Vec<&[[f32; 2]]> = kf
+        .keyforms
+        .iter()
+        .map(|s| match extract(&s.payload) {
+            Some(pts) if pts.len() == base.len() => pts,
+            _ => base,
+        })
+        .collect();
+    if states.is_empty() {
+        return base.to_vec();
+    }
+    blend_points(&states, weights)
+}
+
+pub fn evaluate_project_with_options(
+    project: &Project,
+    params: &HashMap<String, f32>,
+    options: EvaluateOptions,
+) -> EvaluatedFrame {
+    let keep_culled = options.keep_culled_drawables;
     // 0. Resolve effective parameters after applying any active Expression blends
     let mut effective_params = params.clone();
     for expr in &project.expressions {
@@ -108,6 +164,7 @@ pub fn evaluate_project(
     }
 
     let node_map: HashMap<&str, &Node> = project.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+    // When several bindings target the same node, the last one wins (see `duplicate_keyform_targets`).
     let keyform_map: HashMap<&str, &KeyformBinding> = project
         .keyforms
         .iter()
@@ -126,6 +183,8 @@ pub fn evaluate_project(
 
     // 1. Evaluate deformed state for each deformer node
     let mut deformer_states: HashMap<String, DeformerState> = HashMap::new();
+    // DeformPath ids in project node order, so paths targeting a mesh apply deterministically.
+    let mut deform_path_order: Vec<&str> = Vec::new();
 
     for node in &project.nodes {
         match &node.kind {
@@ -134,18 +193,10 @@ pub fn evaluate_project(
                 if let Some(kf) = keyform_map.get(node.id.as_str()) {
                     let (dim_keys, dim_exts, query_coords, kf_coords) = extract_keyform_coords(kf, params, project);
                     let weights = compute_multidim_weights_ext(&dim_keys, &dim_exts, &query_coords, &kf_coords);
-                    let point_states: Vec<&[[f32; 2]]> = kf
-                        .keyforms
-                        .iter()
-                        .filter_map(|s| match &s.payload {
-                            KeyformPayload::Warp { control_points } => Some(control_points.as_slice()),
-                            _ => None,
-                        })
-                        .collect();
-
-                    if point_states.len() == weights.len() && !point_states.is_empty() {
-                        cp = blend_points(&point_states, &weights);
-                    }
+                    cp = blend_keyform_points(kf, &weights, &data.control_points, |p| match p {
+                        KeyformPayload::Warp { control_points } => Some(control_points.as_slice()),
+                        _ => None,
+                    });
                 }
                 deformer_states.insert(
                     node.id.clone(),
@@ -169,22 +220,25 @@ pub fn evaluate_project(
                     let mut blended_origin = [0.0, 0.0];
                     let mut blended_angle = 0.0;
                     let mut blended_scale = [0.0, 0.0];
-                    let mut valid = false;
+                    let mut total_w = 0.0f32;
 
+                    // Keyforms with another payload kind contribute the node's base transform.
                     for (state, &w) in kf.keyforms.iter().zip(weights.iter()) {
-                        if let KeyformPayload::Rotation { origin: o, angle_deg: a, scale: s } = &state.payload {
-                            valid = true;
-                            blended_origin[0] += o[0] * w;
-                            blended_origin[1] += o[1] * w;
-                            blended_angle += a * w;
-                            blended_scale[0] += s[0] * w;
-                            blended_scale[1] += s[1] * w;
-                        }
+                        let (o, a, s) = match &state.payload {
+                            KeyformPayload::Rotation { origin: o, angle_deg: a, scale: s } => (*o, *a, *s),
+                            _ => (data.origin, data.angle_deg, data.scale),
+                        };
+                        total_w += w;
+                        blended_origin[0] += o[0] * w;
+                        blended_origin[1] += o[1] * w;
+                        blended_angle += a * w;
+                        blended_scale[0] += s[0] * w;
+                        blended_scale[1] += s[1] * w;
                     }
-                    if valid {
-                        origin = blended_origin;
-                        angle_deg = blended_angle;
-                        scale = blended_scale;
+                    if total_w > 1e-6 {
+                        origin = [blended_origin[0] / total_w, blended_origin[1] / total_w];
+                        angle_deg = blended_angle / total_w;
+                        scale = [blended_scale[0] / total_w, blended_scale[1] / total_w];
                     }
                 }
 
@@ -202,19 +256,12 @@ pub fn evaluate_project(
                 if let Some(kf) = keyform_map.get(node.id.as_str()) {
                     let (dim_keys, dim_exts, query_coords, kf_coords) = extract_keyform_coords(kf, params, project);
                     let weights = compute_multidim_weights_ext(&dim_keys, &dim_exts, &query_coords, &kf_coords);
-                    let point_states: Vec<&[[f32; 2]]> = kf
-                        .keyforms
-                        .iter()
-                        .filter_map(|s| match &s.payload {
-                            KeyformPayload::DeformPath { control_points } => Some(control_points.as_slice()),
-                            _ => None,
-                        })
-                        .collect();
-
-                    if point_states.len() == weights.len() && !point_states.is_empty() {
-                        pts = blend_points(&point_states, &weights);
-                    }
+                    pts = blend_keyform_points(kf, &weights, &data.control_points, |p| match p {
+                        KeyformPayload::DeformPath { control_points } => Some(control_points.as_slice()),
+                        _ => None,
+                    });
                 }
+                deform_path_order.push(node.id.as_str());
                 deformer_states.insert(
                     node.id.clone(),
                     DeformerState::DeformPath {
@@ -234,7 +281,7 @@ pub fn evaluate_project(
     let mut total_inds = 0;
 
     for node in &project.nodes {
-        if !node.visible {
+        if !node.visible && !keep_culled {
             continue;
         }
         if let NodeKind::ArtMesh(mesh_data) = &node.kind {
@@ -244,53 +291,56 @@ pub fn evaluate_project(
             let mut screen_color = mesh_data.screen_color;
             let mut draw_order = mesh_data.draw_order;
 
-            // Apply ArtMesh keyforms (vertex offsets, opacity, colors)
+            // Apply ArtMesh keyforms (vertex offsets, opacity, colors) as normalized weighted
+            // averages. Values a keyform leaves unset (or a keyform with another payload kind)
+            // contribute the mesh default, so the result is independent of keyform order.
             if let Some(kf) = keyform_map.get(node.id.as_str()) {
                 let (dim_keys, dim_exts, query_coords, kf_coords) = extract_keyform_coords(kf, params, project);
                 let weights = compute_multidim_weights_ext(&dim_keys, &dim_exts, &query_coords, &kf_coords);
-                let mut has_offsets = false;
                 let mut offset_acc = vec![[0.0, 0.0]; vertices.len()];
                 let mut opacity_acc = 0.0;
-                let mut has_op_kf = false;
+                let mut mc_acc = [0.0f32; 4];
+                let mut sc_acc = [0.0f32; 4];
+                let mut total_w = 0.0f32;
                 let mut max_draw_order_w = 0.0f32;
 
                 for (state, &w) in kf.keyforms.iter().zip(weights.iter()) {
-                    if let KeyformPayload::ArtMesh { vertex_offsets, opacity: op, multiply_color: mc, screen_color: sc, draw_order: do_opt } = &state.payload {
-                        has_offsets = true;
-                        for (idx, off) in vertex_offsets.iter().enumerate().take(vertices.len()) {
-                            offset_acc[idx][0] += off[0] * w;
-                            offset_acc[idx][1] += off[1] * w;
-                        }
-                        if let Some(o) = op {
-                            has_op_kf = true;
-                            opacity_acc += o * w;
-                        }
-                        if let Some(c) = mc {
-                            for ch in 0..4 {
-                                multiply_color[ch] = multiply_color[ch] * (1.0 - w) + c[ch] * w;
-                            }
-                        }
-                        if let Some(c) = sc {
-                            for ch in 0..4 {
-                                screen_color[ch] = screen_color[ch] * (1.0 - w) + c[ch] * w;
-                            }
-                        }
-                        if let Some(d) = do_opt {
-                            if w > max_draw_order_w {
-                                max_draw_order_w = w;
-                                draw_order = *d;
-                            }
-                        }
+                    total_w += w;
+                    let (offsets, op, mc, sc, d) = match &state.payload {
+                        KeyformPayload::ArtMesh { vertex_offsets, opacity: op, multiply_color: mc, screen_color: sc, draw_order: d } => (
+                            vertex_offsets.as_slice(),
+                            op.unwrap_or(mesh_data.opacity),
+                            mc.unwrap_or(mesh_data.multiply_color),
+                            sc.unwrap_or(mesh_data.screen_color),
+                            d.unwrap_or(mesh_data.draw_order),
+                        ),
+                        _ => (&[][..], mesh_data.opacity, mesh_data.multiply_color, mesh_data.screen_color, mesh_data.draw_order),
+                    };
+                    for (idx, off) in offsets.iter().enumerate().take(vertices.len()) {
+                        offset_acc[idx][0] += off[0] * w;
+                        offset_acc[idx][1] += off[1] * w;
+                    }
+                    opacity_acc += op * w;
+                    for ch in 0..4 {
+                        mc_acc[ch] += mc[ch] * w;
+                        sc_acc[ch] += sc[ch] * w;
+                    }
+                    // Draw order is discrete: take the dominant keyform (first one on ties).
+                    if w > max_draw_order_w {
+                        max_draw_order_w = w;
+                        draw_order = d;
                     }
                 }
-                if has_offsets {
+                if total_w > 1e-6 {
                     for (v, off) in vertices.iter_mut().zip(offset_acc.iter()) {
-                        v[0] += off[0];
-                        v[1] += off[1];
+                        v[0] += off[0] / total_w;
+                        v[1] += off[1] / total_w;
                     }
-                }
-                if has_op_kf {
-                    opacity = opacity_acc;
+                    opacity = opacity_acc / total_w;
+                    for ch in 0..4 {
+                        multiply_color[ch] = mc_acc[ch] / total_w;
+                        screen_color[ch] = sc_acc[ch] / total_w;
+                    }
                 }
             }
 
@@ -305,9 +355,11 @@ pub fn evaluate_project(
                 }
             }
 
-            // Apply Deform Paths targeting this mesh
-            for deformer in deformer_states.values() {
-                if let DeformerState::DeformPath { base_points, deformed_points, target_mesh_ids } = deformer {
+            // Apply Deform Paths targeting this mesh (in project node order)
+            for path_id in &deform_path_order {
+                if let Some(DeformerState::DeformPath { base_points, deformed_points, target_mesh_ids }) =
+                    deformer_states.get(*path_id)
+                {
                     if target_mesh_ids.iter().any(|mid| mid == &node.id) {
                         for pt in &mut vertices {
                             *pt = transform_point_by_deform_path(*pt, base_points, deformed_points);
@@ -328,7 +380,9 @@ pub fn evaluate_project(
                 if let Some(parent_node) = node_map.get(pid) {
                     if !parent_node.visible {
                         inherited_visible = false;
-                        break;
+                        if !keep_culled {
+                            break;
+                        }
                     }
                     if let NodeKind::Part { opacity: part_op, .. } = parent_node.kind {
                         opacity *= part_op;
@@ -344,7 +398,9 @@ pub fn evaluate_project(
             }
 
             // A transparent drawable can still supply clipping geometry.
-            if !inherited_visible || (opacity <= 1e-5 && !mask_sources.contains(node.id.as_str())) {
+            if !keep_culled
+                && (!inherited_visible || (opacity <= 1e-5 && !mask_sources.contains(node.id.as_str())))
+            {
                 continue;
             }
 

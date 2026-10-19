@@ -129,10 +129,10 @@ export type KeyformPayload =
   | {
       kind: 'ArtMesh';
       vertex_offsets: [number, number][];
-      opacity?: number;
-      multiply_color?: [number, number, number, number];
-      screen_color?: [number, number, number, number];
-      draw_order?: number;
+      opacity?: number | null;
+      multiply_color?: [number, number, number, number] | null;
+      screen_color?: [number, number, number, number] | null;
+      draw_order?: number | null;
     };
 
 export interface KeyformState {

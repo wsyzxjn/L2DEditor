@@ -1,9 +1,9 @@
-use crate::animation::CurveType;
-use crate::moc3::{export_moc3_binary, DEFAULT_MOC3_VERSION};
+use crate::animation::{bezier_segment_controls, sanitized_keyframes, CurveType};
+use crate::moc3::{export_moc3_binary_with_options, Moc3ExportOptions, DEFAULT_MOC3_VERSION};
 use crate::model::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExportedTextFile {
@@ -38,25 +38,98 @@ pub struct RuntimeBundleOutput {
     pub expression_files: Vec<ExportedTextFile>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RuntimeBundleOptions {
+    pub embed_source_project: bool,
+}
+
+pub(crate) fn sanitize_file_stem(value: &str, fallback: &str) -> String {
+    let mut stem = String::new();
+    for character in value.chars() {
+        let safe = character.is_alphanumeric() || matches!(character, '-' | '_' | ' ');
+        stem.push(if safe { character } else { '_' });
+    }
+    let stem = stem.trim().trim_matches('.').trim().replace(' ', "_");
+    let mut stem = if stem.is_empty() {
+        fallback.to_string()
+    } else {
+        stem
+    };
+    if stem.len() > 120 {
+        stem = stem.chars().take(120).collect();
+        while stem.ends_with('_') {
+            stem.pop();
+        }
+    }
+    let upper = stem.to_ascii_uppercase();
+    let windows_reserved = matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (upper.len() == 4
+            && (upper.starts_with("COM") || upper.starts_with("LPT"))
+            && upper.as_bytes()[3].is_ascii_digit());
+    if windows_reserved {
+        stem.insert(0, '_');
+    }
+    if stem.is_empty() {
+        fallback.to_string()
+    } else {
+        stem
+    }
+}
+
+fn unique_file_stem(base: String, used: &mut HashSet<String>) -> String {
+    let mut candidate = base.clone();
+    let mut suffix = 2usize;
+    while !used.insert(candidate.to_lowercase()) {
+        candidate = format!("{base}_{suffix}");
+        suffix += 1;
+    }
+    candidate
+}
+
+fn validate_atlas_size(atlas_size: u32) -> Result<u32, String> {
+    if !(64..=16384).contains(&atlas_size) || !atlas_size.is_power_of_two() {
+        return Err(format!(
+            "atlas size must be a power of two between 64 and 16384, got {atlas_size}"
+        ));
+    }
+    Ok(atlas_size)
+}
+
 /// Computes 2D Shelf bin-packing layout for ArtMesh textures and remaps mesh UVs in pure Rust.
 pub fn compute_atlas_layout_and_remap_uvs(
     project: &Project,
     atlas_size: u32,
     padding: u32,
-) -> (Project, Vec<AtlasPlacement>) {
-    let atlas_size = atlas_size.max(64);
+) -> Result<(Project, Vec<AtlasPlacement>, u32), String> {
+    let atlas_size = validate_atlas_size(atlas_size)?;
+    if padding >= atlas_size / 2 {
+        return Err(format!(
+            "atlas padding {padding} is too large for a {atlas_size}x{atlas_size} atlas"
+        ));
+    }
     let mut items: Vec<(String, String, u32, u32)> = Vec::new();
 
     for node in &project.nodes {
         if let NodeKind::ArtMesh(mesh) = &node.kind {
             if let Some(tex) = project.textures.iter().find(|t| t.id == mesh.texture_id) {
-                items.push((node.id.clone(), tex.id.clone(), tex.width.max(1), tex.height.max(1)));
+                items.push((
+                    node.id.clone(),
+                    tex.id.clone(),
+                    tex.width.max(1),
+                    tex.height.max(1),
+                ));
             }
         }
     }
 
-    // Sort descending by height for Shelf bin-packing
-    items.sort_by(|a, b| b.3.cmp(&a.3));
+    // Shelf-pack taller textures first. The tie-breakers are required: this layout is computed
+    // independently when writing the atlas PNG and the MOC3 body, so equal-height textures must
+    // land in exactly the same cells in both passes.
+    items.sort_by(|a, b| {
+        b.3.cmp(&a.3)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.0.cmp(&b.0))
+    });
 
     let mut placements = Vec::new();
     let mut cur_x = padding;
@@ -66,21 +139,32 @@ pub fn compute_atlas_layout_and_remap_uvs(
 
     for (mesh_id, texture_id, w, h) in items {
         if let Some(existing) = packed_textures.get(&texture_id) {
-            placements.push(AtlasPlacement { mesh_id, ..existing.clone() });
+            placements.push(AtlasPlacement {
+                mesh_id,
+                ..existing.clone()
+            });
             continue;
         }
-        if w.saturating_add(padding.saturating_mul(2)) > atlas_size
-            || h.saturating_add(padding.saturating_mul(2)) > atlas_size
-        {
-            break;
+        let padded_width = w
+            .checked_add(padding.checked_mul(2).ok_or("atlas padding overflow")?)
+            .ok_or("atlas texture width overflow")?;
+        let padded_height = h
+            .checked_add(padding.checked_mul(2).ok_or("atlas padding overflow")?)
+            .ok_or("atlas texture height overflow")?;
+        if padded_width > atlas_size || padded_height > atlas_size {
+            return Err(format!(
+                "texture `{texture_id}` ({w}x{h}) do not fit in a {atlas_size}x{atlas_size} atlas"
+            ));
         }
         if cur_x + w + padding > atlas_size {
             cur_x = padding;
-            cur_y += shelf_h + padding;
+            cur_y += shelf_h + padding * 2;
             shelf_h = 0;
         }
         if cur_y + h + padding > atlas_size {
-            break;
+            return Err(format!(
+                "textures do not fit in a {atlas_size}x{atlas_size} atlas"
+            ));
         }
         let placement = AtlasPlacement {
             mesh_id,
@@ -92,7 +176,8 @@ pub fn compute_atlas_layout_and_remap_uvs(
         };
         packed_textures.insert(placement.texture_id.clone(), placement.clone());
         placements.push(placement);
-        cur_x += w + padding;
+        // Reserve a full gutter on both sides so edge-bleed pixels never overlap the next cell.
+        cur_x += w + padding * 2;
         shelf_h = shelf_h.max(h);
     }
 
@@ -123,7 +208,7 @@ pub fn compute_atlas_layout_and_remap_uvs(
         }
     }
 
-    (updated, placements)
+    Ok((updated, placements, atlas_size))
 }
 
 /// Generates the complete Live2D Cubism 3/4/5 runtime distribution bundle in pure Rust:
@@ -144,26 +229,49 @@ pub fn export_runtime_bundle(
     padding: u32,
     texture_files: &[String],
 ) -> Result<RuntimeBundleOutput, String> {
-    let model_name = if model_name.trim().is_empty() {
-        "model"
-    } else {
-        model_name.trim()
-    };
+    export_runtime_bundle_with_options(
+        project,
+        model_name,
+        atlas_size,
+        padding,
+        texture_files,
+        RuntimeBundleOptions::default(),
+    )
+}
+
+pub fn export_runtime_bundle_with_options(
+    project: &Project,
+    model_name: &str,
+    atlas_size: u32,
+    padding: u32,
+    texture_files: &[String],
+    options: RuntimeBundleOptions,
+) -> Result<RuntimeBundleOutput, String> {
+    let model_name = sanitize_file_stem(model_name.trim(), "model");
 
     // 1. Compute Atlas layout & UV remapping
-    let (updated_project, atlas_placements) =
-        compute_atlas_layout_and_remap_uvs(project, atlas_size, padding);
+    let (updated_project, atlas_placements, atlas_size) =
+        compute_atlas_layout_and_remap_uvs(project, atlas_size, padding)?;
 
     let textured_mesh_count = project.nodes.iter().filter(|node| {
         matches!(&node.kind, NodeKind::ArtMesh(mesh) if project.textures.iter().any(|t| t.id == mesh.texture_id))
     }).count();
     if atlas_placements.len() != textured_mesh_count {
-        return Err(format!("Textures do not fit in the {}x{} atlas; increase the atlas size", atlas_size, atlas_size));
+        return Err(format!(
+            "Textures do not fit in the {}x{} atlas; increase the atlas size",
+            atlas_size, atlas_size
+        ));
     }
 
     // 2. Serialize .moc3 binary
-    let moc3_bytes = export_moc3_binary(&updated_project, DEFAULT_MOC3_VERSION)
-        .map_err(|e| format!("MOC3 export error: {}", e))?;
+    let moc3_bytes = export_moc3_binary_with_options(
+        &updated_project,
+        DEFAULT_MOC3_VERSION,
+        Moc3ExportOptions {
+            embed_source_project: options.embed_source_project,
+        },
+    )
+    .map_err(|e| format!("MOC3 export error: {}", e))?;
 
     // 3. Generate .physics3.json
     let mut physics_settings: Vec<Value> = Vec::new();
@@ -314,63 +422,80 @@ pub fn export_runtime_bundle(
     // 5. Generate motions/*.motion3.json
     let mut motion_files: Vec<ExportedTextFile> = Vec::new();
     let mut idle_motion_refs: Vec<Value> = Vec::new();
+    let mut used_motion_stems = HashSet::new();
 
     for anim in &project.animations {
-        let fps = anim.fps.max(1.0);
-        let motion_rel = format!("motions/{}.motion3.json", anim.id);
+        let fps = if anim.fps.is_finite() && anim.fps > 0.0 {
+            anim.fps
+        } else {
+            30.0
+        };
+        let stem = unique_file_stem(
+            sanitize_file_stem(&anim.id, "motion"),
+            &mut used_motion_stems,
+        );
+        let motion_rel = format!("motions/{stem}.motion3.json");
         let mut total_segments = 0usize;
         let mut total_points = 0usize;
         let mut curves: Vec<Value> = Vec::new();
+        let mut has_bezier = false;
+        let mut beziers_restricted = true;
 
         for track in &anim.tracks {
-            total_points += track.keyframes.len();
-            total_segments += track.keyframes.len().saturating_sub(1).max(1);
+            let keyframes = sanitized_keyframes(&track.keyframes);
+            if keyframes.is_empty() {
+                continue;
+            }
+            total_points += 1;
+            total_segments += keyframes.len().saturating_sub(1);
             let mut segments: Vec<f32> = Vec::new();
-            if let Some(first) = track.keyframes.first() {
+            if let Some(first) = keyframes.first() {
                 segments.push(first.frame / fps);
                 segments.push(first.value);
-                for i in 1..track.keyframes.len() {
-                    let prev = &track.keyframes[i - 1];
-                    let kf = &track.keyframes[i];
+                for i in 1..keyframes.len() {
+                    let prev = &keyframes[i - 1];
+                    let kf = &keyframes[i];
                     let t0 = prev.frame / fps;
                     let t1 = kf.frame / fps;
                     match prev.curve {
                         CurveType::Stepped => {
                             segments.extend_from_slice(&[2.0, t1, kf.value]);
+                            total_points += 1;
                         }
                         CurveType::Bezier => {
-                            let dt = (t1 - t0) / 3.0;
-                            let (c1t, c1v, c2t, c2v) = if let Some(h) = prev.bezier_handles {
-                                (h[0], h[1], h[2], h[3])
-                            } else {
-                                (t0 + dt, prev.value, t1 - dt, kf.value)
-                            };
-                            segments.extend_from_slice(&[
-                                1.0,
-                                c1t,
-                                c1v,
-                                c2t,
-                                c2v,
-                                t1,
-                                kf.value,
-                            ]);
+                            has_bezier = true;
+                            let (p1, p2) = bezier_segment_controls(prev, kf);
+                            let c1t = p1[0] / fps;
+                            let c2t = p2[0] / fps;
+                            beziers_restricted &=
+                                (t0..=t1).contains(&c1t) && (t0..=t1).contains(&c2t);
+                            segments
+                                .extend_from_slice(&[1.0, c1t, p1[1], c2t, p2[1], t1, kf.value]);
+                            total_points += 3;
                         }
                         CurveType::Linear => {
                             segments.extend_from_slice(&[0.0, t1, kf.value]);
+                            total_points += 1;
                         }
                     }
                 }
             } else {
-                segments.extend_from_slice(&[0.0, 0.0]);
+                continue;
             }
 
             let mut curve_obj = serde_json::Map::new();
             curve_obj.insert("Target".into(), json!("Parameter"));
             curve_obj.insert("Id".into(), json!(track.target_param_id));
-            if let Some(fi) = track.fade_in_ms {
+            if let Some(fi) = track
+                .fade_in_ms
+                .filter(|value| value.is_finite() && *value >= 0.0)
+            {
                 curve_obj.insert("FadeInTime".into(), json!(fi / 1000.0));
             }
-            if let Some(fo) = track.fade_out_ms {
+            if let Some(fo) = track
+                .fade_out_ms
+                .filter(|value| value.is_finite() && *value >= 0.0)
+            {
                 curve_obj.insert("FadeOutTime".into(), json!(fo / 1000.0));
             }
             curve_obj.insert("Segments".into(), json!(segments));
@@ -390,10 +515,14 @@ pub fn export_runtime_bundle(
         let motion_val = json!({
             "Version": 3,
             "Meta": {
-                "Duration": anim.duration_frames / fps,
+                "Duration": if anim.duration_frames.is_finite() {
+                    (anim.duration_frames.max(0.0)) / fps
+                } else {
+                    0.0
+                },
                 "Fps": fps,
                 "Loop": anim.loop_playback,
-                "AreBeziersRestricted": true,
+                "AreBeziersRestricted": has_bezier && beziers_restricted,
                 "FadeInTime": 0.5,
                 "FadeOutTime": 0.5,
                 "CurveCount": curves.len(),
@@ -439,7 +568,10 @@ pub fn export_runtime_bundle(
             },
             "UserData": user_data_entries,
         });
-        (Some(fname), Some(serde_json::to_string_pretty(&val).unwrap_or_default()))
+        (
+            Some(fname),
+            Some(serde_json::to_string_pretty(&val).unwrap_or_default()),
+        )
     } else {
         (None, None)
     };
@@ -470,7 +602,10 @@ pub fn export_runtime_bundle(
             "FadeInTime": fade_in,
             "Groups": groups,
         });
-        (Some(fname), Some(serde_json::to_string_pretty(&val).unwrap_or_default()))
+        (
+            Some(fname),
+            Some(serde_json::to_string_pretty(&val).unwrap_or_default()),
+        )
     } else {
         (None, None)
     };
@@ -478,8 +613,13 @@ pub fn export_runtime_bundle(
     // 8. Generate expressions/*.exp3.json
     let mut expression_files: Vec<ExportedTextFile> = Vec::new();
     let mut expression_refs: Vec<Value> = Vec::new();
+    let mut used_expression_stems = HashSet::new();
     for expr in &project.expressions {
-        let rel = format!("expressions/{}.exp3.json", expr.id);
+        let stem = unique_file_stem(
+            sanitize_file_stem(&expr.id, "expression"),
+            &mut used_expression_stems,
+        );
+        let rel = format!("expressions/{stem}.exp3.json");
         let params: Vec<Value> = expr
             .parameters
             .iter()
@@ -527,7 +667,10 @@ pub fn export_runtime_bundle(
                 "MouthFormParameter": "ParamMouthForm",
             }
         });
-        (Some(fname), Some(serde_json::to_string_pretty(&val).unwrap_or_default()))
+        (
+            Some(fname),
+            Some(serde_json::to_string_pretty(&val).unwrap_or_default()),
+        )
     } else {
         (None, None)
     };
@@ -606,7 +749,7 @@ pub fn export_runtime_bundle(
     let model3_json = serde_json::to_string_pretty(&model3_val).unwrap_or_default();
 
     Ok(RuntimeBundleOutput {
-        model_name: model_name.to_string(),
+        model_name: model_name.clone(),
         updated_project,
         atlas_size,
         atlas_placements,
@@ -710,8 +853,14 @@ mod tests {
             form_tracks: vec![],
         });
 
-        let bundle = export_runtime_bundle(&project, "haru", 1024, 4, &["textures/texture_00.png".into()])
-            .expect("Failed to export runtime bundle in Rust");
+        let bundle = export_runtime_bundle(
+            &project,
+            "haru",
+            1024,
+            4,
+            &["textures/texture_00.png".into()],
+        )
+        .expect("Failed to export runtime bundle in Rust");
 
         assert_eq!(&bundle.moc3_bytes[0..4], b"MOC3");
         assert!(bundle.model3_json.contains("\"haru.moc3\""));
@@ -743,11 +892,115 @@ mod tests {
         // textures rather than returning a bundle with missing parts.
         assert!(export_runtime_bundle(&project, "too_small", 256, 4, &[]).is_err());
         project.textures.push(TextureMeta {
-            id: "second_texture".into(), path: "second.png".into(), width: 256, height: 256, content_hash: None,
+            id: "second_texture".into(),
+            path: "second.png".into(),
+            width: 256,
+            height: 256,
+            content_hash: None,
         });
         if let NodeKind::ArtMesh(mesh) = &mut project.nodes[1].kind {
             mesh.texture_id = "second_texture".into();
         }
         assert!(export_runtime_bundle(&project, "overflow", 512, 4, &[]).is_err());
+    }
+
+    #[test]
+    fn motion3_bezier_times_counts_and_file_names_are_pack_safe() {
+        let mut project = Project::default();
+        project.parameters.push(Parameter {
+            id: "ParamAngleX".into(),
+            name: "Angle X".into(),
+            min: -30.0,
+            max: 30.0,
+            default: 0.0,
+            repeats: false,
+            group_id: None,
+            locked: false,
+        });
+        project.textures.push(TextureMeta {
+            id: "tex".into(),
+            path: "textures/tex.png".into(),
+            width: 128,
+            height: 128,
+            content_hash: None,
+        });
+        project.nodes.push(Node {
+            id: "mesh".into(),
+            name: "Mesh".into(),
+            parent_id: None,
+            visible: true,
+            locked: false,
+            kind: NodeKind::ArtMesh(ArtMeshData {
+                texture_id: "tex".into(),
+                vertices: vec![[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]],
+                uvs: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+                indices: vec![0, 1, 2],
+                blend_mode: BlendMode::Normal,
+                opacity: 1.0,
+                multiply_color: [1.0; 4],
+                screen_color: [0.0; 4],
+                draw_order: 0,
+                mask_ids: Vec::new(),
+                is_mask_inverted: false,
+                morph_targets: Vec::new(),
+                hit_area_name: None,
+                user_data: None,
+            }),
+        });
+        project.animations = vec![Animation {
+            id: "../same".into(),
+            name: "Bad path".into(),
+            duration_frames: 30.0,
+            fps: 30.0,
+            loop_playback: false,
+            tracks: vec![AnimationTrack {
+                target_param_id: "ParamAngleX".into(),
+                keyframes: vec![
+                    TimelineKeyframe {
+                        frame: 0.0,
+                        value: 0.0,
+                        curve: CurveType::Bezier,
+                        bezier_handles: Some([-4.0, -2.0, 10.0, 5.0]),
+                    },
+                    TimelineKeyframe {
+                        frame: 30.0,
+                        value: 30.0,
+                        curve: CurveType::Linear,
+                        bezier_handles: Some([20.0, 15.0, 34.0, 40.0]),
+                    },
+                ],
+                fade_in_ms: Some(200.0),
+                fade_out_ms: None,
+                frozen: false,
+            }],
+            markers: Vec::new(),
+            form_tracks: Vec::new(),
+        }];
+        project.expressions.push(Expression {
+            id: "../../smile".into(),
+            name: "Smile".into(),
+            fade_in_time: 0.1,
+            fade_out_time: 0.1,
+            parameters: Vec::new(),
+        });
+
+        let bundle = export_runtime_bundle(&project, "haru", 512, 4, &[]).unwrap();
+        let motion = &bundle.motion_files[0];
+        assert!(!motion.relative_path.contains(".."));
+        let value: serde_json::Value = serde_json::from_str(&motion.content).unwrap();
+        assert_eq!(value["Meta"]["TotalSegmentCount"], 1);
+        assert_eq!(value["Meta"]["TotalPointCount"], 4);
+        assert_eq!(value["Meta"]["AreBeziersRestricted"], true);
+        let segments = value["Curves"][0]["Segments"].as_array().unwrap();
+        assert_eq!(segments.len(), 9);
+        assert!((segments[0].as_f64().unwrap() - 0.0).abs() < 1e-6);
+        assert_eq!(segments[2].as_f64().unwrap(), 1.0);
+        assert!((segments[3].as_f64().unwrap() - 10.0 / 30.0).abs() < 1e-6);
+        assert!((segments[5].as_f64().unwrap() - 20.0 / 30.0).abs() < 1e-6);
+        assert!((segments[7].as_f64().unwrap() - 1.0).abs() < 1e-6);
+        assert!(!bundle.expression_files[0].relative_path.contains(".."));
+
+        assert!(export_runtime_bundle(&project, "haru", 100, 4, &[]).is_err());
+        assert!(export_runtime_bundle(&project, "haru", 32, 4, &[]).is_err());
     }
 }

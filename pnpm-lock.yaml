@@ -190,6 +190,9 @@ importers:
 
   packages/renderer:
     dependencies:
+      '@l2d/command':
+        specifier: workspace:*
+        version: link:../command
       '@l2d/schema':
         specifier: workspace:*
         version: link:../schema

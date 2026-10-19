@@ -5,7 +5,13 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import type { Project } from '../packages/schema/dist/index.js';
 import { evaluateProjectJs, lintProjectJs } from '../packages/schema/dist/index.js';
-import { serializeMoc3Container, importRuntimePackage, renderFrameToCanvas } from '../packages/renderer/dist/index.js';
+import {
+  serializeMoc3Container,
+  importRuntimePackage,
+  copyRuntimePackageTextures,
+  generateTextureAtlas,
+  renderFrameToCanvas,
+} from '../packages/renderer/dist/index.js';
 
 const { createCanvas, loadImage } = createRequire(new URL('../packages/renderer/package.json', import.meta.url))('@napi-rs/canvas');
 const directories: string[] = [];
@@ -43,7 +49,9 @@ function fixture() {
     fs.writeFileSync(path.join(directory, texture.path), canvas.toBuffer('image/png'));
     canvas.width = 0; canvas.height = 0;
   }
-  fs.writeFileSync(path.join(directory, 'fixture.moc3'), serializeMoc3Container(project, 5));
+  // Custom texture IDs and names are editor metadata, so this fixture explicitly embeds
+  // the source project. Runtime exports do not embed it by default.
+  fs.writeFileSync(path.join(directory, 'fixture.moc3'), serializeMoc3Container(project, 5, true));
   const manifestPath = path.join(directory, 'fixture.model3.json');
   fs.writeFileSync(manifestPath, JSON.stringify({
     Version: 3, FileReferences: { Moc: 'fixture.moc3', Textures: textures.map(texture => texture.path) },
@@ -52,6 +60,27 @@ function fixture() {
 }
 
 describe('Runtime bundle texture reconstruction', () => {
+  it('bleeds texture edges into atlas gutters before runtime sampling', async () => {
+    const { directory, project } = fixture();
+    project.nodes = [project.nodes[0]];
+    const atlas = await generateTextureAtlas(
+      project,
+      (id) => {
+        const texture = project.textures.find((item) => item.id === id);
+        return texture ? fs.readFileSync(path.join(directory, texture.path)) : null;
+      },
+      128,
+      4
+    );
+    const canvas = createCanvas(128, 128);
+    canvas.getContext('2d').drawImage(await loadImage(atlas.atlasPngBuffers[0].buffer), 0, 0);
+    for (const [x, y] of [[3, 4], [4, 4], [96, 4], [4, 70]]) {
+      expect([...canvas.getContext('2d').getImageData(x, y, 1, 1).data]).toEqual([
+        214, 60, 38, 255,
+      ]);
+    }
+  });
+
   it('renders an atlas subregion whose texture origin is beyond the output canvas', async () => {
     const { project } = fixture();
     project.nodes = [project.nodes[0]];
@@ -106,6 +135,18 @@ describe('Runtime bundle texture reconstruction', () => {
     const ids = new Set(imported.project.textures.map(texture => texture.id));
     for (const node of imported.project.nodes) {
       if (node.kind.type === 'ArtMesh') expect(ids.has(node.kind.texture_id)).toBe(true);
+    }
+  });
+
+  it('copies imported textures into the destination project directory', () => {
+    const { directory, manifestPath, textures } = fixture();
+    const imported = importRuntimePackage(manifestPath).project;
+    const output = path.join(directory, 'portable.l2dproj');
+    expect(copyRuntimePackageTextures(manifestPath, imported, output)).toBe(textures.length);
+    for (const texture of imported.textures) {
+      expect(fs.readFileSync(path.join(output, texture.path))).toEqual(
+        fs.readFileSync(path.join(directory, texture.path))
+      );
     }
   });
 

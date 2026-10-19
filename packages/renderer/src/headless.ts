@@ -1,9 +1,36 @@
 export { createCanvas } from '@napi-rs/canvas';
 import { clearAllCache, createCanvas, loadImage, Path2D, PathOp, FillType, StrokeJoin, Image, type Canvas, type SKRSContext2D } from '@napi-rs/canvas';
+import { createHash } from 'node:crypto';
 import { getMeshBoundaryLoops, type EvaluatedFrameJs, type EvaluatedMeshJs } from '@l2d/schema';
 
 export interface TextureResolver {
   (textureId: string): Buffer | null;
+}
+
+export interface RenderSessionCache {
+  textures: Map<string, Image>;
+  textureHashes: Map<string, string>;
+  crops: Map<string, Image>;
+}
+
+export function createRenderSessionCache(): RenderSessionCache {
+  return {
+    textures: new Map(),
+    textureHashes: new Map(),
+    crops: new Map(),
+  };
+}
+
+export function disposeRenderSessionCache(cache: RenderSessionCache): void {
+  for (const image of cache.textures.values()) {
+    try { image.src = ''; } catch { /* Ignore alternate image implementations. */ }
+  }
+  for (const image of cache.crops.values()) {
+    try { image.src = ''; } catch { /* Ignore alternate image implementations. */ }
+  }
+  cache.textures.clear();
+  cache.textureHashes.clear();
+  cache.crops.clear();
 }
 
 /**
@@ -15,7 +42,8 @@ export async function renderFrameToCanvas(
   canvasHeight: number,
   frame: EvaluatedFrameJs,
   textureResolver: TextureResolver,
-  backgroundColor: string = '#18181b'
+  backgroundColor: string = '#18181b',
+  sessionCache?: RenderSessionCache
 ): Promise<Buffer> {
   const canvas = createCanvas(canvasWidth, canvasHeight);
   const ctx = canvas.getContext('2d');
@@ -27,7 +55,9 @@ export async function renderFrameToCanvas(
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
   // Texture image cache
-  const imgCache = new Map<string, Image>();
+  const imgCache = sessionCache?.textures ?? new Map<string, Image>();
+  const textureHashes = sessionCache?.textureHashes ?? new Map<string, string>();
+  const cropCache = sessionCache?.crops ?? new Map<string, Image>();
   const maskCanvases = new Map<string, Canvas>();
   const maskUnion = createCanvas(canvasWidth, canvasHeight);
   const maskUnionCtx = maskUnion.getContext('2d');
@@ -37,15 +67,10 @@ export async function renderFrameToCanvas(
       if (mesh.opacity <= 0.001) continue;
 
       const isSolidArtPath = mesh.texture_id === '__artpath_solid__';
-      let img = imgCache.get(mesh.texture_id);
-      if (!img && !isSolidArtPath) {
-        const buf = textureResolver(mesh.texture_id);
-        if (buf) {
-          const image = await loadImage(buf);
-          img = image;
-          imgCache.set(mesh.texture_id, image);
-        }
-      }
+      const resolvedTexture = isSolidArtPath
+        ? null
+        : await resolveTexture(mesh.texture_id, textureResolver, textureHashes, imgCache);
+      const img = resolvedTexture?.image;
 
       if (!img && !isSolidArtPath) continue;
 
@@ -57,7 +82,7 @@ export async function renderFrameToCanvas(
       // accumulating their alpha, then apply the drawable opacity once.
       meshCtx.globalCompositeOperation = 'copy';
       if (isSolidArtPath || !img) drawSolidMesh(meshCtx, mesh);
-      else await drawTexturedMesh(meshCtx, mesh, img);
+      else await drawTexturedMesh(meshCtx, mesh, img, true, resolvedTexture!.hash, cropCache);
       meshCtx.restore();
 
       if (mesh.mask_ids?.length) {
@@ -74,18 +99,22 @@ export async function renderFrameToCanvas(
               appendMaskTriangles(triangles, source);
               const coverage = new Path2D().op(triangles, PathOp.Union);
               maskCtx.clip(coverage, 'evenodd');
-              let maskImage = imgCache.get(source.texture_id);
-              if (!maskImage && source.texture_id !== '__artpath_solid__') {
-                const bytes = textureResolver(source.texture_id);
-                if (bytes) {
-                  maskImage = await loadImage(bytes);
-                  imgCache.set(source.texture_id, maskImage);
-                }
-              }
+              const maskTexture = source.texture_id === '__artpath_solid__'
+                ? null
+                : await resolveTexture(source.texture_id, textureResolver, textureHashes, imgCache);
               // Coverage follows the mask UVs and deformed surface; drawable
               // opacity does not suppress a referenced clipping mesh.
               maskCtx.globalCompositeOperation = 'copy';
-              if (maskImage) await drawTexturedMesh(maskCtx, source, maskImage, false);
+              if (maskTexture) {
+                await drawTexturedMesh(
+                  maskCtx,
+                  source,
+                  maskTexture.image,
+                  false,
+                  maskTexture.hash,
+                  cropCache
+                );
+              }
               else {
                 maskCtx.fillStyle = '#ffffff';
                 maskCtx.fillRect(0, 0, canvasWidth, canvasHeight);
@@ -130,15 +159,10 @@ export async function renderFrameToCanvas(
     releaseCanvas(maskUnion);
     for (const mask of maskCanvases.values()) releaseCanvas(mask);
     maskCanvases.clear();
-    for (const image of imgCache.values()) {
-      try {
-        image.src = '';
-      } catch {
-        // Ignore cleanup failures from alternate Image implementations.
-      }
+    if (!sessionCache) {
+      disposeRenderSessionCache({ textures: imgCache, textureHashes, crops: cropCache });
+      clearAllCache();
     }
-    imgCache.clear();
-    clearAllCache();
   }
 }
 
@@ -149,6 +173,25 @@ function releaseCanvas(canvas: { width: number; height: number }): void {
   } catch {
     // Keep rendering compatible with canvas implementations with read-only sizes.
   }
+}
+
+async function resolveTexture(
+  textureId: string,
+  textureResolver: TextureResolver,
+  textureHashes: Map<string, string>,
+  textures: Map<string, Image>
+): Promise<{ image: Image; hash: string } | null> {
+  let hash = textureHashes.get(textureId);
+  if (!hash || !textures.has(hash)) {
+    const bytes = textureResolver(textureId);
+    if (!bytes) return null;
+    hash = createHash('sha256').update(bytes).digest('hex');
+    textureHashes.set(textureId, hash);
+    if (!textures.has(hash)) {
+      textures.set(hash, await loadImage(bytes));
+    }
+  }
+  return { image: textures.get(hash)!, hash };
 }
 
 function traceMesh(ctx: SKRSContext2D, mesh: EvaluatedMeshJs) {
@@ -190,7 +233,14 @@ function drawSolidMesh(ctx: SKRSContext2D, mesh: EvaluatedMeshJs) {
   ctx.fill('evenodd');
 }
 
-async function drawTexturedMesh(ctx: SKRSContext2D, mesh: EvaluatedMeshJs, img: Image, applyColors = true) {
+async function drawTexturedMesh(
+  ctx: SKRSContext2D,
+  mesh: EvaluatedMeshJs,
+  img: Image,
+  applyColors: boolean,
+  textureHash: string,
+  cropCache: Map<string, Image>
+) {
   const texW = img.width;
   const texH = img.height;
   const indices = mesh.indices;
@@ -212,19 +262,44 @@ async function drawTexturedMesh(ctx: SKRSContext2D, mesh: EvaluatedMeshJs, img: 
   const bottom = Math.min(texH, Math.max(top + 1, Math.ceil(maxY) + padY));
   let texture: Canvas | Image = img;
   let originX = 0, originY = 0;
+  let textureFromCache = false;
   if (maxU - minU < 1e-8 && maxV - minV < 1e-8 && (texW > 1 || texH > 1)) {
-    texture = createCanvas(1, 1);
-    originX = minU * texW - 0.5; originY = minV * texH - 0.5;
-    texture.getContext('2d').drawImage(img, originX, originY, 1, 1, 0, 0, 1, 1);
+    const key = `${textureHash}:pixel:${minU * texW}:${minV * texH}`;
+    const cached = cropCache.get(key);
+    if (cached) {
+      texture = cached;
+      textureFromCache = true;
+      originX = minU * texW - 0.5;
+      originY = minV * texH - 0.5;
+    } else {
+      texture = createCanvas(1, 1);
+      originX = minU * texW - 0.5; originY = minV * texH - 0.5;
+      texture.getContext('2d').drawImage(img, originX, originY, 1, 1, 0, 0, 1, 1);
+      const cachedImage = await loadImage(texture.toBuffer('image/png'));
+      releaseCanvas(texture);
+      texture = cachedImage;
+      cropCache.set(key, cachedImage);
+      textureFromCache = true;
+    }
   } else if (left > 0 || top > 0 || right < texW || bottom < texH) {
     // Keep copy-compositing in local texture coordinates. Skia can clear
     // a clipped image when an atlas translation exceeds the output canvas.
-    texture = createCanvas(Math.max(1, right - left), Math.max(1, bottom - top));
-    texture.getContext('2d').drawImage(img, left, top, texture.width, texture.height, 0, 0, texture.width, texture.height);
-    originX = left; originY = top;
-    const croppedImage = await loadImage(texture.toBuffer('image/png'));
-    releaseCanvas(texture);
-    texture = croppedImage;
+    const key = `${textureHash}:${left},${top},${right},${bottom}`;
+    const cached = cropCache.get(key);
+    if (cached) {
+      texture = cached;
+      textureFromCache = true;
+    } else {
+      texture = createCanvas(Math.max(1, right - left), Math.max(1, bottom - top));
+      texture.getContext('2d').drawImage(img, left, top, texture.width, texture.height, 0, 0, texture.width, texture.height);
+      const croppedImage = await loadImage(texture.toBuffer('image/png'));
+      releaseCanvas(texture);
+      texture = croppedImage;
+      cropCache.set(key, croppedImage);
+      textureFromCache = true;
+    }
+    originX = left;
+    originY = top;
   }
 
   try {
@@ -247,10 +322,11 @@ async function drawTexturedMesh(ctx: SKRSContext2D, mesh: EvaluatedMeshJs, img: 
       const u2 = uvs[i2 * 2] * texW - originX;
       const v2 = uvs[i2 * 2 + 1] * texH - originY;
 
-      drawTexturedTriangle(ctx, texture, mesh, x0, y0, x1, y1, x2, y2, u0, v0, u1, v1, u2, v2, applyColors);
+      drawTexturedTriangle(ctx, texture, mesh, x0, y0, x1, y1, x2, y2, u0, v0, u1, v1, u2, v2);
     }
+    if (applyColors) applyMeshColors(ctx, mesh);
   } finally {
-    if (texture !== img) {
+    if (texture !== img && !textureFromCache) {
       if (texture instanceof Image) texture.src = '';
       else releaseCanvas(texture);
     }
@@ -267,7 +343,6 @@ function drawTexturedTriangle(
   u0: number, v0: number,
   u1: number, v1: number,
   u2: number, v2: number,
-  applyColors: boolean
 ) {
   ctx.save();
   const triangle = new Path2D();
@@ -308,37 +383,39 @@ function drawTexturedTriangle(
   ctx.drawImage(img, 0, 0);
   ctx.restore();
 
-  if (!applyColors) return;
+}
 
-  // Apply Multiply Color filter if not [1, 1, 1, 1]
+function applyMeshColors(ctx: SKRSContext2D, mesh: EvaluatedMeshJs): void {
   const mc = mesh.multiply_color;
-  if (mc && (mc[0] < 0.999 || mc[1] < 0.999 || mc[2] < 0.999)) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    ctx.lineTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.closePath();
-    ctx.clip();
-    ctx.globalCompositeOperation = 'multiply';
-    ctx.fillStyle = `rgba(${Math.round(mc[0] * 255)}, ${Math.round(mc[1] * 255)}, ${Math.round(mc[2] * 255)}, ${mc[3]})`;
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // Apply Screen Color filter if not [0, 0, 0, 0]
   const sc = mesh.screen_color;
-  if (sc && (sc[0] > 0.001 || sc[1] > 0.001 || sc[2] > 0.001)) {
+  const applyMultiply = Boolean(mc && (mc[0] < 0.999 || mc[1] < 0.999 || mc[2] < 0.999));
+  const applyScreen = Boolean(sc && (sc[0] > 0.001 || sc[1] > 0.001 || sc[2] > 0.001));
+  if (!applyMultiply && !applyScreen) return;
+
+  // Restore the original texture alpha after blend-mode fills. Canvas blend modes
+  // can color transparent texels; source alpha must remain the final mask.
+  const alphaMask = createCanvas(ctx.canvas.width, ctx.canvas.height);
+  try {
+    alphaMask.getContext('2d').drawImage(ctx.canvas, 0, 0);
+    if (applyMultiply && mc) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.fillStyle = `rgba(${Math.round(mc[0] * 255)}, ${Math.round(mc[1] * 255)}, ${Math.round(mc[2] * 255)}, ${mc[3]})`;
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.restore();
+    }
+    if (applyScreen && sc) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.fillStyle = `rgba(${Math.round(sc[0] * 255)}, ${Math.round(sc[1] * 255)}, ${Math.round(sc[2] * 255)}, ${sc[3]})`;
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.restore();
+    }
     ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    ctx.lineTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.closePath();
-    ctx.clip();
-    ctx.globalCompositeOperation = 'screen';
-    ctx.fillStyle = `rgba(${Math.round(sc[0] * 255)}, ${Math.round(sc[1] * 255)}, ${Math.round(sc[2] * 255)}, ${sc[3]})`;
-    ctx.fill();
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(alphaMask, 0, 0);
     ctx.restore();
+  } finally {
+    releaseCanvas(alphaMask);
   }
 }

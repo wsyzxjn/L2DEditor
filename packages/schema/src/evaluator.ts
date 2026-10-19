@@ -12,10 +12,10 @@ import type {
 } from './types.js';
 import { CURRENT_FORMAT_VERSION } from './types.js';
 
-function compute1dWeights(keys: number[], value: number, ext?: ExtendedInterpolationType): [number, number][] {
+function compute1dWeightsSorted(keys: number[], value: number, ext?: ExtendedInterpolationType): [number, number][] {
   if (keys.length === 0) return [];
   if (keys.length === 1) return [[0, 1.0]];
-  if (value <= keys[0]) return [[0, 1.0]];
+  if (!Number.isFinite(value) || value <= keys[0]) return [[0, 1.0]];
   const lastIdx = keys.length - 1;
   if (value >= keys[lastIdx]) return [[lastIdx, 1.0]];
 
@@ -40,20 +40,32 @@ function compute1dWeights(keys: number[], value: number, ext?: ExtendedInterpola
   return [[lastIdx, 1.0]];
 }
 
+function compute1dWeights(keys: number[], value: number, ext?: ExtendedInterpolationType): [number, number][] {
+  if (keys.length <= 1) return compute1dWeightsSorted(keys, value, ext);
+  const order = keys.map((_, index) => index).sort((a, b) => keys[a] - keys[b]);
+  const sorted = order.map((index) => keys[index]);
+  return compute1dWeightsSorted(sorted, value, ext)
+    .map(([index, weight]) => [order[index], weight] as [number, number]);
+}
+
 export function computeMultidimWeightsJs(
   kf: KeyformBinding,
   params: Record<string, number>,
   project: Project
 ): number[] {
   const numDims = kf.dimensions.length;
-  if (numDims === 0 || kf.keyforms.length === 0) {
+  if (kf.keyforms.length === 0) {
     return new Array(kf.keyforms.length).fill(0);
+  }
+  if (numDims === 0) {
+    return kf.keyforms.map((_, index) => index === 0 ? 1 : 0);
   }
 
   const dimWeights: Map<number, number>[] = kf.dimensions.map((dim) => {
     const paramMeta = project.parameters.find((p) => p.id === dim.param_id);
     const def = paramMeta ? paramMeta.default : 0;
     let val = params[dim.param_id] ?? def;
+    if (!Number.isFinite(val)) val = Number.isFinite(def) ? def : 0;
     if (paramMeta?.repeats && Math.abs(paramMeta.max - paramMeta.min) > 1e-5) {
       const span = paramMeta.max - paramMeta.min;
       val = paramMeta.min + ((((val - paramMeta.min) % span) + span) % span);
@@ -67,6 +79,10 @@ export function computeMultidimWeightsJs(
     let stateW = 1.0;
     for (let d = 0; d < numDims; d++) {
       const coordVal = state.coordinates[d];
+      if (coordVal === undefined || !Number.isFinite(coordVal)) {
+        stateW = 0;
+        break;
+      }
       const keyIdx = kf.dimensions[d].keys.findIndex((k) => Math.abs(k - coordVal) < 1e-5);
       if (keyIdx >= 0) {
         stateW *= dimWeights[d].get(keyIdx) ?? 0;
@@ -82,7 +98,31 @@ export function computeMultidimWeightsJs(
     for (let i = 0; i < weights.length; i++) {
       weights[i] /= totalW;
     }
+    return weights;
   }
+
+  let nearest = 0;
+  let nearestDistance = Infinity;
+  kf.keyforms.forEach((state, stateIndex) => {
+    let distance = 0;
+    for (let dim = 0; dim < numDims; dim++) {
+      const keys = kf.dimensions[dim].keys;
+      const first = keys[0] ?? 0;
+      const last = keys[keys.length - 1] ?? first;
+      const span = Math.max(1e-6, Math.abs(last - first));
+      const paramMeta = project.parameters.find((item) => item.id === kf.dimensions[dim].param_id);
+      const query = params[kf.dimensions[dim].param_id] ?? paramMeta?.default ?? 0;
+      const coordinate = state.coordinates[dim] ?? first;
+      const delta = (coordinate - query) / span;
+      distance += delta * delta;
+    }
+    if (Number.isFinite(distance) && distance < nearestDistance) {
+      nearestDistance = distance;
+      nearest = stateIndex;
+    }
+  });
+  weights.fill(0);
+  weights[nearest] = 1;
   return weights;
 }
 
@@ -97,21 +137,21 @@ function transformPointByWarp(
   const [minX, minY, w, h] = bounds;
   if (cols === 0 || rows === 0 || Math.abs(w) < 1e-5 || Math.abs(h) < 1e-5) return pt;
 
-  const u = Math.max(0, Math.min(1, (pt[0] - minX) / w));
-  const v = Math.max(0, Math.min(1, (pt[1] - minY) / h));
+  const u = (pt[0] - minX) / w;
+  const v = (pt[1] - minY) / h;
 
   const gx = u * cols;
   const gy = v * rows;
-  const c0 = Math.min(Math.floor(gx), cols - 1);
-  const r0 = Math.min(Math.floor(gy), rows - 1);
+  const c0 = Math.max(0, Math.min(Math.floor(gx), cols - 1));
+  const r0 = Math.max(0, Math.min(Math.floor(gy), rows - 1));
   const c1 = c0 + 1;
   const r1 = r0 + 1;
 
   let tx = gx - c0;
   let ty = gy - r0;
   if (bezierSmooth) {
-    tx = tx * tx * (3 - 2 * tx);
-    ty = ty * ty * (3 - 2 * ty);
+    if (tx >= 0 && tx <= 1) tx = tx * tx * (3 - 2 * tx);
+    if (ty >= 0 && ty <= 1) ty = ty * ty * (3 - 2 * ty);
   }
 
   const stride = cols + 1;
@@ -299,23 +339,25 @@ export function evaluateProjectJs(
   const deformerStates = new Map<string, any>();
   for (const node of project.nodes) {
     if (node.kind.type === 'WarpDeformer') {
+      const defaultControlPoints = node.kind.control_points;
       let cp = node.kind.control_points.map((p): [number, number] => [p[0], p[1]]);
       const kf = kfMap.get(node.id);
       if (kf && kf.keyforms.length > 0) {
         const weights = computeMultidimWeightsJs(kf, params, project);
-        const states = kf.keyforms.filter((s) => s.payload.kind === 'Warp');
-        if (states.length === weights.length && states.length > 0) {
+        const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+        if (totalWeight > 1e-6) {
           cp = cp.map((_, idx) => {
             let x = 0;
             let y = 0;
-            for (let s = 0; s < states.length; s++) {
-              const pts = (states[s].payload as any).control_points;
+            for (let s = 0; s < kf.keyforms.length; s++) {
+              const payload = kf.keyforms[s].payload;
+              const pts = payload.kind === 'Warp' ? payload.control_points : defaultControlPoints;
               if (pts[idx]) {
                 x += pts[idx][0] * weights[s];
                 y += pts[idx][1] * weights[s];
               }
             }
-            return [x, y];
+            return [x / totalWeight, y / totalWeight];
           });
         }
       }
@@ -332,48 +374,61 @@ export function evaluateProjectJs(
         bezierSmooth: node.kind.bezier_smooth,
       });
     } else if (node.kind.type === 'RotationDeformer') {
-      let origin: [number, number] = [...node.kind.origin];
-      let angleDeg = node.kind.angle_deg;
-      let scale: [number, number] = [...node.kind.scale];
+      const baseOrigin: [number, number] = [...node.kind.origin];
+      const baseAngle = node.kind.angle_deg;
+      const baseScale: [number, number] = [...node.kind.scale];
+      let origin: [number, number] = [...baseOrigin];
+      let angleDeg = baseAngle;
+      let scale: [number, number] = [...baseScale];
       const kf = kfMap.get(node.id);
       if (kf && kf.keyforms.length > 0) {
         const weights = computeMultidimWeightsJs(kf, params, project);
-        let ox = 0, oy = 0, ang = 0, sx = 0, sy = 0, valid = false;
+        let ox = 0, oy = 0, ang = 0, sx = 0, sy = 0, totalWeight = 0;
         kf.keyforms.forEach((s, idx) => {
           if (s.payload.kind === 'Rotation') {
-            valid = true;
             const w = weights[idx];
+            totalWeight += w;
             ox += s.payload.origin[0] * w;
             oy += s.payload.origin[1] * w;
             ang += s.payload.angle_deg * w;
             sx += s.payload.scale[0] * w;
             sy += s.payload.scale[1] * w;
+          } else {
+            const w = weights[idx];
+            totalWeight += w;
+            ox += baseOrigin[0] * w;
+            oy += baseOrigin[1] * w;
+            ang += baseAngle * w;
+            sx += baseScale[0] * w;
+            sy += baseScale[1] * w;
           }
         });
-        if (valid) {
-          origin = [ox, oy];
-          angleDeg = ang;
-          scale = [sx, sy];
+        if (totalWeight > 1e-6) {
+          origin = [ox / totalWeight, oy / totalWeight];
+          angleDeg = ang / totalWeight;
+          scale = [sx / totalWeight, sy / totalWeight];
         }
       }
       deformerStates.set(node.id, { type: 'Rotation', origin, angleDeg, scale });
     } else if (node.kind.type === 'DeformPath') {
+      const defaultControlPoints = node.kind.control_points;
       let pts = node.kind.control_points.map((p): [number, number] => [p[0], p[1]]);
       const kf = kfMap.get(node.id);
       if (kf && kf.keyforms.length > 0) {
         const weights = computeMultidimWeightsJs(kf, params, project);
-        const states = kf.keyforms.filter((s) => s.payload.kind === 'DeformPath');
-        if (states.length === weights.length && states.length > 0) {
+        const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+        if (totalWeight > 1e-6) {
           pts = pts.map((_, idx) => {
             let x = 0, y = 0;
-            for (let s = 0; s < states.length; s++) {
-              const cp = (states[s].payload as any).control_points;
+            for (let s = 0; s < kf.keyforms.length; s++) {
+              const payload = kf.keyforms[s].payload;
+              const cp = payload.kind === 'DeformPath' ? payload.control_points : defaultControlPoints;
               if (cp[idx]) {
                 x += cp[idx][0] * weights[s];
                 y += cp[idx][1] * weights[s];
               }
             }
-            return [x, y];
+            return [x / totalWeight, y / totalWeight];
           });
         }
       }
@@ -419,39 +474,54 @@ export function evaluateProjectJs(
       const kf = kfMap.get(node.id);
       if (kf && kf.keyforms.length > 0) {
         const weights = computeMultidimWeightsJs(kf, params, project);
-        let hasOp = false;
-        let opAcc = 0;
+        const offsetAcc = pts.map((): [number, number] => [0, 0]);
+        let opacityAcc = 0;
+        const multiplyAcc: [number, number, number, number] = [0, 0, 0, 0];
+        const screenAcc: [number, number, number, number] = [0, 0, 0, 0];
+        let totalWeight = 0;
         let maxDoW = 0;
         kf.keyforms.forEach((s, sIdx) => {
           const w = weights[sIdx];
+          totalWeight += w;
           if (s.payload.kind === 'ArtMesh') {
             s.payload.vertex_offsets.forEach((off, vIdx) => {
-              if (pts[vIdx]) {
-                pts[vIdx][0] += off[0] * w;
-                pts[vIdx][1] += off[1] * w;
+              if (offsetAcc[vIdx]) {
+                offsetAcc[vIdx][0] += off[0] * w;
+                offsetAcc[vIdx][1] += off[1] * w;
               }
             });
-            if (s.payload.opacity !== undefined) {
-              hasOp = true;
-              opAcc += s.payload.opacity * w;
+            opacityAcc += (s.payload.opacity ?? meshData.opacity) * w;
+            const multiply = s.payload.multiply_color ?? meshData.multiply_color ?? [1, 1, 1, 1];
+            const screen = s.payload.screen_color ?? meshData.screen_color ?? [0, 0, 0, 0];
+            for (let c = 0; c < 4; c++) {
+              multiplyAcc[c] += multiply[c] * w;
+              screenAcc[c] += screen[c] * w;
             }
-            if (s.payload.multiply_color) {
-              for (let c = 0; c < 4; c++) {
-                multiplyColor[c] = multiplyColor[c] * (1 - w) + s.payload.multiply_color[c] * w;
-              }
-            }
-            if (s.payload.screen_color) {
-              for (let c = 0; c < 4; c++) {
-                screenColor[c] = screenColor[c] * (1 - w) + s.payload.screen_color[c] * w;
-              }
-            }
-            if (s.payload.draw_order !== undefined && w > maxDoW) {
+            if (s.payload.draw_order != null && w > maxDoW) {
               maxDoW = w;
               drawOrder = s.payload.draw_order;
             }
+          } else {
+            opacityAcc += meshData.opacity * w;
+            const multiply = meshData.multiply_color ?? [1, 1, 1, 1];
+            const screen = meshData.screen_color ?? [0, 0, 0, 0];
+            for (let c = 0; c < 4; c++) {
+              multiplyAcc[c] += multiply[c] * w;
+              screenAcc[c] += screen[c] * w;
+            }
           }
         });
-        if (hasOp) opacity = opAcc;
+        if (totalWeight > 1e-6) {
+          for (let index = 0; index < pts.length; index++) {
+            pts[index][0] += offsetAcc[index][0] / totalWeight;
+            pts[index][1] += offsetAcc[index][1] / totalWeight;
+          }
+          opacity = opacityAcc / totalWeight;
+          for (let c = 0; c < 4; c++) {
+            multiplyColor[c] = multiplyAcc[c] / totalWeight;
+            screenColor[c] = screenAcc[c] / totalWeight;
+          }
+        }
       }
 
       // Form Animation offsets
@@ -682,19 +752,57 @@ export function evaluateProjectJs(
   };
 }
 
+function cubicBezierCoordinate(a: number, b: number, c: number, d: number, t: number): number {
+  const u = 1 - t;
+  return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+}
+
+function evaluateBezierKeyframe(
+  k0: Animation['tracks'][number]['keyframes'][number],
+  k1: Animation['tracks'][number]['keyframes'][number],
+  frame: number
+): number {
+  const third = (k1.frame - k0.frame) / 3;
+  const out = k0.bezier_handles;
+  const incoming = k1.bezier_handles;
+  const p1: [number, number] = out && Number.isFinite(out[2]) && Number.isFinite(out[3])
+    ? [Math.max(k0.frame, Math.min(k1.frame, out[2])), out[3]]
+    : [k0.frame + third, k0.value];
+  const p2: [number, number] = incoming && Number.isFinite(incoming[0]) && Number.isFinite(incoming[1])
+    ? [Math.max(k0.frame, Math.min(k1.frame, incoming[0])), incoming[1]]
+    : [k1.frame - third, k1.value];
+  if (Math.abs(k1.frame - k0.frame) < 1e-9) return k1.value;
+  const x = Math.max(k0.frame, Math.min(k1.frame, frame));
+  let low = 0;
+  let high = 1;
+  for (let iteration = 0; iteration < 48; iteration++) {
+    const mid = (low + high) / 2;
+    if (cubicBezierCoordinate(k0.frame, p1[0], p2[0], k1.frame, mid) < x) low = mid;
+    else high = mid;
+  }
+  const t = (low + high) / 2;
+  return cubicBezierCoordinate(k0.value, p1[1], p2[1], k1.value, t);
+}
+
 /**
- * Evaluates an Animation at a continuous frame position using Linear, Stepped, or Bezier Hermite curves.
+ * Evaluates an Animation at a continuous frame position using Linear, Stepped, or cubic Bezier curves.
  */
 export function evaluateAnimationAtFrameJs(anim: Animation, frame: number): Record<string, number> {
   const result: Record<string, number> = {};
-  const duration = Math.max(0, anim.duration_frames);
+  const safeFrame = Number.isFinite(frame) ? frame : 0;
+  const duration = Number.isFinite(anim.duration_frames)
+    ? Math.max(0, anim.duration_frames)
+    : 0;
   const targetFrame =
     anim.loop_playback && duration > 0
-      ? ((frame % duration) + duration) % duration
-      : Math.max(0, Math.min(duration, frame));
+      ? ((safeFrame % duration) + duration) % duration
+      : Math.max(0, Math.min(duration, safeFrame));
 
   for (const track of anim.tracks) {
-    const kfs = track.keyframes;
+    const kfs = track.keyframes
+      .filter((keyframe) => Number.isFinite(keyframe.frame) && Number.isFinite(keyframe.value))
+      .slice()
+      .sort((a, b) => a.frame - b.frame);
     if (!kfs || kfs.length === 0) continue;
     if (kfs.length === 1 || targetFrame <= kfs[0].frame) {
       result[track.target_param_id] = kfs[0].value;
@@ -715,14 +823,7 @@ export function evaluateAnimationAtFrameJs(anim: Animation, frame: number): Reco
         if (curve === 'stepped') {
           result[track.target_param_id] = k0.value;
         } else if (curve === 'bezier') {
-          const t2 = t * t;
-          const t3 = t2 * t;
-          const h00 = 2 * t3 - 3 * t2 + 1;
-          const h10 = t3 - 2 * t2 + t;
-          const h01 = -2 * t3 + 3 * t2;
-          const h11 = t3 - t2;
-          const m = k1.value - k0.value;
-          result[track.target_param_id] = h00 * k0.value + h10 * m + h01 * k1.value + h11 * m;
+          result[track.target_param_id] = evaluateBezierKeyframe(k0, k1, targetFrame);
         } else {
           result[track.target_param_id] = k0.value + t * (k1.value - k0.value);
         }

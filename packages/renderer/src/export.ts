@@ -6,6 +6,7 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import { Image } from '@napi-rs/canvas';
+import { safeResolveWithin, writeFileAtomicSync } from './fs-utils.js';
 
 const req = createRequire(import.meta.url);
 const wasmNode = req('@l2d/schema/wasm-node');
@@ -14,6 +15,7 @@ export interface RuntimeExportOptions {
   modelName?: string;
   atlasSize?: number;
   zipOutputPath?: string;
+  embedSourceProject?: boolean;
 }
 
 /**
@@ -38,17 +40,19 @@ export async function exportRuntimePackage(
   // 1. Render packed atlas PNGs
   const atlasResult = await generateTextureAtlas(project, textureResolver, atlasSize, 4);
   for (const atlas of atlasResult.atlasPngBuffers) {
-    const texPath = path.join(texDir, atlas.filename);
-    fs.writeFileSync(texPath, atlas.buffer);
+    const texPath = safeResolveWithin(texDir, atlas.filename, 'atlas texture path');
+    writeFileAtomicSync(texPath, atlas.buffer);
   }
 
   // 2. Run pure-Rust runtime bundle generator (`crates/l2d-core/src/exporter.rs`)
-  const bundle = wasmNode.exportRuntimeBundle(
+  const bundle = wasmNode.exportRuntimeBundleWithOptions(
     JSON.stringify(project),
     modelName,
     atlasSize,
-    4
+    4,
+    options.embedSourceProject ?? false
   ) as {
+    model_name: string;
     moc3_bytes: number[] | Uint8Array;
     model3_json: string;
     physics3_json: string;
@@ -59,47 +63,80 @@ export async function exportRuntimePackage(
     motion_files: { relative_path: string; content: string }[];
     expression_files: { relative_path: string; content: string }[];
   };
+  const artifactName = bundle.model_name || 'model';
 
   // 3. Write Rust-generated artifacts to disk
-  const moc3Path = path.join(outDir, `${modelName}.moc3`);
-  fs.writeFileSync(moc3Path, Buffer.from(bundle.moc3_bytes));
+  const moc3Path = safeResolveWithin(outDir, `${artifactName}.moc3`, 'MOC3 output path');
+  writeFileAtomicSync(moc3Path, Buffer.from(bundle.moc3_bytes));
 
-  fs.writeFileSync(path.join(outDir, `${modelName}.physics3.json`), bundle.physics3_json, 'utf-8');
-  fs.writeFileSync(path.join(outDir, `${modelName}.cdi3.json`), bundle.cdi3_json, 'utf-8');
+  writeFileAtomicSync(
+    safeResolveWithin(outDir, `${artifactName}.physics3.json`, 'physics output path'),
+    bundle.physics3_json
+  );
+  writeFileAtomicSync(
+    safeResolveWithin(outDir, `${artifactName}.cdi3.json`, 'display info output path'),
+    bundle.cdi3_json
+  );
 
   if (bundle.userdata3_json) {
-    fs.writeFileSync(path.join(outDir, `${modelName}.userdata3.json`), bundle.userdata3_json, 'utf-8');
+    writeFileAtomicSync(
+      safeResolveWithin(outDir, `${artifactName}.userdata3.json`, 'user data output path'),
+      bundle.userdata3_json
+    );
   }
   if (bundle.pose3_json) {
-    fs.writeFileSync(path.join(outDir, `${modelName}.pose3.json`), bundle.pose3_json, 'utf-8');
+    writeFileAtomicSync(
+      safeResolveWithin(outDir, `${artifactName}.pose3.json`, 'pose output path'),
+      bundle.pose3_json
+    );
   }
   if (bundle.motionsync3_json) {
-    fs.writeFileSync(path.join(outDir, `${modelName}.motionsync3.json`), bundle.motionsync3_json, 'utf-8');
+    writeFileAtomicSync(
+      safeResolveWithin(outDir, `${artifactName}.motionsync3.json`, 'motion sync output path'),
+      bundle.motionsync3_json
+    );
   }
 
   for (const mf of bundle.motion_files) {
-    const targetPath = path.join(outDir, mf.relative_path);
-    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-    fs.writeFileSync(targetPath, mf.content, 'utf-8');
+    const targetPath = safeResolveWithin(outDir, mf.relative_path, 'motion output path');
+    writeFileAtomicSync(targetPath, mf.content);
   }
 
   for (const ef of bundle.expression_files) {
-    const targetPath = path.join(outDir, ef.relative_path);
-    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-    fs.writeFileSync(targetPath, ef.content, 'utf-8');
+    const targetPath = safeResolveWithin(outDir, ef.relative_path, 'expression output path');
+    writeFileAtomicSync(targetPath, ef.content);
   }
 
-  const model3Path = path.join(outDir, `${modelName}.model3.json`);
-  fs.writeFileSync(model3Path, bundle.model3_json, 'utf-8');
+  const model3Path = safeResolveWithin(
+    outDir,
+    `${artifactName}.model3.json`,
+    'model3 output path'
+  );
+  writeFileAtomicSync(model3Path, bundle.model3_json);
 
   let zipPath: string | undefined;
   if (options.zipOutputPath) {
+    const targetZip = path.resolve(options.zipOutputPath);
+    fs.mkdirSync(path.dirname(targetZip), { recursive: true });
+    const tempZip = path.join(
+      path.dirname(targetZip),
+      `.${path.basename(targetZip)}.tmp-${process.pid}-${Date.now()}`
+    );
+    fs.rmSync(tempZip, { force: true });
     try {
-      fs.mkdirSync(path.dirname(options.zipOutputPath), { recursive: true });
-      execFileSync('zip', ['-r', path.resolve(options.zipOutputPath), '.'], { cwd: outDir });
-      zipPath = options.zipOutputPath;
-    } catch (e: any) {
-      console.warn('Zip archive generation failed:', e);
+      const archiveCwd = path.resolve(outDir);
+      const exclusion = path.relative(archiveCwd, tempZip);
+      const args = ['-q', '-r', tempZip, '.'];
+      if (exclusion && !exclusion.startsWith('..') && !path.isAbsolute(exclusion)) {
+        args.push('-x', exclusion);
+      }
+      execFileSync('zip', args, { cwd: archiveCwd, stdio: 'pipe' });
+      fs.rmSync(targetZip, { force: true });
+      fs.renameSync(tempZip, targetZip);
+      zipPath = targetZip;
+    } catch (error: any) {
+      fs.rmSync(tempZip, { force: true });
+      throw new Error(`Zip archive generation failed: ${error?.message || error}`);
     }
   }
 
@@ -130,16 +167,16 @@ export function importRuntimePackage(model3JsonPath: string): {
     throw new Error(`Invalid model3.json: missing FileReferences.Moc`);
   }
 
-  const mocPath = path.resolve(modelDir, fileRefs.Moc);
+  const mocPath = safeResolveWithin(modelDir, fileRefs.Moc, 'model3 FileReferences.Moc');
   const mocBuf = fs.readFileSync(mocPath);
   const mocVersion = mocBuf.readUInt8(4);
   const project: Project = wasmNode.importMoc3Binary(new Uint8Array(mocBuf));
 
   // 1. Reconstruct Textures
-  const textureList = fileRefs.Textures || [];
+  const textureList = Array.isArray(fileRefs.Textures) ? fileRefs.Textures : [];
   const parsedTextures = project.textures;
   project.textures = textureList.map((relTex: string, idx: number) => {
-    const fullTexPath = path.resolve(modelDir, relTex);
+    const fullTexPath = safeResolveWithin(modelDir, relTex, `model3 texture #${idx}`);
     const image = new Image();
     image.src = fs.readFileSync(fullTexPath);
     const width = image.naturalWidth;
@@ -158,10 +195,21 @@ export function importRuntimePackage(model3JsonPath: string): {
       height,
     };
   });
+  const textureIds = project.textures.map((texture) => texture.id);
+  for (const node of project.nodes) {
+    if (node.kind.type !== 'ArtMesh') continue;
+    const match = /^texture_(\d+)$/.exec(node.kind.texture_id);
+    if (match) {
+      const textureIndex = Number(match[1]);
+      if (textureIndex < textureIds.length) {
+        node.kind.texture_id = textureIds[textureIndex];
+      }
+    }
+  }
 
   // 2. Import Physics (`.physics3.json`)
   if (fileRefs.Physics) {
-    const physPath = path.resolve(modelDir, fileRefs.Physics);
+    const physPath = safeResolveWithin(modelDir, fileRefs.Physics, 'model3 Physics');
     if (fs.existsSync(physPath)) {
       try {
         const physJson = JSON.parse(fs.readFileSync(physPath, 'utf-8'));
@@ -193,7 +241,7 @@ export function importRuntimePackage(model3JsonPath: string): {
 
   // 3. Import Display Info (`.cdi3.json`)
   if (fileRefs.DisplayInfo) {
-    const cdiPath = path.resolve(modelDir, fileRefs.DisplayInfo);
+    const cdiPath = safeResolveWithin(modelDir, fileRefs.DisplayInfo, 'model3 DisplayInfo');
     if (fs.existsSync(cdiPath)) {
       try {
         const cdiJson = JSON.parse(fs.readFileSync(cdiPath, 'utf-8'));
@@ -217,7 +265,7 @@ export function importRuntimePackage(model3JsonPath: string): {
 
   // 4. Import Pose (`.pose3.json`)
   if (fileRefs.Pose) {
-    const posePath = path.resolve(modelDir, fileRefs.Pose);
+    const posePath = safeResolveWithin(modelDir, fileRefs.Pose, 'model3 Pose');
     if (fs.existsSync(posePath)) {
       try {
         const poseJson = JSON.parse(fs.readFileSync(posePath, 'utf-8'));
@@ -236,8 +284,12 @@ export function importRuntimePackage(model3JsonPath: string): {
   // 5. Import Expressions (`expressions/*.exp3.json`)
   if (Array.isArray(fileRefs.Expressions)) {
     project.expressions = [];
-    for (const exprRef of fileRefs.Expressions) {
-      const expFile = path.resolve(modelDir, exprRef.File);
+    for (const [exprIndex, exprRef] of fileRefs.Expressions.entries()) {
+      const expFile = safeResolveWithin(
+        modelDir,
+        exprRef?.File,
+        `model3 expression #${exprIndex}`
+      );
       if (fs.existsSync(expFile)) {
         try {
           const expJson = JSON.parse(fs.readFileSync(expFile, 'utf-8'));
@@ -261,4 +313,22 @@ export function importRuntimePackage(model3JsonPath: string): {
 
   const modelName = path.basename(fileRefs.Moc, '.moc3');
   return { project, modelName, mocVersion };
+}
+
+/** Copy imported runtime textures beside the target project.json without allowing path escapes. */
+export function copyRuntimePackageTextures(
+  model3JsonPath: string,
+  project: Project,
+  outDir: string
+): number {
+  const modelDir = path.dirname(path.resolve(model3JsonPath));
+  const destinationDir = path.resolve(outDir);
+  fs.mkdirSync(destinationDir, { recursive: true });
+  for (const texture of project.textures) {
+    const source = safeResolveWithin(modelDir, texture.path, `runtime texture '${texture.id}'`);
+    const target = safeResolveWithin(destinationDir, texture.path, `imported texture '${texture.id}'`);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    writeFileAtomicSync(target, fs.readFileSync(source));
+  }
+  return project.textures.length;
 }

@@ -14,11 +14,14 @@ pub use animation::{
 };
 pub use evaluator::{evaluate_project, EvaluatedFrame, EvaluatedMesh};
 pub use exporter::{
-    compute_atlas_layout_and_remap_uvs, export_runtime_bundle, AtlasPlacement, ExportedTextFile,
-    RuntimeBundleOutput,
+    compute_atlas_layout_and_remap_uvs, export_runtime_bundle, export_runtime_bundle_with_options,
+    AtlasPlacement, ExportedTextFile, RuntimeBundleOptions, RuntimeBundleOutput,
 };
 pub use lint::{lint_project, Diagnostic, DiagnosticSeverity};
-pub use moc3::{export_moc3_binary, import_moc3_binary, Moc3Error, DEFAULT_MOC3_VERSION, MOC3_MAGIC};
+pub use moc3::{
+    export_moc3_binary, export_moc3_binary_with_options, import_moc3_binary, Moc3Error,
+    Moc3ExportOptions, DEFAULT_MOC3_VERSION, MOC3_MAGIC,
+};
 pub use model::{
     ArtPathData, ArtPathPoint, BlendMode, Canvas, DeformPathData, Expression, ExpressionBlendType,
     ExpressionParameter, ExtendedInterpolationType, GlueBinding, GluePair, KeyformBinding,
