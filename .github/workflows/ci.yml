@@ -52,6 +52,9 @@ jobs:
           pnpm run build:wasm
           pnpm run build:wasm:node
 
+      - name: Build TypeScript packages
+        run: pnpm run build
+
       - name: Run Rust and Vitest suites
         run: pnpm test
 
