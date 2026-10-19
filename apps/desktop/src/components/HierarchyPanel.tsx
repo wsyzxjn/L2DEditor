@@ -71,15 +71,15 @@ export const HierarchyPanel: React.FC = () => {
     setRenamingId(null);
     const trimmed = name.trim();
     if (!trimmed || trimmed === nodeById.get(id)?.name) return;
-    executeCommand({ id: `cmd_${Date.now()}`, name: 'node.update', params: { id, changes: { name: trimmed } } });
+    executeCommand({ id: `cmd_${crypto.randomUUID()}`, name: 'node.update', params: { id, changes: { name: trimmed } } });
   };
 
   const deleteSelection = () => {
     const ids = selectedNodeIds.length ? selectedNodeIds : selectedNodeId ? [selectedNodeId] : [];
     if (!ids.length) return;
     executeCommand(ids.length > 1
-      ? { id: `cmd_${Date.now()}`, name: 'node.batch_delete', params: { node_ids: ids } }
-      : { id: `cmd_${Date.now()}`, name: 'node.delete', params: { id: ids[0] } });
+      ? { id: `cmd_${crypto.randomUUID()}`, name: 'node.batch_delete', params: { node_ids: ids } }
+      : { id: `cmd_${crypto.randomUUID()}`, name: 'node.delete', params: { id: ids[0] } });
     setSelectedNodeId(null);
     notify(t('notify.nodes_deleted', { count: ids.length }), 'info');
   };
@@ -195,7 +195,7 @@ export const HierarchyPanel: React.FC = () => {
           onClick={(e) => {
             e.stopPropagation();
             executeCommand({
-              id: `cmd_${Date.now()}`,
+              id: `cmd_${crypto.randomUUID()}`,
               name: 'node.update',
               params: { id: node.id, changes: { visible: !node.visible } },
             });
@@ -213,7 +213,7 @@ export const HierarchyPanel: React.FC = () => {
           onClick={(e) => {
             e.stopPropagation();
             executeCommand({
-              id: `cmd_${Date.now()}`,
+              id: `cmd_${crypto.randomUUID()}`,
               name: 'node.update',
               params: { id: node.id, changes: { locked: !node.locked } },
             });
@@ -229,7 +229,7 @@ export const HierarchyPanel: React.FC = () => {
     const id = `warp_${Date.now()}`;
     const name = `Warp ${project.nodes.filter((n) => n.kind.type === 'WarpDeformer').length + 1}`;
     executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'node.add',
       params: {
         id,
@@ -254,7 +254,7 @@ export const HierarchyPanel: React.FC = () => {
     const id = `rot_${Date.now()}`;
     const name = `Rotation ${project.nodes.filter((n) => n.kind.type === 'RotationDeformer').length + 1}`;
     executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'node.add',
       params: {
         id,
@@ -278,7 +278,7 @@ export const HierarchyPanel: React.FC = () => {
     const id = `part_${Date.now()}`;
     const name = `Part ${project.nodes.filter((n) => n.kind.type === 'Part').length + 1}`;
     executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'node.add',
       params: {
         id,
@@ -300,7 +300,7 @@ export const HierarchyPanel: React.FC = () => {
     const id = `artpath_${Date.now()}`;
     const name = `ArtPath ${project.nodes.filter((n) => n.kind.type === 'ArtPath').length + 1}`;
     executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'art_path.create',
       params: {
         id,
@@ -369,7 +369,7 @@ export const HierarchyPanel: React.FC = () => {
             label={t('hierarchy.cleanup')}
             onSelect={() => {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'project.cleanup_empty',
                 params: {},
               });
@@ -390,7 +390,7 @@ export const HierarchyPanel: React.FC = () => {
               className="p-1 text-dcc-muted hover:text-white rounded hover:bg-blue-900/40"
               onClick={() => {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'node.batch_update',
                   params: { node_ids: selectedNodeIds, changes: { visible: true } },
                 });
@@ -405,7 +405,7 @@ export const HierarchyPanel: React.FC = () => {
               className="p-1 text-dcc-muted hover:text-white rounded hover:bg-blue-900/40"
               onClick={() => {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'node.batch_update',
                   params: { node_ids: selectedNodeIds, changes: { visible: false } },
                 });
@@ -420,7 +420,7 @@ export const HierarchyPanel: React.FC = () => {
               className="p-1 text-rose-400 hover:text-rose-200 rounded hover:bg-rose-950/40"
               onClick={() => {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'node.batch_delete',
                   params: { node_ids: selectedNodeIds },
                 });

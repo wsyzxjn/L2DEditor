@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useEditor } from '../context/EditorContext.js';
+import { useEditor, useEditorRuntime } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
 import { ScrubInput } from './ScrubInput.js';
 import { OverflowMenu, OverflowMenuItem } from './OverflowMenu.js';
@@ -10,8 +10,6 @@ export const ParametersPanel: React.FC = () => {
   const { t } = useI18n();
   const {
     project,
-    parameterValues,
-    setParameterValue,
     parameterSearchQuery,
     setParameterSearchQuery,
     executeCommand,
@@ -20,13 +18,14 @@ export const ParametersPanel: React.FC = () => {
     applyExpression,
     notify,
   } = useEditor();
+  const { parameterValues, setParameterValue } = useEditorRuntime();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const handleAddParam = () => {
     const id = `ParamCustom_${Date.now()}`;
     const name = `Param ${project.parameters.length + 1}`;
     executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'parameter.add',
       params: {
         id,
@@ -43,7 +42,7 @@ export const ParametersPanel: React.FC = () => {
     const id = `group_${Date.now()}`;
     const name = `Group ${(project.parameter_groups?.length || 0) + 1}`;
     executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'parameter_group.add',
       params: { id, name, collapsed: false },
     });
@@ -83,7 +82,7 @@ export const ParametersPanel: React.FC = () => {
           className="shrink-0 p-0.5 rounded text-zinc-600 hover:text-zinc-200"
           onClick={() => {
             executeCommand({
-              id: `cmd_${Date.now()}`,
+              id: `cmd_${crypto.randomUUID()}`,
               name: 'parameter.set_locked',
               params: { param_id: param.id, locked: !param.locked },
             });
@@ -189,7 +188,7 @@ export const ParametersPanel: React.FC = () => {
             label={t('parameters.preset')}
             onSelect={() => {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'parameter.apply_standard_template',
                 params: {},
               });

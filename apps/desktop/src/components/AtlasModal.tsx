@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useEditor } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
 import { Layers, Check, X, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
+import type { L2DApi } from '../../electron/preload.js';
 
 
 interface AtlasModalProps {
@@ -17,20 +18,22 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
   const [previewBuffer, setPreviewBuffer] = useState<string | null>(null);
   const [coveragePct, setCoveragePct] = useState<number>(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
 
   // Compute preview whenever atlasSize or padding changes
   const runPackPreview = async () => {
     try {
-      // Dummy texture resolver for preview if files not available
-      if ((window as any).l2dApi?.generateAtlas) {
-        const res = await (window as any).l2dApi.generateAtlas(project, atlasSize, padding);
-        if (res?.atlasList?.length > 0) {
+      if (api?.generateAtlas) {
+        const res = await api.generateAtlas(project, atlasSize, padding, currentFilePath ?? undefined);
+        if (!res.success) throw new Error(res.error);
+        if (res.atlasList.length > 0) {
           setPreviewBuffer(`data:image/png;base64,${res.atlasList[0].base64}`);
           setCoveragePct(Math.min(95, Math.round((project.nodes.filter(n => n.kind.type === 'ArtMesh').length * 200 * 200 / (atlasSize * atlasSize)) * 100)));
         }
       }
     } catch (e: any) {
-      console.error('Atlas preview failed:', e);
+      setPreviewBuffer(null);
+      notify(t('notify.atlas_failed', { error: e?.message || e }), 'error');
     }
   };
 
@@ -42,14 +45,28 @@ export const AtlasModal: React.FC<AtlasModalProps> = ({ open, onOpenChange }) =>
 
   const handleApply = async () => {
     try {
-      if ((window as any).l2dApi?.generateAtlas) {
-        const res = await (window as any).l2dApi.generateAtlas(project, atlasSize, padding);
-        if (res?.updatedProject) {
-          executeCommand({
-            id: `cmd_${Date.now()}`,
-            name: 'project.update',
-            params: res.updatedProject,
+      if (api?.generateAtlas) {
+        const res = await api.generateAtlas(project, atlasSize, padding, currentFilePath ?? undefined);
+        if (!res.success) throw new Error(res.error);
+        {
+          const meshes = res.updatedProject.nodes
+            .filter((node: any) => node.kind?.type === 'ArtMesh')
+            .map((node: any) => ({
+              id: node.id,
+              texture_id: node.kind.texture_id,
+              uvs: node.kind.uvs,
+            }));
+          const result = executeCommand({
+            id: `cmd_${crypto.randomUUID()}`,
+            name: 'atlas.apply',
+            params: {
+              textures: res.updatedProject.textures,
+              meshes,
+            },
           });
+          if (!result.success) {
+            throw new Error(result.error || 'atlas.apply failed');
+          }
           notify(t('notify.atlas_applied', { size: atlasSize }), 'success');
           onOpenChange(false);
         }

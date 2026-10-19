@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { useEditor } from '../context/EditorContext.js';
+import { useEditor, useEditorRuntime } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
 import { OverflowMenu, OverflowMenuItem } from './OverflowMenu.js';
 import {
@@ -23,18 +23,20 @@ export const TimelinePanel: React.FC = () => {
   const { t } = useI18n();
   const {
     project,
-    isPlayingAnimation,
-    setIsPlayingAnimation,
-    currentPlayheadFrame,
-    setCurrentPlayheadFrame,
     activeAnimationId,
     setActiveAnimationId,
-    parameterValues,
     waveformPeaks,
     setWaveformPeaks,
     executeCommand,
     notify,
   } = useEditor();
+  const {
+    isPlayingAnimation,
+    setIsPlayingAnimation,
+    currentPlayheadFrame,
+    setCurrentPlayheadFrame,
+    parameterValues,
+  } = useEditorRuntime();
 
   const rulerRef = useRef<HTMLDivElement | null>(null);
   const wavInputRef = useRef<HTMLInputElement | null>(null);
@@ -76,7 +78,7 @@ export const TimelinePanel: React.FC = () => {
       })),
     };
     executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'animation.add',
       params: newAnim,
     });
@@ -88,11 +90,11 @@ export const TimelinePanel: React.FC = () => {
     const curVal = parameterValues[paramId] ?? 0;
     // Without saved motions the timeline shows a placeholder; store it before keying it.
     if (!project.animations?.some((animation) => animation.id === activeAnim.id)) {
-      executeCommand({ id: `cmd_${Date.now()}`, name: 'animation.add', params: activeAnim });
+      executeCommand({ id: `cmd_${crypto.randomUUID()}`, name: 'animation.add', params: activeAnim });
       setActiveAnimationId(activeAnim.id);
     }
     const result = executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'animation.set_keyframe',
       params: {
         animation_id: activeAnim.id,
@@ -167,7 +169,7 @@ export const TimelinePanel: React.FC = () => {
             aria-label={t('timeline.loop')}
             onClick={() => {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'animation.add',
                 params: { ...activeAnim, loop_playback: !activeAnim.loop_playback },
               });
@@ -252,7 +254,7 @@ export const TimelinePanel: React.FC = () => {
               label={t('physics.bake_physics')}
               onSelect={() => {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'animation.bake_physics',
                   params: { animation_id: activeAnim.id },
                 });
@@ -264,7 +266,7 @@ export const TimelinePanel: React.FC = () => {
               label={t('timeline.auto_face')}
               onSelect={() => {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'macro.auto_face_motion',
                   params: { animation_id: activeAnim.id, duration_frames: duration },
                 });
@@ -309,7 +311,7 @@ export const TimelinePanel: React.FC = () => {
                 }
 
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'animation.add',
                   params: {
                     ...activeAnim,
@@ -352,7 +354,7 @@ export const TimelinePanel: React.FC = () => {
                     onClick={(e) => {
                       e.stopPropagation();
                       executeCommand({
-                        id: `cmd_${Date.now()}`,
+                        id: `cmd_${crypto.randomUUID()}`,
                         name: 'animation.set_track_freeze',
                         params: {
                           animation_id: activeAnim.id,

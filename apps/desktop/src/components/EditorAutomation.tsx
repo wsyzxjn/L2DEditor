@@ -2,12 +2,12 @@ import { useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import type { RendererEditorRequest } from '@l2d/mcp-server/editor-protocol';
 import type { L2DApi } from '../../electron/preload.js';
-import { useEditor } from '../context/EditorContext.js';
+import { useEditor, useEditorRuntime } from '../context/EditorContext.js';
 import type { AgentActivity } from './AgentActivityCard.js';
 
 /** GUI and MCP share the same context actions, document and Command Bus. */
 export function EditorAutomation({ onActivity }: { onActivity?: (activity: AgentActivity) => void }) {
-  const editor = useEditor();
+  const editor = { ...useEditor(), ...useEditorRuntime() };
   const current = useRef(editor);
   const activityHandler = useRef(onActivity);
   current.current = editor;
@@ -41,7 +41,13 @@ export function EditorAutomation({ onActivity }: { onActivity?: (activity: Agent
       const e = current.current;
       switch (request.action) {
         case 'state': return inspect(request.nodeOffset, request.nodeLimit);
-        case 'load_project': e.loadProject(request.project, request.path); break;
+        case 'get_project': return { project: e.project };
+        case 'load_project':
+          if (e.isDirty && !request.discardChanges) {
+            throw new Error('The current project has unsaved changes. Pass discardChanges: true to replace it.');
+          }
+          e.loadProject(request.project, request.path);
+          break;
         case 'select': {
           const ids = [...new Set(request.nodeIds)];
           if (ids.some(id => !e.project.nodes.some(node => node.id === id))) throw new Error('Selection contains an unknown node ID');
@@ -164,10 +170,10 @@ export function EditorAutomation({ onActivity }: { onActivity?: (activity: Agent
   }, []);
 
   useEffect(() => {
-    (window as unknown as { l2dApi?: L2DApi }).l2dApi?.syncEditorState({ project: editor.project });
-  }, [editor.project]);
+    (window as unknown as { l2dApi?: L2DApi }).l2dApi?.syncEditorState({ dirty: editor.isDirty });
+  }, [editor.isDirty]);
   useEffect(() => {
     (window as unknown as { l2dApi?: L2DApi }).l2dApi?.syncEditorState({ parameters: editor.parameterValues });
-  }, [editor.project, editor.parameterValues]);
+  }, [editor.parameterValues]);
   return null;
 }

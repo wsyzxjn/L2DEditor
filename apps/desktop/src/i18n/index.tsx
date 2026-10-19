@@ -423,6 +423,7 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'palette.group_export': '发布与导出',
 
     // Notifications
+    'confirm.discard_unsaved': '当前工程有未保存的修改。确定要丢弃这些修改吗？',
     'notify.new_project': '已创建空白新工程',
     'notify.saved': '工程已保存',
     'notify.save_failed': '保存工程失败',
@@ -843,6 +844,7 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'palette.group_export': '書き出しと配布',
 
     // Notifications
+    'confirm.discard_unsaved': '現在のプロジェクトには保存されていない変更があります。破棄しますか？',
     'notify.new_project': '新規プロジェクトを作成しました',
     'notify.saved': 'プロジェクトを保存しました',
     'notify.save_failed': 'プロジェクトの保存に失敗しました',
@@ -1263,6 +1265,7 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     'palette.group_export': 'Distribution & Export',
 
     // Notifications
+    'confirm.discard_unsaved': 'The current project has unsaved changes. Discard them?',
     'notify.new_project': 'Created new blank project',
     'notify.saved': 'Saved project',
     'notify.save_failed': 'Failed to save project',

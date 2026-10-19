@@ -1,14 +1,23 @@
-import { ipcMain, type BrowserWindow } from 'electron';
-import { randomUUID } from 'node:crypto';
+import { app, dialog, ipcMain, type BrowserWindow } from 'electron';
+import { randomBytes, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Project } from '@l2d/schema';
 import { startCubismWebSocketServer } from '@l2d/mcp-server/websocket';
 import type { EditorRequest, RendererEditorRequest, EditorResponseMessage } from '@l2d/mcp-server/editor-protocol';
 
-export function startEditorBridge(window: BrowserWindow, validateProject: (json: string) => void): void {
-  let project: Project | null = null;
+export function getEditorBridgeTokenPath(): string {
+  return path.join(app.getPath('userData'), 'editor-bridge-token');
+}
+
+export async function startEditorBridge(
+  window: BrowserWindow,
+  validateProject: (json: string) => void
+): Promise<void> {
   let parameters: Record<string, number> = {};
+  let dirty = false;
+  let allowClose = false;
+  let closePromptOpen = false;
   const pending = new Map<string, { resolve: (result: Record<string, unknown>) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   const requestRenderer = (request: RendererEditorRequest): Promise<Record<string, unknown>> => new Promise((resolve, reject) => {
     if (window.isDestroyed()) { reject(new Error('The editor window is closed')); return; }
@@ -30,10 +39,10 @@ export function startEditorBridge(window: BrowserWindow, validateProject: (json:
     if (response.error) entry.reject(new Error(response.error));
     else entry.resolve(response.result ?? {});
   };
-  const onState = (event: Electron.IpcMainEvent, state: { project?: Project; parameters?: Record<string, number> }) => {
+  const onState = (event: Electron.IpcMainEvent, state: { project?: Project; parameters?: Record<string, number>; dirty?: boolean }) => {
     if (event.sender !== window.webContents) return;
-    if (state.project) { project = state.project; parameters = {}; }
     if (state.parameters) parameters = state.parameters;
+    if (state.dirty !== undefined) dirty = state.dirty;
   };
   ipcMain.on('l2d:editor-response', onResponse);
   ipcMain.on('l2d:editor-state', onState);
@@ -46,7 +55,12 @@ export function startEditorBridge(window: BrowserWindow, validateProject: (json:
       // The same Rust parser used for viewport evaluation validates before replacing the document.
       validateProject(content);
       const loaded: Project = JSON.parse(content);
-      return requestRenderer({ action: 'load_project', path: target, project: loaded });
+      return requestRenderer({
+        action: 'load_project',
+        path: target,
+        project: loaded,
+        discardChanges: request.discardChanges,
+      });
     }
     if (request.action === 'screenshot') {
       if (request.target === 'model') return requestRenderer({ action: 'capture_model', scale: request.scale });
@@ -66,12 +80,46 @@ export function startEditorBridge(window: BrowserWindow, validateProject: (json:
   };
   const port = Number(process.env.L2D_EDITOR_PORT ?? 22033);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid L2D_EDITOR_PORT');
+  const tokenPath = getEditorBridgeTokenPath();
+  const token = randomBytes(32).toString('hex');
+  await fs.mkdir(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
+  await fs.writeFile(tokenPath, token, { mode: 0o600 });
+  await fs.chmod(tokenPath, 0o600);
   const server = startCubismWebSocketServer({
     port,
-    getProject: () => { if (!project) throw new Error('Desktop UI is not ready'); return project; },
+    authToken: token,
+    getProject: async () => {
+      const result = await requestRenderer({ action: 'get_project' });
+      if (!result.project || typeof result.project !== 'object') {
+        throw new Error('The renderer did not return a project');
+      }
+      return result.project as Project;
+    },
     getParameterValues: () => parameters,
     setParameterValues: async values => { await enqueue({ action: 'set_parameters', values }); },
     handleEditorRequest: enqueue,
+  });
+  window.on('close', event => {
+    if (!dirty || allowClose) return;
+    event.preventDefault();
+    if (closePromptOpen) return;
+    closePromptOpen = true;
+    void dialog.showMessageBox(window, {
+      type: 'warning',
+      title: 'Unsaved changes',
+      message: 'Close L2DEditor and discard unsaved changes?',
+      detail: 'Save the project first if you want to keep the current edits.',
+      buttons: ['Discard and Close', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    }).then(({ response }) => {
+      closePromptOpen = false;
+      if (response === 0) {
+        allowClose = true;
+        window.close();
+      }
+    });
   });
   window.once('closed', () => {
     ipcMain.removeListener('l2d:editor-response', onResponse);
@@ -80,5 +128,6 @@ export function startEditorBridge(window: BrowserWindow, validateProject: (json:
     pending.clear();
     for (const client of server.clients) client.terminate();
     server.close();
+    void fs.rm(tokenPath, { force: true });
   });
 }

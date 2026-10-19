@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { test, expect, openMenu, overflowingToolbars } from './fixtures.js';
@@ -24,7 +25,13 @@ async function freePort() {
 async function callEditor(port: number, params: Record<string, unknown>) {
   return new Promise<Record<string, any>>((resolve, reject) => {
     const id = randomUUID();
-    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    const endpoint = new URL(`ws://127.0.0.1:${port}`);
+    const tokenFile = [
+      path.join(os.homedir(), 'Library/Application Support/l2d-desktop/editor-bridge-token'),
+      path.join(os.homedir(), 'Library/Application Support/L2DEditor/editor-bridge-token'),
+    ].find(candidate => fs.existsSync(candidate));
+    if (tokenFile) endpoint.searchParams.set('token', fs.readFileSync(tokenFile, 'utf8').trim());
+    const socket = new WebSocket(endpoint);
     const timer = setTimeout(() => {
       socket.close();
       reject(new Error('Editor bridge timed out'));
@@ -109,9 +116,13 @@ desktopTest('the packaged renderer boots in a real Electron window', async ({ ap
   expect(setup.mcpServerBuilt).toBe(true);
   expect(setup.editorUrl).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
 
-  await page.getByRole('button', { name: /Agent 接入|Agent integration|Agent 接続/ }).click();
+  const agentSetupButton = page.getByRole('button', { name: /Agent 接入|Agent integration|Agent 接続/ });
+  await expect(agentSetupButton.locator('svg.lucide-waypoints')).toBeVisible();
+  await expect(agentSetupButton.locator('.agent-integration-icon')).toHaveAttribute('data-state', 'ready');
+  await agentSetupButton.click();
   const setupDialog = page.getByTestId('agent-setup-modal');
   await expect(setupDialog).toBeVisible();
+  await expect(setupDialog.locator('.agent-setup-mark svg.lucide-waypoints')).toBeVisible();
   await expect(setupDialog).toContainText(setup.repoRoot);
   await expect(setupDialog).toContainText(setup.editorUrl);
   const [dialogBox, windowSize] = [

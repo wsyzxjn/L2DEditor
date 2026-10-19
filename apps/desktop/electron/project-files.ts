@@ -13,11 +13,17 @@ export async function saveProjectFile(filePath: string, content: string, sourceP
   const writes = new Map<string, Buffer>();
   for (const texture of project.textures) {
     if (!path.isAbsolute(texture.path) && !sourcePath) throw new Error(`Texture '${texture.id}' needs an original project path`);
+    if (!relocated && !path.isAbsolute(texture.path) && !texture.path.split(/[\\/]/).includes('..')) {
+      await fs.access(path.resolve(sourceDir, texture.path)).catch(() => {
+        throw new Error(`Cannot read texture '${texture.id}': ${texture.path}`);
+      });
+      texture.path = texture.path.split(path.sep).join('/');
+      continue;
+    }
     const bytes = await fs.readFile(path.resolve(sourceDir, texture.path)).catch(() => {
       throw new Error(`Cannot read texture '${texture.id}': ${texture.path}`);
     });
     if (path.resolve(destinationDir, texture.path) === destination) throw new Error('Project file conflicts with a texture path');
-    if (!relocated && !path.isAbsolute(texture.path) && !texture.path.split(/[\\/]/).includes('..')) continue;
     const hash = createHash('sha256').update(bytes).digest('hex');
     let relative = texture.path;
     if (path.isAbsolute(relative) || relative.split(/[\\/]/).includes('..')) {

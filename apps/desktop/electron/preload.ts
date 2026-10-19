@@ -9,6 +9,26 @@ export interface SaveProjectResult {
   error?: string;
 }
 
+export type OpenProjectResult =
+  | { success: true; path: string; content: string }
+  | { success: false; error: string }
+  | null;
+
+export type ImportPsdResult =
+  | { success: true; outputPath: string; projectContent: string }
+  | { success: false; error: string }
+  | null;
+
+export interface AtlasTextureResult {
+  id: string;
+  filename: string;
+  base64: string;
+}
+
+export type GenerateAtlasResult =
+  | { success: true; updatedProject: Project; atlasList: AtlasTextureResult[] }
+  | { success: false; error: string };
+
 export interface AgentSkillInfo {
   id: 'l2deditor-mcp' | 'live2d-model-building';
   path: string;
@@ -20,23 +40,34 @@ export interface AgentSetupInfo {
   mcpServerPath: string;
   mcpServerBuilt: boolean;
   editorUrl: string;
+  editorTokenPath: string;
   skills: AgentSkillInfo[];
 }
 
 export interface L2DApi {
   onEditorRequest: (handler: (message: EditorRequestMessage) => void) => () => void;
   respondToEditor: (message: EditorResponseMessage) => void;
-  syncEditorState: (state: { project?: Project; parameters?: Record<string, number> }) => void;
+  syncEditorState: (state: {
+    project?: Project;
+    parameters?: Record<string, number>;
+    dirty?: boolean;
+  }) => void;
   getSystemLocale: () => Promise<string>;
   getAgentSetupInfo: () => Promise<AgentSetupInfo>;
   copyText: (text: string) => Promise<void>;
   readTexture: (projectPath: string, texturePath: string) => Promise<string>;
   setEvaluationProject: (projectJson: string, revision: number) => Promise<void>;
   evaluateFrame: (revision: number, parameters: Record<string, number>) => Promise<EvaluatedFrameJs>;
-  openProjectDialog: () => Promise<{ path: string; content: string } | null>;
+  openProjectDialog: () => Promise<OpenProjectResult>;
   saveProject: (filePath: string, content: string, sourcePath?: string) => Promise<SaveProjectResult>;
   saveProjectAsDialog: (content: string, defaultName?: string, sourcePath?: string) => Promise<SaveProjectResult | null>;
-  importPsdDialog: () => Promise<{ outputPath: string; projectContent: string } | null>;
+  importPsdDialog: () => Promise<ImportPsdResult>;
+  generateAtlas: (
+    project: Project,
+    atlasSize: number,
+    padding: number,
+    projectPath?: string,
+  ) => Promise<GenerateAtlasResult>;
 }
 
 const api: L2DApi = {
@@ -57,6 +88,8 @@ const api: L2DApi = {
   saveProject: (filePath, content, sourcePath) => ipcRenderer.invoke('l2d:save-project', filePath, content, sourcePath),
   saveProjectAsDialog: (content, defaultName, sourcePath) => ipcRenderer.invoke('l2d:save-project-as-dialog', content, defaultName, sourcePath),
   importPsdDialog: () => ipcRenderer.invoke('l2d:import-psd-dialog'),
+  generateAtlas: (project, atlasSize, padding, projectPath) =>
+    ipcRenderer.invoke('l2d:generate-atlas', project, atlasSize, padding, projectPath),
 };
 
 contextBridge.exposeInMainWorld('l2dApi', api);

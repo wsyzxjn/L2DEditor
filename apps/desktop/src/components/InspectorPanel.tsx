@@ -27,7 +27,7 @@ export const InspectorPanel: React.FC = () => {
               value={project.canvas.width}
               onChange={(v) =>
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'canvas.update',
                   params: { width: v },
                 })
@@ -42,7 +42,7 @@ export const InspectorPanel: React.FC = () => {
               value={project.canvas.height}
               onChange={(v) =>
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'canvas.update',
                   params: { height: v },
                 })
@@ -84,7 +84,7 @@ export const InspectorPanel: React.FC = () => {
             value={selectedNode.name}
             onChange={(e) =>
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'node.update',
                 params: { id: selectedNode.id, changes: { name: e.target.value } },
               })
@@ -102,7 +102,7 @@ export const InspectorPanel: React.FC = () => {
               const firstParam = project.parameters[0];
               if (firstParam) {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'keyform.setup_points',
                   params: { target_node_id: selectedNode.id, param_id: firstParam.id, point_count: 2 },
                 });
@@ -118,7 +118,7 @@ export const InspectorPanel: React.FC = () => {
               const firstParam = project.parameters[0];
               if (firstParam) {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'keyform.setup_points',
                   params: { target_node_id: selectedNode.id, param_id: firstParam.id, point_count: 3 },
                 });
@@ -134,7 +134,7 @@ export const InspectorPanel: React.FC = () => {
             className="btn btn-secondary btn-wrap"
             onClick={() => {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'keyform.synthesize_corners',
                 params: { target_node_id: selectedNode.id },
               });
@@ -150,7 +150,7 @@ export const InspectorPanel: React.FC = () => {
               const binding = project.keyforms.find((k) => k.target_node_id === selectedNode.id);
               if (binding && binding.keyforms.length > 0) {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'keyform.restore_original_shape',
                   params: { target_node_id: selectedNode.id, coordinates: binding.keyforms[0].coordinates },
                 });
@@ -187,7 +187,7 @@ export const InspectorPanel: React.FC = () => {
             onClick={() => {
               if (copiedShape) {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'keyform.copy_paste',
                   params: {
                     target_node_id: selectedNode.id,
@@ -214,7 +214,7 @@ export const InspectorPanel: React.FC = () => {
               value={kind.opacity ?? 1.0}
               onChange={(v) =>
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'node.update',
                   params: {
                     id: selectedNode.id,
@@ -240,7 +240,7 @@ export const InspectorPanel: React.FC = () => {
                 value={kind.cols}
                 onChange={(c) =>
                   executeCommand({
-                    id: `cmd_${Date.now()}`,
+                    id: `cmd_${crypto.randomUUID()}`,
                     name: 'warp.set_divisions',
                     params: { node_id: selectedNode.id, cols: Math.max(1, Math.round(c)), rows: kind.rows },
                   })
@@ -256,7 +256,7 @@ export const InspectorPanel: React.FC = () => {
                 value={kind.rows}
                 onChange={(r) =>
                   executeCommand({
-                    id: `cmd_${Date.now()}`,
+                    id: `cmd_${crypto.randomUUID()}`,
                     name: 'warp.set_divisions',
                     params: { node_id: selectedNode.id, cols: kind.cols, rows: Math.max(1, Math.round(r)) },
                   })
@@ -282,7 +282,7 @@ export const InspectorPanel: React.FC = () => {
                 className="btn btn-secondary btn-wrap text-[10px] font-mono"
                 onClick={() => {
                   executeCommand({
-                    id: `cmd_${Date.now()}`,
+                    id: `cmd_${crypto.randomUUID()}`,
                     name: 'warp.change_topology',
                     params: { node_id: selectedNode.id, op },
                   });
@@ -298,7 +298,7 @@ export const InspectorPanel: React.FC = () => {
             className="btn btn-secondary btn-wrap w-full mt-2"
             onClick={() => {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'macro.setup_turn_xy',
                 params: { target_node_id: selectedNode.id },
               });
@@ -312,7 +312,7 @@ export const InspectorPanel: React.FC = () => {
             className="btn btn-secondary btn-wrap w-full mt-1.5"
             onClick={() => {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'macro.auto_sway',
                 params: { target_node_id: selectedNode.id },
               });
@@ -326,7 +326,7 @@ export const InspectorPanel: React.FC = () => {
             className="btn btn-secondary btn-wrap btn-danger w-full mt-1.5"
             onClick={() => {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'deformer.delete_and_bake_to_children',
                 params: { deformer_id: selectedNode.id },
               });
@@ -348,7 +348,7 @@ export const InspectorPanel: React.FC = () => {
                 value={kind.origin[0]}
                 onChange={(v) =>
                   executeCommand({
-                    id: `cmd_${Date.now()}`,
+                    id: `cmd_${crypto.randomUUID()}`,
                     name: 'node.update',
                     params: {
                       id: selectedNode.id,
@@ -364,7 +364,7 @@ export const InspectorPanel: React.FC = () => {
                 value={kind.origin[1]}
                 onChange={(v) =>
                   executeCommand({
-                    id: `cmd_${Date.now()}`,
+                    id: `cmd_${crypto.randomUUID()}`,
                     name: 'node.update',
                     params: {
                       id: selectedNode.id,
@@ -381,7 +381,7 @@ export const InspectorPanel: React.FC = () => {
               value={kind.angle_deg}
               onChange={(v) =>
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'node.update',
                   params: {
                     id: selectedNode.id,
@@ -415,7 +415,7 @@ export const InspectorPanel: React.FC = () => {
               value={kind.opacity}
               onChange={(v) =>
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'node.update',
                   params: {
                     id: selectedNode.id,
@@ -440,7 +440,7 @@ export const InspectorPanel: React.FC = () => {
                 value={kind.hit_area_name || ''}
                 onChange={(e) =>
                   executeCommand({
-                    id: `cmd_${Date.now()}`,
+                    id: `cmd_${crypto.randomUUID()}`,
                     name: 'mesh.set_hit_area',
                     params: { mesh_id: selectedNode.id, hit_area_name: e.target.value },
                   })
@@ -456,7 +456,7 @@ export const InspectorPanel: React.FC = () => {
                 value={kind.user_data || ''}
                 onChange={(e) =>
                   executeCommand({
-                    id: `cmd_${Date.now()}`,
+                    id: `cmd_${crypto.randomUUID()}`,
                     name: 'mesh.set_user_data',
                     params: { mesh_id: selectedNode.id, user_data: e.target.value },
                   })
@@ -475,7 +475,7 @@ export const InspectorPanel: React.FC = () => {
                   const param = project.parameters[0]?.id || 'ParamEyeLOpen';
                   const morphId = `morph_${Date.now()}`;
                   executeCommand({
-                    id: `cmd_${Date.now()}`,
+                    id: `cmd_${crypto.randomUUID()}`,
                     name: 'mesh.add_morph_target',
                     params: {
                       mesh_id: selectedNode.id,
@@ -505,7 +505,7 @@ export const InspectorPanel: React.FC = () => {
             className="btn btn-secondary btn-wrap w-full mt-2"
             onClick={() => {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'mesh.reverse_winding',
                 params: { mesh_id: selectedNode.id },
               });
@@ -519,7 +519,7 @@ export const InspectorPanel: React.FC = () => {
             className="btn btn-secondary btn-wrap w-full mt-1.5"
             onClick={() => {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'warp.create_enclosing_mesh',
                 params: { mesh_id: selectedNode.id },
               });
@@ -533,7 +533,7 @@ export const InspectorPanel: React.FC = () => {
             className="btn btn-secondary btn-wrap w-full mt-1.5"
             onClick={() => {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'art_path.fit_mesh_contour',
                 params: { mesh_id: selectedNode.id },
               });
@@ -556,7 +556,7 @@ export const InspectorPanel: React.FC = () => {
               className="btn btn-secondary btn-wrap"
               onClick={() => {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'art_path.adjust_width',
                   params: { node_id: selectedNode.id, delta: 1.5 },
                 });
@@ -569,7 +569,7 @@ export const InspectorPanel: React.FC = () => {
               className="btn btn-secondary btn-wrap"
               onClick={() => {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'art_path.adjust_width',
                   params: { node_id: selectedNode.id, delta: -1.5 },
                 });

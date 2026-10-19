@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import type { ArtMeshData, Node } from '@l2d/schema';
-import { useEditor } from '../context/EditorContext.js';
+import { useEditor, useEditorRuntime } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
 
 export function SpriteSwapEditor({ node }: { node: Omit<Node, 'kind'> & { kind: ArtMeshData & { type: 'ArtMesh' } } }) {
-  const { project, parameterValues, setParameterValue, executeCommand, notify } = useEditor();
+  const { project, executeCommand, notify } = useEditor();
+  const { parameterValues, setParameterValue } = useEditorRuntime();
   const { t } = useI18n();
   const siblings = project.nodes.filter(sibling => sibling.id.startsWith(`${node.id}_sprite_`) && sibling.parent_id === node.parent_id && sibling.kind.type === 'ArtMesh');
   const binding = project.keyforms.find(binding => binding.target_node_id === node.id);

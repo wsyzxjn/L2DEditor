@@ -14,7 +14,7 @@ import {
   type Project,
 } from '@l2d/schema';
 import { CommandBus, registerStandardCommands, type Command } from '@l2d/command';
-import { EditorContext } from './context/EditorContext.js';
+import { EditorContext, EditorRuntimeContext } from './context/EditorContext.js';
 import { HierarchyPanel } from './components/HierarchyPanel.js';
 import { ParametersPanel } from './components/ParametersPanel.js';
 import { InspectorPanel } from './components/InspectorPanel.js';
@@ -29,7 +29,7 @@ import { StatusBar, type StatusMessage } from './components/StatusBar.js';
 import { OverflowMenu, OverflowMenuItem } from './components/OverflowMenu.js';
 import { AgentActivityCard, type AgentActivity } from './components/AgentActivityCard.js';
 import { useI18n } from './i18n/index.js';
-import type { L2DApi } from '../electron/preload.js';
+import type { AgentSetupInfo, L2DApi } from '../electron/preload.js';
 import type { EditorViewportControls } from '@l2d/mcp-server/editor-protocol';
 import { EditorAutomation } from './components/EditorAutomation.js';
 import {
@@ -50,7 +50,7 @@ import {
   History,
   Info,
   Film,
-  Bot,
+  Waypoints,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -147,14 +147,17 @@ export function App() {
   const [isGridSnapEnabled, setIsGridSnapEnabled] = useState(false);
   const [gridSize, setGridSize] = useState(50);
   const [parameterValues, setParameterValues] = useState<Record<string, number>>({});
+  const parameterValuesRef = useRef(parameterValues);
+  parameterValuesRef.current = parameterValues;
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [atlasModalOpen, setAtlasModalOpen] = useState(false);
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
+  const [agentSetupInfo, setAgentSetupInfo] = useState<AgentSetupInfo | null>(null);
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
   const [agentActivities, setAgentActivities] = useState<AgentActivity[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  // Serialized document at the last load/save; undoing back to it counts as clean.
-  const [savedProjectJson, setSavedProjectJson] = useState(() => JSON.stringify(defaultInitialProject));
+  const [isDirty, setIsDirty] = useState(false);
+  const savedHistorySignatureRef = useRef('-1:');
   const dockviewRef = useRef<DockviewApi | null>(null);
   const [openPanelIds, setOpenPanelIds] = useState<string[]>([]);
   const viewportControls = useRef<EditorViewportControls | null>(null);
@@ -173,10 +176,27 @@ export function App() {
   // Animation timeline state
   const [isPlayingAnimation, setIsPlayingAnimation] = useState(false);
   const [currentPlayheadFrame, setCurrentPlayheadFrame] = useState(0);
+  const currentPlayheadFrameRef = useRef(0);
   const [activeAnimationId, setActiveAnimationId] = useState<string | null>(null);
   const [activeExpressionId, setActiveExpressionId] = useState<string | null>(null);
   const [waveformPeaks, setWaveformPeaks] = useState<number[]>([]);
   const physicsSimRef = useRef<PhysicsSimulatorJs>(new PhysicsSimulatorJs());
+
+  const refreshAgentSetupInfo = useCallback(async () => {
+    const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
+    if (!api?.getAgentSetupInfo) return null;
+    try {
+      const info = await api.getAgentSetupInfo();
+      setAgentSetupInfo(info);
+      return info;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAgentSetupInfo();
+  }, [refreshAgentSetupInfo]);
 
   const notify = (text: string, type: StatusMessage['type'] = 'info') => {
     const message = { text, type };
@@ -185,6 +205,9 @@ export function App() {
       setStatusMessage((curr) => (curr === message ? null : curr));
     }, type === 'error' ? 8000 : 4000);
   };
+
+  const confirmDiscardUnsavedChanges = (): boolean =>
+    !isDirty || window.confirm(t('confirm.discard_unsaved'));
 
   const recordAgentActivity = (activity: AgentActivity) => {
     setAgentActivities((previous) => {
@@ -209,14 +232,33 @@ export function App() {
     return b;
   }, []);
 
+  const historySignature = () => {
+    const history = bus.getHistory();
+    return `${history.currentIndex}:${history.entries
+      .slice(0, Math.max(0, history.currentIndex + 1))
+      .map((entry) => entry.id)
+      .join('|')}`;
+  };
+  const markDocumentClean = () => {
+    savedHistorySignatureRef.current = historySignature();
+    setIsDirty(false);
+  };
+  const refreshDirtyState = () => {
+    setIsDirty(historySignature() !== savedHistorySignatureRef.current);
+  };
+
   // Evaluated frame representation
   const [frame, setFrame] = useState<EvaluatedFrameJs | null>(null);
   const [evaluatedInputs, setEvaluatedInputs] = useState<{ project: Project; parameters: Record<string, number> } | null>(null);
   const frameReady = evaluatedInputs?.project === project && evaluatedInputs.parameters === parameterValues;
-  const projectJson = useMemo(() => JSON.stringify(project), [project]);
-  const evalProjectRef = useRef<{ json: string; revision: number; upload: Promise<void> } | null>(null);
+  const evalUploadedRef = useRef<{ project: Project; revision: number } | null>(null);
+  const evalDesiredProjectRef = useRef<Project | null>(null);
+  const evalFailedProjectRef = useRef<Project | null>(null);
+  const evalUploadBusyRef = useRef(false);
+  const evalRevisionRef = useRef(0);
   const evalLatestRef = useRef<{ project: Project; parameters: Record<string, number>; revision: number } | null>(null);
   const evalBusyRef = useRef(false);
+  const evalErrorMessageRef = useRef<string | null>(null);
 
   // One main-process evaluation is in flight at a time. Its result is always shown and the newest
   // parameters are evaluated next, so continuous playback updates the viewport instead of
@@ -224,45 +266,80 @@ export function App() {
   const pumpEvaluation = useCallback(async () => {
     const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
     const request = evalLatestRef.current;
-    const target = evalProjectRef.current;
-    if (!api || evalBusyRef.current || !request || !target || request.revision !== target.revision) return;
+    const target = evalUploadedRef.current;
+    if (!api || evalBusyRef.current || !request || !target || request.project !== target.project) return;
     evalBusyRef.current = true;
     try {
-      await target.upload;
       const evaluated = await api.evaluateFrame(target.revision, request.parameters);
-      if (evalProjectRef.current?.revision === request.revision) {
+      if (evalUploadedRef.current?.revision === target.revision) {
         setFrame(evaluated);
         setEvaluatedInputs({ project: request.project, parameters: request.parameters });
+        evalErrorMessageRef.current = null;
       }
     } catch (error) {
-      if (evalProjectRef.current?.revision === request.revision) setStatusMessage({ text: `Model evaluation: ${String(error)}`, type: 'error' });
+      const message = `Model evaluation: ${String(error)}`;
+      if (evalErrorMessageRef.current !== message) {
+        evalErrorMessageRef.current = message;
+        setStatusMessage({ text: message, type: 'error' });
+      }
     } finally {
       evalBusyRef.current = false;
     }
-    if (evalLatestRef.current !== request) void pumpEvaluation();
+    if (evalLatestRef.current?.project !== target.project
+      || evalLatestRef.current?.parameters !== request.parameters) {
+      void pumpEvaluation();
+    }
   }, []);
+
+  // Serialize and upload only when the newest project cannot be evaluated yet. Intermediate
+  // revisions produced by pointermove/agent bursts are dropped instead of queued.
+  const ensureEvaluationProject = useCallback(async () => {
+    const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
+    if (!api?.setEvaluationProject || evalUploadBusyRef.current) return;
+    evalUploadBusyRef.current = true;
+    try {
+      while (
+        evalDesiredProjectRef.current
+        && evalDesiredProjectRef.current !== evalUploadedRef.current?.project
+        && evalDesiredProjectRef.current !== evalFailedProjectRef.current
+      ) {
+        const pendingProject = evalDesiredProjectRef.current;
+        const revision = ++evalRevisionRef.current;
+        await api.setEvaluationProject(JSON.stringify(pendingProject), revision);
+        evalUploadedRef.current = { project: pendingProject, revision };
+        evalFailedProjectRef.current = null;
+      }
+    } catch (error) {
+      evalFailedProjectRef.current = evalDesiredProjectRef.current;
+      const message = `Model upload: ${String(error)}`;
+      if (evalErrorMessageRef.current !== message) {
+        evalErrorMessageRef.current = message;
+        setStatusMessage({ text: message, type: 'error' });
+      }
+    } finally {
+      evalUploadBusyRef.current = false;
+      void pumpEvaluation();
+    }
+  }, [pumpEvaluation]);
 
   // Update evaluator when project, parameters, or active animation frame change
   useEffect(() => {
     const api = (window as unknown as { l2dApi?: L2DApi }).l2dApi;
     const hasFormTracks = project.animations?.some(animation => animation.form_tracks?.length);
-    if (api?.evaluateFrame && api.setEvaluationProject && !hasFormTracks) {
-      let target = evalProjectRef.current;
-      if (!target || target.json !== projectJson) {
-        const revision = (target?.revision ?? 0) + 1;
-        const upload = api.setEvaluationProject(projectJson, revision);
-        upload.catch(() => undefined); // reported by pumpEvaluation
-        target = { json: projectJson, revision, upload };
-        evalProjectRef.current = target;
-      }
-      const latest = evalLatestRef.current;
-      if (latest?.project !== project || latest.parameters !== parameterValues || latest.revision !== target.revision) {
-        evalLatestRef.current = { project, parameters: parameterValues, revision: target.revision };
-        void pumpEvaluation();
-      }
+    if (api && !hasFormTracks) {
+      evalDesiredProjectRef.current = project;
+      evalLatestRef.current = {
+        project,
+        parameters: parameterValues,
+        revision: evalRevisionRef.current,
+      };
+      void ensureEvaluationProject();
+      if (evalUploadedRef.current?.project === project) void pumpEvaluation();
       return;
     }
-    evalProjectRef.current = null;
+    evalUploadedRef.current = null;
+    evalDesiredProjectRef.current = null;
+    evalFailedProjectRef.current = null;
     evalLatestRef.current = null;
     const evaluated = evaluateProjectJs(project, parameterValues, {
       currentFrame: currentPlayheadFrame,
@@ -270,7 +347,7 @@ export function App() {
     });
     setFrame(evaluated);
     setEvaluatedInputs({ project, parameters: parameterValues });
-  }, [project, projectJson, parameterValues, currentPlayheadFrame, activeAnimationId, pumpEvaluation]);
+  }, [project, parameterValues, currentPlayheadFrame, activeAnimationId, pumpEvaluation, ensureEvaluationProject]);
 
   // Live Animation Playback Loop
   useEffect(() => {
@@ -286,21 +363,25 @@ export function App() {
       const activeAnim = project.animations?.find((a) => a.id === activeAnimationId) || project.animations?.[0];
       const fps = activeAnim?.fps || 30;
       const duration = activeAnim?.duration_frames || 60;
-
-      setCurrentPlayheadFrame((prev) => {
-        let next = prev + dt * fps;
-        if (next >= duration) {
-          next = activeAnim?.loop_playback !== false ? next % duration : duration;
-        }
-        if (activeAnim) {
-          const evaluatedParams = evaluateAnimationAtFrameJs(activeAnim, next);
-          setParameterValues((params) => ({
-            ...params,
-            ...evaluatedParams,
-          }));
-        }
-        return next;
-      });
+      let next = currentPlayheadFrameRef.current + dt * fps;
+      if (next >= duration) {
+        next = activeAnim?.loop_playback !== false ? next % duration : duration;
+      }
+      currentPlayheadFrameRef.current = next;
+      setCurrentPlayheadFrame(next);
+      if (activeAnim) {
+        const evaluatedParams = evaluateAnimationAtFrameJs(activeAnim, next);
+        setParameterValues((params) => {
+          const updated = { ...params };
+          for (const [id, value] of Object.entries(evaluatedParams)) {
+            const parameter = project.parameters.find((item) => item.id === id);
+            if (parameter && Number.isFinite(value)) {
+              updated[id] = Math.max(parameter.min, Math.min(parameter.max, value));
+            }
+          }
+          return updated;
+        });
+      }
 
       animHandle = requestAnimationFrame(tick);
     };
@@ -322,11 +403,10 @@ export function App() {
       const dt = (now - lastTime) / 1000;
       lastTime = now;
 
-      setParameterValues((prev) => {
-        const physOut = physicsSimRef.current.update(project, prev, dt);
-        if (Object.keys(physOut).length === 0) return prev;
-        return { ...prev, ...physOut };
-      });
+      const physOut = physicsSimRef.current.update(project, parameterValuesRef.current, dt);
+      if (Object.keys(physOut).length > 0) {
+        setParameterValues((prev) => ({ ...prev, ...physOut }));
+      }
 
       animHandle = requestAnimationFrame(tick);
     };
@@ -340,6 +420,23 @@ export function App() {
     if (!isAutoIdleEnabled) return;
     let animHandle: number;
     const start = performance.now();
+    const activeAnimation = project.animations?.find((animation) => animation.id === activeAnimationId)
+      ?? project.animations?.[0];
+    const playbackDriven = new Set(
+      isPlayingAnimation ? (activeAnimation?.tracks ?? []).map((track) => track.target_param_id) : []
+    );
+    const physicsDriven = new Set(
+      (project.physics ?? []).flatMap((group) => group.outputs.map((output) => output.param_id))
+    );
+    const applyAutoParameter = (
+      values: Record<string, number>,
+      id: string,
+      value: number
+    ) => {
+      const parameter = project.parameters.find((item) => item.id === id);
+      if (!parameter || parameter.locked || playbackDriven.has(id) || physicsDriven.has(id)) return;
+      values[id] = Math.max(parameter.min, Math.min(parameter.max, value));
+    };
 
     const tick = (now: number) => {
       const t = (now - start) / 1000;
@@ -349,27 +446,29 @@ export function App() {
       const blinkCycle = t % 3.5;
       const eyeOpen = blinkCycle > 3.35 ? 0.0 : 1.0;
 
-      setParameterValues((prev) => ({
-        ...prev,
-        ParamAngleX: angleX,
-        ParamAngleY: angleY,
-        ParamBreath: breath,
-        ParamEyeLOpen: eyeOpen,
-        ParamEyeROpen: eyeOpen,
-      }));
+      setParameterValues((prev) => {
+        const next = { ...prev };
+        applyAutoParameter(next, 'ParamAngleX', angleX);
+        applyAutoParameter(next, 'ParamAngleY', angleY);
+        applyAutoParameter(next, 'ParamBreath', breath);
+        applyAutoParameter(next, 'ParamEyeLOpen', eyeOpen);
+        applyAutoParameter(next, 'ParamEyeROpen', eyeOpen);
+        return next;
+      });
 
       animHandle = requestAnimationFrame(tick);
     };
 
     animHandle = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animHandle);
-  }, [isAutoIdleEnabled]);
+  }, [isAutoIdleEnabled, isPlayingAnimation, project.parameters, project.physics, project.animations, activeAnimationId]);
 
   const executeCommand = (cmd: Command<object>) => {
     const res = bus.execute({ ...cmd, params: { ...cmd.params } });
     if (res.success) {
       const next = bus.getProject();
       setProject({ ...next });
+      refreshDirtyState();
       reconcileSelection(next);
     } else {
       console.error('Command failed:', res.error);
@@ -380,13 +479,14 @@ export function App() {
 
   const loadProject = (loaded: Project, filePath: string | null) => {
     bus.setProject(loaded);
-    setSavedProjectJson(JSON.stringify(loaded));
     setProject(loaded);
+    markDocumentClean();
     setCurrentFilePath(filePath);
     setSelectedNodeId(null);
     setSelectedNodeIds([]);
     setParameterValues({});
     setIsPlayingAnimation(false);
+    currentPlayheadFrameRef.current = 0;
     setCurrentPlayheadFrame(0);
     setActiveAnimationId(loaded.animations?.[0]?.id ?? null);
     setActiveExpressionId(null);
@@ -403,6 +503,7 @@ export function App() {
   };
   const seekAnimationFrame = (targetFrame: number, animationId = activeAnimationId ?? undefined) => {
     const animation = project.animations?.find(item => item.id === animationId) ?? project.animations?.[0];
+    currentPlayheadFrameRef.current = targetFrame;
     setCurrentPlayheadFrame(targetFrame);
     if (animation) setParameterValues(previous => ({ ...previous, ...evaluateAnimationAtFrameJs(animation, targetFrame) }));
   };
@@ -428,12 +529,13 @@ export function App() {
       bus.setProject(saved);
       setProject(saved);
     }
-    setSavedProjectJson(JSON.stringify(rewritten ? saved : snapshot));
+    markDocumentClean();
     flushSync(() => setCurrentFilePath(result.path!));
     return rewritten;
   };
 
   const handleNew = () => {
+    if (!confirmDiscardUnsavedChanges()) return;
     loadProject(defaultInitialProject, null);
     notify(t('notify.new_project'), 'info');
   };
@@ -445,6 +547,7 @@ export function App() {
     if (success) {
       const next = bus.getProject();
       setProject({ ...next });
+      refreshDirtyState();
       reconcileSelection(next);
       if (undoneId) {
         setAgentActivities((previous) => previous.map((activity) =>
@@ -460,6 +563,7 @@ export function App() {
     if (success) {
       const next = bus.getProject();
       setProject({ ...next });
+      refreshDirtyState();
       reconcileSelection(next);
       const history = bus.getHistory();
       const redoneId = history.currentIndex >= 0 ? history.entries[history.currentIndex]?.id : undefined;
@@ -476,6 +580,7 @@ export function App() {
     if (bus.jumpToHistory(targetIndex)) {
       const next = bus.getProject();
       setProject({ ...next });
+      refreshDirtyState();
       reconcileSelection(next);
       const history = bus.getHistory();
       const statuses = new Map<string, AgentActivity['status']>(history.entries.map((entry, index) => [
@@ -489,7 +594,6 @@ export function App() {
     }
   };
   const handleSave = async () => {
-    const json = JSON.stringify(project, null, 2);
     if ((window as any).l2dApi) {
       if (!currentFilePath) {
         await handleSaveAs();
@@ -498,8 +602,8 @@ export function App() {
       try { await saveProjectTo(currentFilePath); }
       catch (error: any) { notify(error.message, 'error'); }
     } else {
-      downloadFile(json, 'project.json', 'application/json');
-      setSavedProjectJson(projectJson);
+      downloadFile(JSON.stringify(project, null, 2), 'project.json', 'application/json');
+      markDocumentClean();
       notify(t('notify.saved'), 'success');
     }
   };
@@ -517,7 +621,7 @@ export function App() {
       } catch (error: any) { notify(error.message, 'error'); }
     } else {
       downloadFile(json, 'project.json', 'application/json');
-      setSavedProjectJson(JSON.stringify(snapshot));
+      markDocumentClean();
       notify(t('notify.saved'), 'success');
     }
   };
@@ -526,6 +630,11 @@ export function App() {
     if ((window as any).l2dApi) {
       const res = await (window as any).l2dApi.openProjectDialog();
       if (res) {
+        if (!res.success) {
+          notify(res.error, 'error');
+          return;
+        }
+        if (!confirmDiscardUnsavedChanges()) return;
         try {
           const parsed: Project = JSON.parse(res.content);
           loadProject(parsed, res.path);
@@ -543,6 +652,11 @@ export function App() {
     if ((window as any).l2dApi) {
       const res = await (window as any).l2dApi.importPsdDialog();
       if (res) {
+        if (!res.success) {
+          notify(res.error, 'error');
+          return;
+        }
+        if (!confirmDiscardUnsavedChanges()) return;
         try {
           const parsed: Project = JSON.parse(res.projectContent);
           loadProject(parsed, res.outputPath);
@@ -556,7 +670,6 @@ export function App() {
     }
   };
 
-  const isDirty = projectJson !== savedProjectJson;
   const appliedHistory = bus.getHistory();
   const undoableCommandId = appliedHistory.currentIndex >= 0
     ? appliedHistory.entries[appliedHistory.currentIndex]?.id ?? null
@@ -737,31 +850,8 @@ export function App() {
     }
   };
 
-  const contextValue = {
-    project,
-    bus,
-    frame,
-    frameReady,
-    activeExpressionId,
+  const latestActionsRef = useRef({
     applyExpression,
-    selectedNodeId,
-    selectedNodeIds,
-    parameterValues,
-    currentFilePath,
-    setSelectedNodeId: (id: string | null) => {
-      setSelectedNodeId(id);
-      setSelectedNodeIds(id ? [id] : []);
-    },
-    setSelectedNodeIds,
-    toggleSelectNodeId,
-    setParameterValue: (id: string, val: number) =>
-      setParameterValues((prev) => ({ ...prev, [id]: val })),
-    parameterSearchQuery,
-    setParameterSearchQuery,
-    isGridSnapEnabled,
-    setIsGridSnapEnabled,
-    gridSize,
-    setGridSize,
     executeCommand,
     loadProject,
     saveProjectTo,
@@ -769,46 +859,130 @@ export function App() {
     importPsd: handleImportPsd,
     undo: handleUndo,
     redo: handleRedo,
-    viewportControls,
+    jumpToHistory,
+    notify,
+    toggleSelectNodeId,
+    seekAnimationFrame,
     showPanel: (panel: string) => {
       const id = `${panel}_panel`;
       if (!(id in panelTitleKeys)) throw new Error(`Unknown panel '${panel}'`);
       openPanel(id as PanelId);
     },
+  });
+  latestActionsRef.current = {
+    applyExpression,
+    executeCommand,
+    loadProject,
+    saveProjectTo,
+    openProject: handleOpen,
+    importPsd: handleImportPsd,
+    undo: handleUndo,
+    redo: handleRedo,
     jumpToHistory,
     notify,
-    // Mesh editing mode
+    toggleSelectNodeId,
+    seekAnimationFrame,
+    showPanel: (panel: string) => {
+      const id = `${panel}_panel`;
+      if (!(id in panelTitleKeys)) throw new Error(`Unknown panel '${panel}'`);
+      openPanel(id as PanelId);
+    },
+  };
+
+  const stableActions = useMemo(() => ({
+    applyExpression: (id: string | null) => latestActionsRef.current.applyExpression(id),
+    executeCommand: (command: Command<object>) => latestActionsRef.current.executeCommand(command),
+    loadProject: (loaded: Project, path: string | null) => latestActionsRef.current.loadProject(loaded, path),
+    saveProjectTo: (path?: string) => latestActionsRef.current.saveProjectTo(path),
+    openProject: () => latestActionsRef.current.openProject(),
+    importPsd: () => latestActionsRef.current.importPsd(),
+    undo: () => latestActionsRef.current.undo(),
+    redo: () => latestActionsRef.current.redo(),
+    jumpToHistory: (index: number) => latestActionsRef.current.jumpToHistory(index),
+    notify: (text: string, type?: 'info' | 'success' | 'error') => latestActionsRef.current.notify(text, type),
+    setSelectedNodeId: (id: string | null) => {
+      setSelectedNodeId(id);
+      setSelectedNodeIds(id ? [id] : []);
+    },
+    toggleSelectNodeId: (id: string, multi = false) => latestActionsRef.current.toggleSelectNodeId(id, multi),
+    setParameterValue: (id: string, value: number) => {
+      setParameterValues(previous => ({ ...previous, [id]: value }));
+    },
+    seekAnimationFrame: (frame: number, animationId?: string) =>
+      latestActionsRef.current.seekAnimationFrame(frame, animationId),
+    showPanel: (panel: string) => latestActionsRef.current.showPanel(panel),
+  }), []);
+
+  const contextValue = useMemo(() => ({
+    project,
+    bus,
+    activeExpressionId,
+    applyExpression: stableActions.applyExpression,
+    selectedNodeId,
+    selectedNodeIds,
+    currentFilePath,
+    isDirty,
+    setSelectedNodeId: stableActions.setSelectedNodeId,
+    setSelectedNodeIds,
+    toggleSelectNodeId: stableActions.toggleSelectNodeId,
+    parameterSearchQuery,
+    setParameterSearchQuery,
+    isGridSnapEnabled,
+    setIsGridSnapEnabled,
+    gridSize,
+    setGridSize,
+    executeCommand: stableActions.executeCommand,
+    loadProject: stableActions.loadProject,
+    saveProjectTo: stableActions.saveProjectTo,
+    openProject: stableActions.openProject,
+    importPsd: stableActions.importPsd,
+    undo: stableActions.undo,
+    redo: stableActions.redo,
+    viewportControls,
+    showPanel: stableActions.showPanel,
+    jumpToHistory: stableActions.jumpToHistory,
+    notify: stableActions.notify,
     isMeshEditMode,
     setIsMeshEditMode,
     meshEditTool,
     setMeshEditTool,
     selectedVertexIndex,
     setSelectedVertexIndex,
-    // Physics
     isPhysicsEnabled,
     setIsPhysicsEnabled,
-    // Auto Idle
     isAutoIdleEnabled,
     setIsAutoIdleEnabled,
-    // Onion Skin & Motion Path
     isOnionSkinEnabled,
     setIsOnionSkinEnabled,
     isMotionPathEnabled,
     setIsMotionPathEnabled,
-    // Animation
-    isPlayingAnimation,
-    setIsPlayingAnimation,
-    currentPlayheadFrame,
-    setCurrentPlayheadFrame: seekAnimationFrame,
-    seekAnimationFrame,
     activeAnimationId,
     setActiveAnimationId,
     waveformPeaks,
     setWaveformPeaks,
-  };
+  }), [
+    project, bus, activeExpressionId, selectedNodeId, selectedNodeIds, currentFilePath,
+    isDirty, parameterSearchQuery, isGridSnapEnabled, gridSize, isMeshEditMode,
+    meshEditTool, selectedVertexIndex, isPhysicsEnabled, isAutoIdleEnabled,
+    isOnionSkinEnabled, isMotionPathEnabled, activeAnimationId, waveformPeaks,
+    stableActions,
+  ]);
+
+  const runtimeContextValue = useMemo(() => ({
+    frame,
+    frameReady,
+    parameterValues,
+    setParameterValue: stableActions.setParameterValue,
+    isPlayingAnimation,
+    setIsPlayingAnimation,
+    currentPlayheadFrame,
+    setCurrentPlayheadFrame: stableActions.seekAnimationFrame,
+    seekAnimationFrame: stableActions.seekAnimationFrame,
+  }), [frame, frameReady, parameterValues, isPlayingAnimation, currentPlayheadFrame, stableActions]);
 
   return (
     <EditorContext.Provider value={contextValue}>
+      <EditorRuntimeContext.Provider value={runtimeContextValue}>
       <EditorAutomation onActivity={recordAgentActivity} />
       <div className="flex flex-col w-screen h-screen overflow-hidden bg-dcc-bg text-dcc-text">
         {/* Top Menu / App Toolbar */}
@@ -894,11 +1068,23 @@ export function App() {
           <div className="editor-toolbar-info flex shrink-0 items-center gap-1.5 app-no-drag">
             <button
               className="btn"
-              title={t('toolbar.agent_setup')}
+              title={agentSetupInfo
+                ? `${t('toolbar.agent_setup')} · ${agentSetupInfo.mcpServerBuilt
+                  ? t('agentSetup.status.ready')
+                  : t('agentSetup.status.missing')}`
+                : t('toolbar.agent_setup')}
               aria-label={t('toolbar.agent_setup')}
               onClick={() => setAgentSetupOpen(true)}
             >
-              <Bot className="w-3.5 h-3.5 text-emerald-400" />
+              <span
+                className="agent-integration-icon"
+                data-state={agentSetupInfo
+                  ? agentSetupInfo.mcpServerBuilt ? 'ready' : 'missing'
+                  : undefined}
+                aria-hidden="true"
+              >
+                <Waypoints className="w-3.5 h-3.5" />
+              </span>
               <span className="toolbar-label">{t('toolbar.agent_setup')}</span>
             </button>
             <OverflowMenu label={t('window.panels')} icon={PanelsTopLeft}>
@@ -975,7 +1161,7 @@ export function App() {
               }
             } else if (action === 'cleanup_empty') {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'project.cleanup_empty',
                 params: {},
               });
@@ -983,7 +1169,7 @@ export function App() {
             } else if (action === 'synthesize_corners') {
               if (selectedNodeId) {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'keyform.synthesize_corners',
                   params: { target_node_id: selectedNodeId },
                 });
@@ -993,7 +1179,7 @@ export function App() {
               }
             } else if (action === 'ai_full_body_deformers') {
               executeCommand({
-                id: `cmd_${Date.now()}`,
+                id: `cmd_${crypto.randomUUID()}`,
                 name: 'macro.ai_full_body_deformers',
                 params: {},
               });
@@ -1001,7 +1187,7 @@ export function App() {
             } else if (action === 'macro_turn_xy') {
               if (selectedNodeId) {
                 executeCommand({
-                  id: `cmd_${Date.now()}`,
+                  id: `cmd_${crypto.randomUUID()}`,
                   name: 'macro.setup_turn_xy',
                   params: { target_node_id: selectedNodeId },
                 });
@@ -1015,7 +1201,12 @@ export function App() {
 
         {/* Texture Atlas Layout Modal */}
         <AtlasModal open={atlasModalOpen} onOpenChange={setAtlasModalOpen} />
-        <AgentSetupModal open={agentSetupOpen} onOpenChange={setAgentSetupOpen} />
+        <AgentSetupModal
+          open={agentSetupOpen}
+          onOpenChange={setAgentSetupOpen}
+          setupInfo={agentSetupInfo}
+          onRefresh={refreshAgentSetupInfo}
+        />
 
         {/* Hidden Web Fallback File Input */}
         <input
@@ -1026,6 +1217,10 @@ export function App() {
           onChange={async (e) => {
             const file = e.target.files?.[0];
             if (file) {
+              if (!confirmDiscardUnsavedChanges()) {
+                e.target.value = '';
+                return;
+              }
               const text = await file.text();
               try {
                 const parsed = JSON.parse(text);
@@ -1034,10 +1229,12 @@ export function App() {
               } catch (err: any) {
                 notify(t('notify.parse_failed', { error: err?.message || err }), 'error');
               }
+              e.target.value = '';
             }
           }}
         />
       </div>
+      </EditorRuntimeContext.Provider>
     </EditorContext.Provider>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { useEditor } from '../context/EditorContext.js';
+import { useEditor, useEditorRuntime } from '../context/EditorContext.js';
 import { useI18n } from '../i18n/index.js';
-import { evaluateProjectJs, triangleWeights, type EvaluatedFrameJs } from '@l2d/schema';
+import { evaluateProjectJs, triangleWeights, type EvaluatedFrameJs, type Project } from '@l2d/schema';
 import {
   MousePointer,
   Plus,
@@ -26,17 +26,22 @@ import earcut from 'earcut';
 import { ModelArtwork } from './ModelArtwork.js';
 import { OverflowMenu, OverflowMenuItem, OverflowMenuLabel } from './OverflowMenu.js';
 
+function sameParameters(left: Record<string, number> | null, right: Record<string, number>): boolean {
+  if (!left) return false;
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) return false;
+  return leftKeys.every(key => Object.prototype.hasOwnProperty.call(right, key) && left[key] === right[key]);
+}
+
 export const ViewportPanel: React.FC = () => {
   const { t } = useI18n();
   const {
     project,
+    bus,
     currentFilePath,
     openProject,
     importPsd,
-    frame,
     selectedNodeId,
-    parameterValues,
-    setParameterValue,
     executeCommand,
     isMeshEditMode,
     setIsMeshEditMode,
@@ -58,6 +63,12 @@ export const ViewportPanel: React.FC = () => {
     viewportControls,
     notify,
   } = useEditor();
+  const {
+    frame,
+    parameterValues,
+    setParameterValue,
+    isPlayingAnimation,
+  } = useEditorRuntime();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [artworkReady, setArtworkReady] = useState(false);
@@ -68,7 +79,25 @@ export const ViewportPanel: React.FC = () => {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(0.8);
   const isPanning = useRef(false);
+  const dragTransactionActive = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
+  const overlayCacheRef = useRef<{
+    project: Project | null;
+    parameters: Record<string, number> | null;
+    primaryParamId: string | null;
+    targetMeshId: string | null;
+    live: boolean;
+    onionFrames: EvaluatedFrameJs[];
+    trajectory: [number, number][];
+  }>({
+    project: null,
+    parameters: null,
+    primaryParamId: null,
+    targetMeshId: null,
+    live: false,
+    onionFrames: [],
+    trajectory: [],
+  });
 
   // Dragging states
   const [draggingCpIndex, setDraggingCpIndex] = useState<number | null>(null);
@@ -193,15 +222,65 @@ export const ViewportPanel: React.FC = () => {
       ctx.restore();
     }
 
+    const primaryOverlayParam = project.parameters[0] ?? null;
+    const motionTargetMeshId = selectedNodeId ?? frame?.meshes[0]?.id ?? null;
+    const liveOverlay = isPlayingAnimation || isPhysicsEnabled || isAutoIdleEnabled;
+    const overlayCache = overlayCacheRef.current;
+    const overlayRequested = isOnionSkinEnabled || isMotionPathEnabled;
+    const needsOverlayRefresh = overlayRequested && (
+      overlayCache.project !== project
+      || overlayCache.primaryParamId !== (primaryOverlayParam?.id ?? null)
+      || overlayCache.targetMeshId !== motionTargetMeshId
+      || (liveOverlay && !overlayCache.live)
+      || (!liveOverlay && (overlayCache.live || !sameParameters(overlayCache.parameters, parameterValues)))
+    );
+    if (needsOverlayRefresh) {
+      const onionFrames: EvaluatedFrameJs[] = [];
+      if (isOnionSkinEnabled && primaryOverlayParam) {
+        for (const ghostValue of [primaryOverlayParam.min, primaryOverlayParam.max]) {
+          onionFrames.push(evaluateProjectJs(project, {
+            ...parameterValues,
+            [primaryOverlayParam.id]: ghostValue,
+          }));
+        }
+      }
+      const trajectory: [number, number][] = [];
+      if (isMotionPathEnabled && primaryOverlayParam && frame && frame.meshes.length > 0 && motionTargetMeshId) {
+        const sampleCount = 9;
+        for (let sample = 0; sample <= sampleCount; sample++) {
+          const value = primaryOverlayParam.min
+            + ((primaryOverlayParam.max - primaryOverlayParam.min) * sample) / sampleCount;
+          const sampledFrame = evaluateProjectJs(project, {
+            ...parameterValues,
+            [primaryOverlayParam.id]: value,
+          });
+          const mesh = sampledFrame.meshes.find(candidate => candidate.id === motionTargetMeshId)
+            ?? sampledFrame.meshes[0];
+          if (!mesh || mesh.vertices.length < 2) continue;
+          let centerX = 0;
+          let centerY = 0;
+          const pointCount = mesh.vertices.length / 2;
+          for (let index = 0; index < mesh.vertices.length; index += 2) {
+            centerX += mesh.vertices[index];
+            centerY += mesh.vertices[index + 1];
+          }
+          trajectory.push([centerX / pointCount, centerY / pointCount]);
+        }
+      }
+      overlayCacheRef.current = {
+        project,
+        parameters: { ...parameterValues },
+        primaryParamId: primaryOverlayParam?.id ?? null,
+        targetMeshId: motionTargetMeshId,
+        live: liveOverlay,
+        onionFrames,
+        trajectory,
+      };
+    }
+
     // Draw Onion Skin ghosts (previous/next parameter states) if enabled
-    if (isOnionSkinEnabled && project.parameters.length > 0) {
-      const primaryParam = project.parameters[0];
-      const ghostOffsets = [primaryParam.min, primaryParam.max];
-      ghostOffsets.forEach((ghostVal, gIdx) => {
-        const ghostFrame = evaluateProjectJs(project, {
-          ...parameterValues,
-          [primaryParam.id]: ghostVal,
-        });
+    if (isOnionSkinEnabled && primaryOverlayParam) {
+      overlayCacheRef.current.onionFrames.forEach((ghostFrame, gIdx) => {
         ctx.save();
         ctx.globalAlpha = 0.22;
         ctx.strokeStyle = gIdx === 0 ? '#38bdf8' : '#f43f5e';
@@ -281,25 +360,8 @@ export const ViewportPanel: React.FC = () => {
     }
 
     // Draw Motion Path trajectory if enabled
-    if (isMotionPathEnabled && project.parameters.length > 0 && frame && frame.meshes.length > 0) {
-      const primaryParam = project.parameters[0];
-      const targetMeshId = selectedNodeId || frame.meshes[0].id;
-      const sampleCount = 9;
-      const trajectory: [number, number][] = [];
-      for (let s = 0; s <= sampleCount; s++) {
-        const v = primaryParam.min + ((primaryParam.max - primaryParam.min) * s) / sampleCount;
-        const sf = evaluateProjectJs(project, { ...parameterValues, [primaryParam.id]: v });
-        const m = sf.meshes.find((mm) => mm.id === targetMeshId) || sf.meshes[0];
-        if (m && m.vertices.length >= 2) {
-          let cx = 0, cy = 0;
-          const nPts = m.vertices.length / 2;
-          for (let i = 0; i < m.vertices.length; i += 2) {
-            cx += m.vertices[i];
-            cy += m.vertices[i + 1];
-          }
-          trajectory.push([cx / nPts, cy / nPts]);
-        }
-      }
+    if (isMotionPathEnabled && primaryOverlayParam && frame && frame.meshes.length > 0) {
+      const trajectory = overlayCacheRef.current.trajectory;
       if (trajectory.length >= 2) {
         ctx.save();
         ctx.strokeStyle = '#10b981';
@@ -462,6 +524,7 @@ export const ViewportPanel: React.FC = () => {
     zoom,
     project,
     parameterValues,
+    selectedNodeId,
     selectedWarp,
     selectedMesh,
     selectedPath,
@@ -469,6 +532,9 @@ export const ViewportPanel: React.FC = () => {
     isMeshEditMode,
     isOnionSkinEnabled,
     isMotionPathEnabled,
+    isPlayingAnimation,
+    isPhysicsEnabled,
+    isAutoIdleEnabled,
     activeSnapshotSlot,
     tempSnapshots,
     isSoloMode,
@@ -533,11 +599,27 @@ export const ViewportPanel: React.FC = () => {
     setZoom((z) => Math.max(0.1, Math.min(5.0, z * factor)));
   };
 
+  const finishDragTransaction = useCallback((commit: boolean) => {
+    if (!dragTransactionActive.current) return;
+    dragTransactionActive.current = false;
+    try {
+      if (commit) bus.commitTransaction();
+      else bus.rollbackTransaction();
+    } catch {
+      // The transaction may already have been committed by another pointer path.
+    }
+  }, [bus]);
+
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       isPanning.current = true;
       lastMousePos.current = { x: e.clientX, y: e.clientY };
       return;
+    }
+
+    if (!bus.isTransactionActive()) {
+      bus.beginTransaction();
+      dragTransactionActive.current = true;
     }
 
     const [wx, wy] = screenToWorld(e.clientX, e.clientY);
@@ -573,7 +655,7 @@ export const ViewportPanel: React.FC = () => {
         }
         if (!pos) { notify(t('viewport.vertex_outside'), 'error'); return; }
         const result = executeCommand({
-          id: `cmd_${Date.now()}`,
+          id: `cmd_${crypto.randomUUID()}`,
           name: 'mesh.add_vertex',
           params: { node_id: selectedNode.id, pos },
         });
@@ -595,7 +677,7 @@ export const ViewportPanel: React.FC = () => {
       if (clickedIdx !== null) {
         if (meshEditTool === 'delete') {
           executeCommand({
-            id: `cmd_${Date.now()}`,
+            id: `cmd_${crypto.randomUUID()}`,
             name: 'mesh.delete_vertex',
             params: {
               mesh_id: selectedNode.id,
@@ -649,7 +731,7 @@ export const ViewportPanel: React.FC = () => {
       nextCorners[draggingQuadCornerIdx] = [wx, wy];
       setQuadCorners(nextCorners);
       executeCommand({
-        id: `cmd_${Date.now()}`,
+        id: `cmd_${crypto.randomUUID()}`,
         name: 'deform.free_quad',
         params: {
           node_id: selectedNode.id,
@@ -666,7 +748,7 @@ export const ViewportPanel: React.FC = () => {
       const targetX = isGridSnapEnabled ? Math.round(wx / step) * step : wx;
       const targetY = isGridSnapEnabled ? Math.round(wy / step) * step : wy;
       executeCommand({
-        id: `cmd_${Date.now()}`,
+        id: `cmd_${crypto.randomUUID()}`,
         name: 'mesh.move_vertex',
         params: {
           mesh_id: selectedNode.id,
@@ -685,7 +767,7 @@ export const ViewportPanel: React.FC = () => {
       const deltaY = (wy - prevWy) * (0.5 + pressure);
       lastMousePos.current = { x: e.clientX, y: e.clientY };
       executeCommand({
-        id: `cmd_${Date.now()}`,
+        id: `cmd_${crypto.randomUUID()}`,
         name: 'warp.brush_deform',
         params: {
           node_id: selectedNode.id,
@@ -705,7 +787,7 @@ export const ViewportPanel: React.FC = () => {
       const targetY = isGridSnapEnabled ? Math.round(wy / step) * step : wy;
       nextCps[draggingCpIndex] = [targetX, targetY];
       executeCommand({
-        id: `cmd_${Date.now()}`,
+        id: `cmd_${crypto.randomUUID()}`,
         name: 'keyform.update_at_params',
         params: {
           target_node_id: selectedNode.id,
@@ -725,6 +807,15 @@ export const ViewportPanel: React.FC = () => {
     setDraggingCpIndex(null);
     setDraggingVertexIndex(null);
     setDraggingQuadCornerIdx(null);
+    finishDragTransaction(true);
+  };
+
+  const handlePointerCancel = () => {
+    isPanning.current = false;
+    setDraggingCpIndex(null);
+    setDraggingVertexIndex(null);
+    setDraggingQuadCornerIdx(null);
+    finishDragTransaction(false);
   };
 
   // Re-triangulate current edited mesh using earcut
@@ -736,7 +827,7 @@ export const ViewportPanel: React.FC = () => {
     }
     const newIndices = earcut(flat);
     executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'node.update',
       params: {
         id: selectedNode.id,
@@ -764,6 +855,7 @@ export const ViewportPanel: React.FC = () => {
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
       />
 
       {project.nodes.length === 0 && (
@@ -896,7 +988,7 @@ export const ViewportPanel: React.FC = () => {
                 onClick={() => {
                   if (selectedNode) {
                     executeCommand({
-                      id: `cmd_${Date.now()}`,
+                      id: `cmd_${crypto.randomUUID()}`,
                       name: 'mesh.subdivide',
                       params: { mesh_id: selectedNode.id },
                     });

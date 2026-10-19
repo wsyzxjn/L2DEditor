@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BadgeCheck,
   BookOpen,
-  Bot,
   Braces,
   Cable,
   Check,
@@ -14,6 +13,7 @@ import {
   PlugZap,
   ShieldCheck,
   Terminal,
+  Waypoints,
   X,
 } from 'lucide-react';
 import type { AgentSetupInfo } from '../../electron/preload.js';
@@ -22,6 +22,8 @@ import { useI18n } from '../i18n/index.js';
 interface AgentSetupModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  setupInfo?: AgentSetupInfo | null;
+  onRefresh?: () => Promise<AgentSetupInfo | null>;
 }
 
 type SetupTab = 'mcp' | 'skills' | 'verify';
@@ -35,6 +37,7 @@ const fallbackSetupInfo: AgentSetupInfo = {
   mcpServerPath: `${FALLBACK_REPO_ROOT}/packages/mcp-server/dist/bin.js`,
   mcpServerBuilt: true,
   editorUrl: 'ws://127.0.0.1:22033',
+  editorTokenPath: `${FALLBACK_REPO_ROOT}/editor-bridge-token`,
   skills: [
     {
       id: 'l2deditor-mcp',
@@ -95,7 +98,12 @@ function CodeBlock({
   );
 }
 
-export const AgentSetupModal: React.FC<AgentSetupModalProps> = ({ open, onOpenChange }) => {
+export const AgentSetupModal: React.FC<AgentSetupModalProps> = ({
+  open,
+  onOpenChange,
+  setupInfo: externalSetupInfo,
+  onRefresh,
+}) => {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<SetupTab>('mcp');
   const [mcpFormat, setMcpFormat] = useState<McpFormat>('codex');
@@ -108,10 +116,13 @@ export const AgentSetupModal: React.FC<AgentSetupModalProps> = ({ open, onOpenCh
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!open) return;
-    const api = (window as unknown as { l2dApi?: { getAgentSetupInfo?: () => Promise<AgentSetupInfo> } }).l2dApi;
+    if (externalSetupInfo) setSetupInfo(externalSetupInfo);
+  }, [externalSetupInfo]);
+
+  useEffect(() => {
+    if (!open || !onRefresh) return;
     let active = true;
-    void api?.getAgentSetupInfo?.()
+    void onRefresh()
       .then(info => {
         if (active && info) setSetupInfo(info);
       })
@@ -119,7 +130,7 @@ export const AgentSetupModal: React.FC<AgentSetupModalProps> = ({ open, onOpenCh
         // The browser preview has no native setup metadata; keep the generic paths.
       });
     return () => { active = false; };
-  }, [open]);
+  }, [onRefresh, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -277,7 +288,7 @@ export const AgentSetupModal: React.FC<AgentSetupModalProps> = ({ open, onOpenCh
       >
         <header className="agent-setup-header">
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="agent-setup-mark"><Bot className="h-4 w-4" /></div>
+            <div className="agent-setup-mark"><Waypoints className="h-4 w-4" /></div>
             <div className="min-w-0">
               <h2 id="agent-setup-title" className="truncate text-dcc font-semibold text-white">
                 {t('agentSetup.title')}

@@ -42,7 +42,7 @@ export const PhysicsPanel: React.FC = () => {
     };
 
     executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'physics.add_group',
       params: newGroup,
     });
@@ -52,7 +52,7 @@ export const PhysicsPanel: React.FC = () => {
 
   const handleDeleteGroup = (id: string) => {
     executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'physics.delete_group',
       params: { id },
     });
@@ -61,7 +61,7 @@ export const PhysicsPanel: React.FC = () => {
 
   const updateGroup = (updated: PhysicsGroup) => {
     executeCommand({
-      id: `cmd_${Date.now()}`,
+      id: `cmd_${crypto.randomUUID()}`,
       name: 'physics.add_group',
       params: updated,
     });
@@ -99,7 +99,7 @@ export const PhysicsPanel: React.FC = () => {
             const preset = e.target.value as any;
             if (!preset) return;
             executeCommand({
-              id: `cmd_${Date.now()}`,
+              id: `cmd_${crypto.randomUUID()}`,
               name: 'physics.apply_preset',
               params: {
                 group_id: selectedGroup?.id,

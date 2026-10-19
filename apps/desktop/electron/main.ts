@@ -6,7 +6,7 @@ import { importPsdBuffer } from '@l2d/psd';
 import { generateTextureAtlas } from '@l2d/renderer';
 import { createRequire } from 'node:module';
 import type { WasmModel } from '@l2d/schema/wasm-node';
-import { startEditorBridge } from './editorBridge.js';
+import { getEditorBridgeTokenPath, startEditorBridge } from './editorBridge.js';
 import { saveProjectFile } from './project-files.js';
 
 const nodeWasm = createRequire(import.meta.url)('@l2d/schema/wasm-node') as typeof import('@l2d/schema/wasm-node');
@@ -18,6 +18,58 @@ let evaluatedRevision = -1;
 let evaluatedModel: WasmModel | null = null;
 let parameterDefaults: Record<string, number> = {};
 let previousParameterKeys: string[] = [];
+const allowedExternalTextures = new Set<string>();
+
+function assertString(value: unknown, label: string): asserts value is string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${label} must be a non-empty string`);
+  }
+}
+
+function isWithinDirectory(filePath: string, directory: string): boolean {
+  const relative = path.relative(directory, filePath);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+async function resolveTextureFile(projectPath: unknown, texturePath: unknown): Promise<string> {
+  assertString(texturePath, 'Texture path');
+  if (projectPath !== undefined) assertString(projectPath, 'Project path');
+  if (!projectPath && !path.isAbsolute(texturePath)) {
+    throw new Error('Relative texture paths require a saved project path');
+  }
+
+  const projectTarget = projectPath ? path.resolve(projectPath) : null;
+  const projectStat = projectTarget ? await fs.promises.stat(projectTarget) : null;
+  const baseDirectory = projectTarget && projectStat?.isDirectory()
+    ? projectTarget
+    : projectTarget
+      ? path.dirname(projectTarget)
+      : process.cwd();
+  const baseReal = await fs.promises.realpath(baseDirectory);
+  const requested = path.isAbsolute(texturePath)
+    ? path.resolve(texturePath)
+    : path.resolve(baseDirectory, texturePath);
+  const resolved = await fs.promises.realpath(requested);
+  if (!isWithinDirectory(resolved, baseReal) && !allowedExternalTextures.has(resolved)) {
+    if (!mainWindow) throw new Error('Cannot confirm an external texture without an editor window');
+    const response = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'External texture access',
+      message: 'Allow this project to read an external texture?',
+      detail: resolved,
+      buttons: ['Allow', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (response.response !== 0) throw new Error(`External texture access denied: ${resolved}`);
+    allowedExternalTextures.add(resolved);
+  }
+  const stat = await fs.promises.stat(resolved);
+  if (!stat.isFile()) throw new Error(`Texture is not a file: ${resolved}`);
+  if (stat.size > 256 * 1024 * 1024) throw new Error(`Texture is too large: ${resolved}`);
+  return resolved;
+}
 
 function getAppIconPath(): string | undefined {
   const candidates = process.env.VITE_DEV_SERVER_URL
@@ -49,7 +101,7 @@ function createWindow() {
     },
   });
 
-  startEditorBridge(mainWindow, json => { const model = new nodeWasm.WasmModel(json); model.free(); });
+  void startEditorBridge(mainWindow, json => { const model = new nodeWasm.WasmModel(json); model.free(); });
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -89,6 +141,7 @@ function getAgentSetupInfo() {
     mcpServerPath,
     mcpServerBuilt: fs.existsSync(mcpServerPath),
     editorUrl: `ws://127.0.0.1:${Number.isInteger(port) ? port : 22033}`,
+    editorTokenPath: getEditorBridgeTokenPath(),
     skills: [
       {
         id: 'l2deditor-mcp' as const,
@@ -155,7 +208,7 @@ ipcMain.handle('l2d:evaluate-frame', (_, revision: number, parameters: Record<st
 });
 
 ipcMain.handle('l2d:read-texture', async (_, projectPath: string, texturePath: string) => {
-  const fullPath = path.isAbsolute(texturePath) ? texturePath : path.resolve(path.dirname(projectPath), texturePath);
+  const fullPath = await resolveTextureFile(projectPath, texturePath);
   const mimeTypes: Record<string, string> = {
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
   };
@@ -180,9 +233,9 @@ ipcMain.handle('l2d:open-project-dialog', async () => {
   }
   if (fs.existsSync(target)) {
     const content = fs.readFileSync(target, 'utf-8');
-    return { path: target, content };
+    return { success: true, path: target, content };
   }
-  return null;
+  return { success: false, error: `No project.json found in ${path.dirname(target)}` };
 });
 
 ipcMain.handle('l2d:save-project', async (_, filePath: string, content: string, sourcePath?: string) => {
@@ -243,23 +296,37 @@ ipcMain.handle('l2d:import-psd-dialog', async () => {
     const projectContent = JSON.stringify(project, null, 2);
     fs.writeFileSync(projPath, projectContent, 'utf-8');
 
-    return { outputPath: projPath, projectContent };
+    return { success: true, outputPath: projPath, projectContent };
   } catch (err) {
-    console.error('Failed to import PSD:', err);
-    return null;
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 });
 
-ipcMain.handle('l2d:generate-atlas', async (_, project: any, atlasSize: number, padding: number) => {
+ipcMain.handle('l2d:generate-atlas', async (
+  _,
+  project: any,
+  atlasSize: unknown,
+  padding: unknown,
+  projectPath?: unknown,
+) => {
   try {
-    const textureResolver = (textureId: string): Buffer | null => {
-      const meta = project.textures?.find((t: any) => t.id === textureId);
-      if (!meta) return null;
-      if (fs.existsSync(meta.path)) {
-        return fs.readFileSync(meta.path);
+    if (!project || !Array.isArray(project.textures) || !Array.isArray(project.nodes)) {
+      throw new Error('Atlas generation requires a project with textures and nodes');
+    }
+    if (typeof atlasSize !== 'number' || !Number.isInteger(atlasSize) || atlasSize < 64 || atlasSize > 16384) {
+      throw new Error('Atlas size must be an integer between 64 and 16384');
+    }
+    if (typeof padding !== 'number' || !Number.isInteger(padding) || padding < 0 || padding > 64) {
+      throw new Error('Atlas padding must be an integer between 0 and 64');
+    }
+    const textureBuffers = new Map<string, Buffer>();
+    for (const meta of project.textures) {
+      if (typeof meta?.id !== 'string' || typeof meta?.path !== 'string') {
+        throw new Error('Project contains an invalid texture entry');
       }
-      return null;
-    };
+      textureBuffers.set(meta.id, await fs.promises.readFile(await resolveTextureFile(projectPath, meta.path)));
+    }
+    const textureResolver = (textureId: string): Buffer | null => textureBuffers.get(textureId) ?? null;
 
     const res = await generateTextureAtlas(project, textureResolver, atlasSize, padding);
     const atlasList = res.atlasPngBuffers.map((b) => ({
@@ -269,11 +336,11 @@ ipcMain.handle('l2d:generate-atlas', async (_, project: any, atlasSize: number, 
     }));
 
     return {
+      success: true,
       updatedProject: res.updatedProject,
       atlasList,
     };
   } catch (err) {
-    console.error('Failed to generate texture atlas:', err);
-    return null;
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 });

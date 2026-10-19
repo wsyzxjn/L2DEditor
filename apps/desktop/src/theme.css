@@ -207,6 +207,36 @@ body {
   }
 }
 
+.agent-integration-icon {
+  position: relative;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+
+.agent-integration-icon[data-state]::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid rgb(var(--dcc-header));
+  border-radius: 50%;
+}
+
+.agent-integration-icon[data-state="ready"]::after {
+  background: #34d399;
+}
+
+.agent-integration-icon[data-state="missing"]::after {
+  background: #fbbf24;
+}
+
 /* Agent integration guide (components/AgentSetupModal.tsx) */
 .agent-setup-modal {
   display: flex;
