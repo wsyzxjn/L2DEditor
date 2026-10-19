@@ -44,6 +44,11 @@ jobs:
         with:
           version: v0.13.1
 
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -51,6 +56,9 @@ jobs:
         run: |
           pnpm run build:wasm
           pnpm run build:wasm:node
+
+      - name: Build TypeScript packages
+        run: pnpm run build
 
       - name: Run Rust and Vitest suites
         run: pnpm test
