@@ -3,7 +3,7 @@
 ## 1. Hard Operational Constraints
 - **Git Commit Signing**: Every Git commit MUST be signed (`commit.gpgsign=true`). Never bypass signing with `-c commit.gpgsign=false`. When running inside a sandbox, request escalation (`sandbox_permissions: "require_escalated"`) for `git commit` so the SSH signing agent is accessible.
 - **Remote Git Safety**: Never run `git push` or modify remote Git repositories without explicit user confirmation in the current turn.
-- **Zero Closed-Source Dependency**: Production and test code must have zero runtime reliance on closed-source Live2D Cubism binaries or local `/Volumes/AmatsukaM/Applications/Live2D Cubism*` paths. All core evaluation, `.moc3` serialization, runtime bundle generation, and neural inference run in pure Rust (`crates/l2d-core`).
+- **Zero Closed-Source Dependency**: Production and test code must have zero runtime reliance on closed-source Live2D Cubism binaries or local Cubism installation paths. All core evaluation, `.moc3` serialization, runtime bundle generation, and neural inference run in pure Rust (`crates/l2d-core`).
 - **Strict Wheel-Reuse Discipline**: Before implementing any non-core utility, evaluate and reuse mature libraries already in the workspace (`coss` / `@base-ui-components/react`, `dockview-react`, `cmdk`, `PixiJS v8`, `ag-psd`, `earcut`, `immer`, `zod`, `@modelcontextprotocol/sdk`, `serde`, `schemars`). Only self-implement core 2D puppet rigging, deformation, and binary format specifications where no open-source wheel exists.
 
 ---

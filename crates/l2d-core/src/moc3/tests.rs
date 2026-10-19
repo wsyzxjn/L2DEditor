@@ -433,22 +433,21 @@ fn rejects_ids_and_vertex_indices_that_do_not_fit_moc3() {
 }
 
 #[test]
-fn v11_composition_is_exported_without_a_project_trailer() {
-    let path = std::path::Path::new(
-        "/Volumes/AmatsukaM/project/L2DEditor/out/lavender-rig-v11/model.l2dproj/project.json",
-    );
-    if !path.exists() {
-        return;
-    }
+#[ignore = "set L2D_TEST_PROJECT to an external project.json to run this integration check"]
+fn external_project_is_exported_without_a_project_trailer() {
+    let path = std::env::var("L2D_TEST_PROJECT")
+        .expect("set L2D_TEST_PROJECT to an external project.json");
+    let path = std::path::Path::new(&path);
     let project: Project =
-        serde_json::from_slice(&std::fs::read(path).expect("read v11")).expect("parse v11");
-    let binary = export_moc3_binary(&project, 5).expect("export v11");
+        serde_json::from_slice(&std::fs::read(path).expect("read external project"))
+            .expect("parse external project");
+    let binary = export_moc3_binary(&project, 5).expect("export external project");
     assert!(!binary.windows(4).any(|window| window == b"L2D0"));
     let counts = section(&binary, 0);
     assert!(read_u32(&binary, counts + 4) >= 17);
     assert!(read_u32(&binary, counts + 8) >= 16);
     assert!(read_u32(&binary, counts + 12) >= 1);
-    let decoded = import_moc3_binary(&binary).expect("decode v11 body");
+    let decoded = import_moc3_binary(&binary).expect("decode exported project");
     let deformer_count = decoded
         .nodes
         .iter()

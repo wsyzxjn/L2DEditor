@@ -20,5 +20,27 @@ playwright-report/
 # Rust / Wasm artifacts
 pkg/
 
-# Project temp caches
-*.l2dproj/.l2d/
+# Live2D projects, runtime exports and captured previews
+*.l2dproj/
+*.l2dproj.json
+*.moc3
+*.model3.json
+*.physics3.json
+*.cdi3.json
+*.pose3.json
+*.exp3.json
+*.motion3.json
+*.userdata3.json
+*.motionsync3.json
+*.mtn
+*.can3
+*.cmo3
+*.psd
+*.mp4
+*.webm
+*.zip
+
+# Local test/report artifacts
+coverage/
+*.tsbuildinfo
+*.log
