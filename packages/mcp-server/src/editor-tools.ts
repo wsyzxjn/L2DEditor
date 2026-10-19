@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { WebSocket } from 'ws';
 import type { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -45,10 +48,22 @@ export function callDesktopEditor(request: EditorRequest, url = process.env.L2D_
   if (endpoint.protocol !== 'ws:' || !['127.0.0.1', 'localhost', '[::1]'].includes(endpoint.hostname)) {
     throw new Error('L2D_EDITOR_URL must be a loopback ws:// URL');
   }
+  const tokenFile = process.env.L2D_EDITOR_TOKEN_FILE
+    ?? [
+      path.join(os.homedir(), 'Library/Application Support/l2d-desktop/editor-bridge-token'),
+      path.join(os.homedir(), 'Library/Application Support/L2DEditor/editor-bridge-token'),
+      path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'l2d-desktop', 'editor-bridge-token'),
+      process.env.APPDATA
+        ? path.join(process.env.APPDATA, 'l2d-desktop', 'editor-bridge-token')
+        : '',
+    ].find(candidate => candidate && fs.existsSync(candidate));
+  if (tokenFile) {
+    endpoint.searchParams.set('token', fs.readFileSync(tokenFile, 'utf8').trim());
+  }
   const parsed = editorRequestSchema.parse(request);
   return new Promise((resolve, reject) => {
     const id = randomUUID();
-    const socket = new WebSocket(url);
+    const socket = new WebSocket(endpoint);
     const timer = setTimeout(() => finish(new Error('Desktop request timed out. Open L2DEditor and try again.')), 15000);
     let finished = false;
     function finish(error?: Error, result?: Record<string, unknown>) {

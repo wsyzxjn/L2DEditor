@@ -101,8 +101,9 @@ export class CommandBus {
       return { success: false, patches: [], error: `Unknown command: ${command.name}` };
     }
     try {
+      const params = structuredClone(command.params);
       const [, patches] = produceWithPatches(this.project, (draft) => {
-        handler(draft, command.params);
+        handler(draft, params);
       });
       return { success: true, patches };
     } catch (err: any) {
@@ -123,8 +124,9 @@ export class CommandBus {
     }
 
     try {
+      const params = structuredClone(command.params);
       const [nextProject, patches, inversePatches] = produceWithPatches(this.project, (draft) => {
-        handler(draft, command.params);
+        handler(draft, params);
       });
 
       this.project = nextProject;

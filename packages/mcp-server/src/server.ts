@@ -12,10 +12,13 @@ import {
   generateTextureAtlas,
   exportRuntimePackage,
   importRuntimePackage,
+  copyRuntimePackageTextures,
   renderAnimationSequence,
   applyCubismAiFaceRig,
   serializeMoc3Container,
   parseMoc3ToProject,
+  safeResolveWithin,
+  writeFileAtomicSync,
 } from '@l2d/renderer';
 import { runAcceptance, checkAcceptanceRevision, type AcceptancePlan } from '@l2d/renderer/acceptance';
 import type { Project } from '@l2d/schema';
@@ -150,6 +153,10 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
                 type: 'number',
                 description: 'Subdivision density for automatic mesh generation (default: 2)',
               },
+              force: {
+                type: 'boolean',
+                description: 'Overwrite an existing project.json (default false)',
+              },
             },
             required: ['psdPath', 'outputProjectPath'],
           },
@@ -193,6 +200,10 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
               modelName: {
                 type: 'string',
                 description: 'Name of the model (default: "model")',
+              },
+              embedSource: {
+                type: 'boolean',
+                description: 'Embed editable project JSON in the .moc3 (default false)',
               },
             },
             required: ['projectPath', 'outputPath'],
@@ -344,6 +355,10 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
               projectPath: { type: 'string' },
               outputPath: { type: 'string' },
               mocVersion: { type: 'number', description: 'MOC3 version 1..5 (default: 5 = Cubism 5.0)' },
+              embedSource: {
+                type: 'boolean',
+                description: 'Embed editable project JSON in the .moc3 (default false)',
+              },
             },
             required: ['projectPath', 'outputPath'],
           },
@@ -368,6 +383,7 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
             properties: {
               model3JsonPath: { type: 'string' },
               outputPath: { type: 'string' },
+              force: { type: 'boolean', description: 'Overwrite an existing project.json (default false)' },
             },
             required: ['model3JsonPath', 'outputPath'],
           },
@@ -451,7 +467,7 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         const res = bus.execute(cmd);
         if (res.success) {
           const updated = bus.getProject();
-          fs.writeFileSync(projectPath, JSON.stringify(updated, null, 2), 'utf-8');
+          writeFileAtomicSync(projectPath, JSON.stringify(updated, null, 2));
         }
         return {
           content: [{ type: 'text', text: JSON.stringify(res, null, 2) }],
@@ -493,7 +509,7 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         );
 
         fs.mkdirSync(path.dirname(outPath), { recursive: true });
-        fs.writeFileSync(outPath, pngBuffer);
+        writeFileAtomicSync(outPath, pngBuffer);
 
         return {
           content: [
@@ -514,15 +530,21 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         const { project, extractedTextures } = await importPsdBuffer(buf, { meshDensity: density });
 
         fs.mkdirSync(outProjDir, { recursive: true });
+        const projFile = path.join(outProjDir, 'project.json');
+        if (fs.existsSync(projFile) && args?.force !== true) {
+          throw new Error(`Refusing to overwrite existing project: ${projFile} (pass force: true)`);
+        }
         const texturesDir = path.join(outProjDir, 'textures');
         fs.mkdirSync(texturesDir, { recursive: true });
 
         for (const tex of extractedTextures) {
-          fs.writeFileSync(path.join(texturesDir, tex.filename), tex.buffer);
+          writeFileAtomicSync(
+            safeResolveWithin(texturesDir, tex.filename, 'PSD texture'),
+            tex.buffer
+          );
         }
 
-        const projFile = path.join(outProjDir, 'project.json');
-        fs.writeFileSync(projFile, JSON.stringify(project, null, 2), 'utf-8');
+        writeFileAtomicSync(projFile, JSON.stringify(project, null, 2));
 
         return {
           content: [
@@ -558,10 +580,10 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         fs.mkdirSync(texDir, { recursive: true });
 
         for (const atlas of result.atlasPngBuffers) {
-          fs.writeFileSync(path.join(texDir, atlas.filename), atlas.buffer);
+          writeFileAtomicSync(path.join(texDir, atlas.filename), atlas.buffer);
         }
 
-        fs.writeFileSync(projectPath, JSON.stringify(result.updatedProject, null, 2), 'utf-8');
+        writeFileAtomicSync(projectPath, JSON.stringify(result.updatedProject, null, 2));
         return {
           content: [
             {
@@ -595,6 +617,7 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         const res = await exportRuntimePackage(project, textureResolver, outDir, {
           modelName,
           zipOutputPath: args?.outputZipPath as string | undefined,
+          embedSourceProject: Boolean(args?.embedSource),
         });
 
         return {
@@ -629,19 +652,23 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
 
         const tempFrames = path.join('/tmp', `l2d_mcp_anim_${Date.now()}`);
         const format = outVideo.endsWith('.webm') ? 'webm' : 'mp4';
-        const res = await renderAnimationSequence(project, animId, textureResolver, tempFrames, {
-          format,
-          videoOutputPath: outVideo,
-        });
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Rendered ${res.totalFrames} frames to video: ${res.videoPath || outVideo}`,
-            },
-          ],
-        };
+        try {
+          const res = await renderAnimationSequence(project, animId, textureResolver, tempFrames, {
+            format,
+            videoOutputPath: outVideo,
+          });
+          if (!res.videoPath) throw new Error('Video encoder did not produce an output file');
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Rendered ${res.totalFrames} frames to video: ${res.videoPath}`,
+              },
+            ],
+          };
+        } finally {
+          fs.rmSync(tempFrames, { recursive: true, force: true });
+        }
       }
 
       if (name === 'l2d_update_psd') {
@@ -652,22 +679,25 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         const psdPath = args?.newPsdPath as string;
 
         const buf = fs.readFileSync(psdPath);
-        const { project: updatedProject, extractedTextures } = await importPsdBuffer(buf, {
+        const { project: updatedProject, extractedTextures, report } = await importPsdBuffer(buf, {
           existingProject,
         });
 
         const texDir = path.join(projectDir, 'textures');
         fs.mkdirSync(texDir, { recursive: true });
         for (const t of extractedTextures) {
-          fs.writeFileSync(path.join(texDir, t.filename), t.buffer);
+          writeFileAtomicSync(
+            safeResolveWithin(texDir, t.filename, 'PSD texture'),
+            t.buffer
+          );
         }
 
-        fs.writeFileSync(projectPath, JSON.stringify(updatedProject, null, 2), 'utf-8');
+        writeFileAtomicSync(projectPath, JSON.stringify(updatedProject, null, 2));
         return {
           content: [
             {
               type: 'text',
-              text: `Successfully reloaded artwork from ${psdPath}: preserved all existing deformers, parameters, and keyforms.`,
+              text: `Successfully reloaded artwork from ${psdPath}: ${report.updatedLayers.length} updated, ${report.addedLayers.length} added, ${report.removedLayers.length} removed source layers (nodes preserved).`,
             },
           ],
         };
@@ -689,7 +719,7 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
 
         if (res.success) {
           const updated = bus.getProject();
-          fs.writeFileSync(projectPath, JSON.stringify(updated, null, 2), 'utf-8');
+          writeFileAtomicSync(projectPath, JSON.stringify(updated, null, 2));
           return {
             content: [
               {
@@ -753,7 +783,7 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         const idx = project.animations.findIndex((a) => a.id === anim.id);
         if (idx >= 0) project.animations[idx] = anim;
         else project.animations.push(anim);
-        fs.writeFileSync(projectPath, JSON.stringify(project, null, 2), 'utf-8');
+        writeFileAtomicSync(projectPath, JSON.stringify(project, null, 2));
         return {
           content: [
             {
@@ -769,7 +799,7 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         const animationId = args?.animationId as string;
         const raw = fs.readFileSync(projectPath, 'utf-8');
         const updatedJson = bakePhysicsToAnimation(raw, animationId);
-        fs.writeFileSync(projectPath, updatedJson, 'utf-8');
+        writeFileAtomicSync(projectPath, updatedJson);
         return {
           content: [
             {
@@ -794,7 +824,7 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         };
         const psdBuf = await exportModelToPsdBuffer(project, textureResolver, params);
         fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
-        fs.writeFileSync(outPath, psdBuf);
+        writeFileAtomicSync(outPath, psdBuf);
         return {
           content: [{ type: 'text', text: `Exported layered PSD to ${outPath} (${psdBuf.length} bytes)` }],
         };
@@ -804,7 +834,7 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         const projectPath = resolveProjectJsonPath(args?.projectPath as string);
         const project: Project = JSON.parse(fs.readFileSync(projectPath, 'utf-8'));
         const updated = applyCubismAiFaceRig(project);
-        fs.writeFileSync(projectPath, JSON.stringify(updated, null, 2), 'utf-8');
+        writeFileAtomicSync(projectPath, JSON.stringify(updated, null, 2));
         return {
           content: [{ type: 'text', text: `Generated ONNX AI 3x3 Face Deformer keyforms on ${projectPath}` }],
         };
@@ -815,9 +845,9 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         const outPath = args?.outputPath as string;
         const ver = Number(args?.mocVersion) || 5;
         const project: Project = JSON.parse(fs.readFileSync(projectPath, 'utf-8'));
-        const moc3Buf = serializeMoc3Container(project, ver);
+        const moc3Buf = serializeMoc3Container(project, ver, Boolean(args?.embedSource));
         fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
-        fs.writeFileSync(outPath, moc3Buf);
+        writeFileAtomicSync(outPath, moc3Buf);
         return {
           content: [{ type: 'text', text: `Exported .moc3 (v${ver}, ${moc3Buf.length} bytes) to ${outPath}` }],
         };
@@ -830,7 +860,7 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         const { mocVersion, project } = parseMoc3ToProject(buf);
         const targetFile = outPath.endsWith('.json') ? outPath : path.join(outPath, 'project.json');
         fs.mkdirSync(path.dirname(path.resolve(targetFile)), { recursive: true });
-        fs.writeFileSync(targetFile, JSON.stringify(project, null, 2), 'utf-8');
+        writeFileAtomicSync(targetFile, JSON.stringify(project, null, 2));
         return {
           content: [{ type: 'text', text: `Imported .moc3 (v${mocVersion}, ${project.nodes.length} nodes) to ${targetFile}` }],
         };
@@ -840,11 +870,16 @@ export function createMcpServer(options: { editorUrl?: string } = {}): Server {
         const model3JsonPath = args?.model3JsonPath as string;
         const outPath = args?.outputPath as string;
         const { project, modelName, mocVersion } = importRuntimePackage(model3JsonPath);
-        const targetFile = outPath.endsWith('.json') ? outPath : path.join(outPath, 'project.json');
+        const outDir = outPath.endsWith('.json') ? path.dirname(path.resolve(outPath)) : path.resolve(outPath);
+        const targetFile = outPath.endsWith('.json') ? outPath : path.join(outDir, 'project.json');
+        if (fs.existsSync(targetFile) && args?.force !== true) {
+          throw new Error(`Refusing to overwrite existing project: ${targetFile} (pass force: true)`);
+        }
+        const textureCount = copyRuntimePackageTextures(model3JsonPath, project, outDir);
         fs.mkdirSync(path.dirname(path.resolve(targetFile)), { recursive: true });
-        fs.writeFileSync(targetFile, JSON.stringify(project, null, 2), 'utf-8');
+        writeFileAtomicSync(targetFile, JSON.stringify(project, null, 2));
         return {
-          content: [{ type: 'text', text: `Imported runtime bundle '${modelName}' (v${mocVersion}, ${project.nodes.length} nodes, ${project.parameters.length} params) to ${targetFile}` }],
+          content: [{ type: 'text', text: `Imported runtime bundle '${modelName}' (v${mocVersion}, ${project.nodes.length} nodes, ${project.parameters.length} params, ${textureCount} textures) to ${targetFile}` }],
         };
       }
 

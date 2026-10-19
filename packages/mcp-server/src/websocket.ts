@@ -1,10 +1,12 @@
 import { WebSocketServer, WebSocket, type VerifyClientCallbackSync } from 'ws';
+import { timingSafeEqual } from 'node:crypto';
 import type { Project } from '@l2d/schema';
 import { editorRequestSchema, type EditorRequest } from './editor-protocol.js';
 
 export interface CubismWebSocketServerOptions {
   port?: number;
-  getProject: () => Project;
+  authToken?: string;
+  getProject: () => Project | Promise<Project>;
   getParameterValues: () => Record<string, number>;
   setParameterValues: (values: Record<string, number>) => void | Promise<void>;
   handleEditorRequest?: (request: EditorRequest) => Promise<Record<string, unknown>>;
@@ -23,7 +25,13 @@ export function startCubismWebSocketServer(options: CubismWebSocketServerOptions
     console.warn(`[CubismWebSocketServer] Server error on port ${port}:`, err.message);
   });
 
-  wss.on('connection', (ws: WebSocket) => {
+  wss.on('connection', (ws: WebSocket, request) => {
+    const suppliedToken = new URL(request.url ?? '/', 'ws://127.0.0.1').searchParams.get('token') ?? '';
+    const expectedToken = options.authToken ?? '';
+    const suppliedBytes = Buffer.from(suppliedToken);
+    const expectedBytes = Buffer.from(expectedToken);
+    const authorized = expectedBytes.length === 0
+      || (suppliedBytes.length === expectedBytes.length && timingSafeEqual(suppliedBytes, expectedBytes));
     ws.on('message', async (message: string | Buffer) => {
       let rpcId: string | number | null = null;
       let isRpc = false;
@@ -32,6 +40,7 @@ export function startCubismWebSocketServer(options: CubismWebSocketServerOptions
         if (payload.jsonrpc === '2.0') {
           isRpc = true;
           rpcId = payload.id ?? null;
+          if (!authorized) throw new Error('Unauthorized desktop editor request');
           if (payload.method !== 'l2d.editor') throw new Error(`Unknown method '${payload.method}'`);
           if (!options.handleEditorRequest) throw new Error('This endpoint is not connected to a desktop window');
           const result = await options.handleEditorRequest(editorRequestSchema.parse(payload.params));
@@ -41,7 +50,7 @@ export function startCubismWebSocketServer(options: CubismWebSocketServerOptions
         const type = payload.Type || payload.type;
         const data = payload.Data || payload.data || {};
 
-        const project = options.getProject();
+        const project = await options.getProject();
         const paramVals = options.getParameterValues();
 
         let response: any = null;
@@ -103,6 +112,7 @@ export function startCubismWebSocketServer(options: CubismWebSocketServerOptions
             break;
 
           case 'SetParameterValues': {
+            if (!authorized) throw new Error('Unauthorized parameter update');
             const incoming = data.Parameters || [];
             const updates: Record<string, number> = {};
             for (const item of incoming) {

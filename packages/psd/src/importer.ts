@@ -11,11 +11,19 @@ initializeCanvas(createCanvas as any);
 export interface ImportedPsdResult {
   project: Project;
   extractedTextures: { id: string; buffer: Buffer; filename: string }[];
+  report: {
+    addedLayers: string[];
+    updatedLayers: string[];
+    removedLayers: string[];
+    preservedNonArtNodes: number;
+  };
 }
 
 export interface ImportPsdOptions {
   meshDensity?: number;
   existingProject?: Project;
+  maxBufferBytes?: number;
+  maxLayers?: number;
 }
 
 export async function importPsdBuffer(
@@ -23,6 +31,11 @@ export async function importPsdBuffer(
   options: ImportPsdOptions = {}
 ): Promise<ImportedPsdResult> {
   const density = options.meshDensity ?? 2;
+  const maxBufferBytes = options.maxBufferBytes ?? 512 * 1024 * 1024;
+  const maxLayers = options.maxLayers ?? 2000;
+  if (psdBuffer.length > maxBufferBytes) {
+    throw new Error(`PSD exceeds the ${maxBufferBytes} byte import limit`);
+  }
   // The importer only needs individual layer pixels. Decoding the composite
   // image as well doubles the largest allocation for many PSDs.
   const psd = readPsd(psdBuffer, {
@@ -34,41 +47,88 @@ export async function importPsdBuffer(
 
   const canvasWidth = psd.width;
   const canvasHeight = psd.height;
-
-  const existingProject = options.existingProject;
-  const existingNodesMap = new Map<string, Node>();
-  if (existingProject) {
-    for (const node of existingProject.nodes) {
-      existingNodesMap.set(node.id, node);
-    }
-  }
-
-  const nodes: Node[] = [];
-  const textures: TextureMeta[] = [];
+  const existingProject = options.existingProject
+    ? structuredClone(options.existingProject)
+    : undefined;
+  const nodes: Node[] = existingProject?.nodes ?? [];
+  const usedNodeIds = new Set(nodes.map((node) => node.id));
+  const texturesById = new Map<string, TextureMeta>(
+    (existingProject?.textures ?? []).map((texture) => [texture.id, structuredClone(texture)])
+  );
   const extractedTextures: { id: string; buffer: Buffer; filename: string }[] = [];
+  const addedLayers: string[] = [];
+  const updatedLayers: string[] = [];
+  const matchedNodeIds = new Set<string>();
+  const usedTextureFilenames = new Set<string>();
+  const artByName = new Map<string, Node[]>();
+  const partByName = new Map<string, Node[]>();
+  for (const node of nodes) {
+    const target = node.kind.type === 'ArtMesh'
+      ? artByName
+      : node.kind.type === 'Part'
+        ? partByName
+        : null;
+    if (!target) continue;
+    const list = target.get(node.name) ?? [];
+    list.push(node);
+    target.set(node.name, list);
+  }
+  const nextExistingByName = (map: Map<string, Node[]>, name: string): Node | undefined => {
+    const candidates = map.get(name);
+    while (candidates?.length) {
+      const candidate = candidates.shift()!;
+      if (!matchedNodeIds.has(candidate.id)) return candidate;
+    }
+    return undefined;
+  };
+  const uniqueNodeId = (base: string): string => {
+    let candidate = base || 'layer';
+    let suffix = 2;
+    while (usedNodeIds.has(candidate)) {
+      candidate = `${base || 'layer'}_${suffix++}`;
+    }
+    usedNodeIds.add(candidate);
+    return candidate;
+  };
+  const uniqueTextureId = (base: string): string => {
+    let candidate = base;
+    let suffix = 2;
+    while (texturesById.has(candidate)) {
+      candidate = `${base}_${suffix++}`;
+    }
+    return candidate;
+  };
+  let layerCount = 0;
 
   let drawOrder = 10;
 
-  function processLayer(layer: any, parentId: string | null) {
-    if (layer.hidden) {
-      return;
+  function processLayer(layer: any, parentId: string | null, layerPath: string) {
+    layerCount += 1;
+    if (layerCount > maxLayers) {
+      throw new Error(`PSD contains more than ${maxLayers} layers`);
     }
-
-    const layerId = sanitizeId(layer.name || `layer_${nodes.length + 1}`);
+    const layerName = String(layer.name || `layer_${layerCount}`);
+    const stablePath = `${layerPath}/${layerName}`;
 
     // If it's a layer group
     if (layer.children && layer.children.length > 0) {
-      nodes.push({
-        id: layerId,
-        name: layer.name || layerId,
-        parent_id: parentId,
-        visible: true,
-        locked: false,
-        kind: { type: 'Part', collapsed: false },
-      });
+      const existing = nextExistingByName(partByName, layerName);
+      const layerId = existing?.id ?? uniqueNodeId(sanitizeId(layerName));
+      if (existing) {
+        matchedNodeIds.add(existing.id);
+      } else {
+        nodes.push({
+          id: layerId,
+          name: layerName,
+          parent_id: parentId,
+          visible: !layer.hidden,
+          locked: false,
+          kind: { type: 'Part', collapsed: false, opacity: layer.opacity ?? 1 },
+        });
+      }
       // Process children in reverse so top layer renders on top
       for (const child of [...layer.children].reverse()) {
-        processLayer(child, layerId);
+        processLayer(child, layerId, stablePath);
       }
       return;
     }
@@ -82,8 +142,18 @@ export async function importPsdBuffer(
 
       if (lw <= 0 || lh <= 0) return;
 
-      const textureId = `tex_${layerId}`;
-      const filename = `${layerId}.png`;
+      const existing = nextExistingByName(artByName, layerName);
+      const layerId = existing?.id ?? uniqueNodeId(sanitizeId(layerName));
+      const textureId = existing?.kind.type === 'ArtMesh'
+        ? existing.kind.texture_id
+        : uniqueTextureId(`tex_${layerId}`);
+      let filename = `${layerId}.png`;
+      let filenameSuffix = 2;
+      while (usedTextureFilenames.has(filename)) {
+        filename = `${layerId}_${filenameSuffix++}.png`;
+      }
+      usedTextureFilenames.add(filename);
+      if (existing) matchedNodeIds.add(existing.id);
 
       // Extract texture buffer. Release the native canvas as soon as its PNG
       // bytes have been copied; keeping it on the ag-psd layer tree makes
@@ -110,12 +180,13 @@ export async function importPsdBuffer(
         }
       }
 
-      textures.push({
+      const textureMeta: TextureMeta = {
         id: textureId,
         path: `textures/${filename}`,
         width: lw,
         height: lh,
-      });
+      };
+      texturesById.set(textureId, textureMeta);
 
       extractedTextures.push({
         id: textureId,
@@ -123,8 +194,6 @@ export async function importPsdBuffer(
         filename,
       });
 
-      // Check if existing node exists (for non-destructive reload!)
-      const existing = existingNodesMap.get(layerId);
       let meshKind: ArtMeshData;
 
       if (existing && existing.kind.type === 'ArtMesh') {
@@ -148,49 +217,88 @@ export async function importPsdBuffer(
         };
       }
 
-      nodes.push({
+      const nextNode: Node = {
         id: layerId,
-        name: layer.name || layerId,
+        name: layerName,
         parent_id: existing ? existing.parent_id : parentId,
-        visible: true,
-        locked: false,
+        visible: !layer.hidden,
+        locked: existing?.locked ?? false,
         kind: {
           type: 'ArtMesh',
           ...meshKind,
         },
-      });
+      } as Node;
+      if (existing) {
+        const index = nodes.findIndex((node) => node.id === existing.id);
+        if (index >= 0) nodes[index] = nextNode;
+        updatedLayers.push(layerId);
+      } else {
+        nodes.push(nextNode);
+        addedLayers.push(layerId);
+      }
     }
   }
 
   if (psd.children) {
     for (const child of [...psd.children].reverse()) {
-      processLayer(child, null);
+      processLayer(child, null, '');
     }
   }
 
-  const project: Project = {
-    format_version: 1,
-    canvas: {
-      width: canvasWidth,
-      height: canvasHeight,
-      origin_x: 0.5,
-      origin_y: 0.5,
-      background_color: '#18181b',
-    },
-    parameters: existingProject?.parameters ?? [
-      { id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 },
-      { id: 'ParamAngleY', name: 'Angle Y', min: -30, max: 30, default: 0 },
-      { id: 'ParamEyeLOpen', name: 'Eye Left Open', min: 0, max: 1, default: 1 },
-      { id: 'ParamEyeROpen', name: 'Eye Right Open', min: 0, max: 1, default: 1 },
-      { id: 'ParamMouthForm', name: 'Mouth Form', min: -1, max: 1, default: 0 },
-      { id: 'ParamMouthOpen', name: 'Mouth Open', min: 0, max: 1, default: 0 },
-    ],
-    nodes,
-    keyforms: existingProject?.keyforms ?? [],
-    textures,
-  };
+  const removedLayers = existingProject
+    ? existingProject.nodes
+      .filter((node) => node.kind.type === 'ArtMesh' && !matchedNodeIds.has(node.id))
+      .map((node) => node.id)
+    : [];
+  const project: Project = existingProject
+    ? {
+        ...existingProject,
+        canvas: {
+          ...existingProject.canvas,
+          width: canvasWidth,
+          height: canvasHeight,
+        },
+        nodes,
+        textures: [...texturesById.values()],
+      }
+    : {
+        format_version: 1,
+        canvas: {
+          width: canvasWidth,
+          height: canvasHeight,
+          origin_x: 0.5,
+          origin_y: 0.5,
+          background_color: '#18181b',
+        },
+        parameters: [
+          { id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 },
+          { id: 'ParamAngleY', name: 'Angle Y', min: -30, max: 30, default: 0 },
+          { id: 'ParamEyeLOpen', name: 'Eye Left Open', min: 0, max: 1, default: 1 },
+          { id: 'ParamEyeROpen', name: 'Eye Right Open', min: 0, max: 1, default: 1 },
+          { id: 'ParamMouthForm', name: 'Mouth Form', min: -1, max: 1, default: 0 },
+          { id: 'ParamMouthOpen', name: 'Mouth Open', min: 0, max: 1, default: 0 },
+        ],
+        nodes,
+        keyforms: [],
+        textures: [...texturesById.values()],
+        glues: [],
+        physics: [],
+        animations: [],
+        parameter_groups: [],
+        pose_groups: [],
+        expressions: [],
+      };
 
-    return { project, extractedTextures };
+    return {
+      project,
+      extractedTextures,
+      report: {
+        addedLayers,
+        updatedLayers,
+        removedLayers,
+        preservedNonArtNodes: nodes.length - nodes.filter((node) => node.kind.type === 'ArtMesh').length,
+      },
+    };
   } finally {
     releasePsdResources(psd);
     // @napi-rs/canvas keeps a process-wide Skia cache. Clear it after an
@@ -238,10 +346,14 @@ function releasePsdResources(psd: any): void {
 }
 
 function sanitizeId(name: string): string {
-  return name
+  const normalized = name
+    .normalize('NFKC')
     .trim()
     .replace(/\s+/g, '_')
-    .replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, '');
+    .replace(/[^\p{L}\p{N}_-]+/gu, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalized || 'layer';
 }
 
 /**

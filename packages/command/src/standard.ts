@@ -16,7 +16,328 @@ import {
   type Project,
   type TextureMeta,
 } from '@l2d/schema';
+import { z } from 'zod';
 import { CommandBus } from './bus.js';
+
+const finiteNumber = z.number().finite();
+const pointSchema = z.tuple([finiteNumber, finiteNumber]);
+const colorSchema = z.tuple([finiteNumber, finiteNumber, finiteNumber, finiteNumber]);
+const blendModeSchema = z.enum(['normal', 'multiply', 'screen', 'additive']);
+const morphTargetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  param_id: z.string().min(1),
+  vertex_offsets: z.array(pointSchema),
+}).strict();
+const nodeKindSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('Part'),
+    collapsed: z.boolean().optional(),
+    opacity: z.number().min(0).max(1).optional(),
+  }).strict(),
+  z.object({
+    type: z.literal('WarpDeformer'),
+    cols: z.int().min(1),
+    rows: z.int().min(1),
+    bounds: z.tuple([finiteNumber, finiteNumber, finiteNumber, finiteNumber]),
+    control_points: z.array(pointSchema),
+    bezier_smooth: z.boolean().optional(),
+  }).strict(),
+  z.object({
+    type: z.literal('RotationDeformer'),
+    origin: pointSchema,
+    angle_deg: finiteNumber,
+    scale: pointSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('DeformPath'),
+    control_points: z.array(pointSchema),
+    target_mesh_ids: z.array(z.string().min(1)),
+  }).strict(),
+  z.object({
+    type: z.literal('ArtPath'),
+    points: z.array(z.object({
+      pos: pointSchema,
+      width: finiteNumber,
+      opacity: finiteNumber,
+    }).strict()),
+    closed: z.boolean().optional(),
+    color: colorSchema.optional(),
+    texture_id: z.string().nullable().optional(),
+    blend_mode: blendModeSchema.optional(),
+    opacity: z.number().min(0).max(1).optional(),
+    draw_order: finiteNumber.optional(),
+    mask_ids: z.array(z.string().min(1)).optional(),
+    is_mask_inverted: z.boolean().optional(),
+  }).strict(),
+  z.object({
+    type: z.literal('ArtMesh'),
+    texture_id: z.string().min(1),
+    vertices: z.array(pointSchema),
+    uvs: z.array(pointSchema),
+    indices: z.array(z.int().min(0)),
+    blend_mode: blendModeSchema.optional(),
+    opacity: z.number().min(0).max(1),
+    multiply_color: colorSchema.optional(),
+    screen_color: colorSchema.optional(),
+    draw_order: finiteNumber,
+    mask_ids: z.array(z.string().min(1)),
+    is_mask_inverted: z.boolean().optional(),
+    morph_targets: z.array(morphTargetSchema).optional(),
+    hit_area_name: z.string().optional(),
+    user_data: z.string().optional(),
+  }).strict(),
+]);
+const nodeChangesSchema = z.object({
+  name: z.string().min(1).optional(),
+  parent_id: z.string().min(1).nullable().optional(),
+  visible: z.boolean().optional(),
+  locked: z.boolean().optional(),
+  kind: nodeKindSchema.optional(),
+}).strict();
+
+function findNode(draft: Project, id: string): Node | undefined {
+  return draft.nodes.find((node) => node.id === id);
+}
+
+function assertNodeUnlocked(node: Node | undefined): void {
+  if (node?.locked) {
+    throw new Error(`Node '${node.id}' is locked`);
+  }
+}
+
+function assertParameterUnlocked(draft: Project, id: string): void {
+  const parameter = draft.parameters.find((item) => item.id === id);
+  if (parameter?.locked) {
+    throw new Error(`Parameter '${id}' is locked`);
+  }
+}
+
+function wouldCreateCycle(draft: Project, nodeId: string, parentId: string | null): boolean {
+  if (!parentId) return false;
+  if (parentId === nodeId) return true;
+  const visited = new Set<string>();
+  let current: string | null | undefined = parentId;
+  while (current) {
+    if (current === nodeId) return true;
+    if (visited.has(current)) return true;
+    visited.add(current);
+    current = findNode(draft, current)?.parent_id ?? null;
+  }
+  return false;
+}
+
+function mirrorKeyformPayload(payload: KeyformPayload, targetNode: Node | undefined): KeyformPayload {
+  const mirrored = JSON.parse(JSON.stringify(payload)) as KeyformPayload;
+  if (mirrored.kind === 'Warp') {
+    const bounds = targetNode?.kind.type === 'WarpDeformer'
+      ? targetNode.kind.bounds
+      : [0, 0, 1000, 1000] as [number, number, number, number];
+    const centerX = bounds[0] + bounds[2] / 2;
+    mirrored.control_points = mirrored.control_points.map(([x, y]) => [
+      2 * centerX - x,
+      y,
+    ]);
+  } else if (mirrored.kind === 'Rotation') {
+    mirrored.angle_deg = -mirrored.angle_deg;
+  } else if (mirrored.kind === 'ArtMesh') {
+    mirrored.vertex_offsets = mirrored.vertex_offsets.map(([x, y]) => [-x, y]);
+  }
+  return mirrored;
+}
+
+function dedupeSortedKeys(keys: number[]): number[] {
+  const sorted = [...keys].sort((a, b) => a - b);
+  return sorted.filter((key, index) => index === 0 || Math.abs(key - sorted[index - 1]) > 1e-6);
+}
+
+function stateMatches(coordinates: number[], target: number[], tolerance = 1e-4): boolean {
+  return coordinates.length === target.length
+    && coordinates.every((value, index) => Math.abs(value - target[index]) <= tolerance);
+}
+
+function resampleWarpGrid(
+  points: [number, number][],
+  oldCols: number,
+  oldRows: number,
+  newCols: number,
+  newRows: number
+): [number, number][] {
+  const oldStride = oldCols + 1;
+  const out: [number, number][] = [];
+  for (let row = 0; row <= newRows; row++) {
+    const sourceY = (row / newRows) * oldRows;
+    const row0 = Math.min(Math.floor(sourceY), oldRows - 1);
+    const ty = sourceY - row0;
+    for (let col = 0; col <= newCols; col++) {
+      const sourceX = (col / newCols) * oldCols;
+      const col0 = Math.min(Math.floor(sourceX), oldCols - 1);
+      const tx = sourceX - col0;
+      const p00 = points[row0 * oldStride + col0] ?? [0, 0];
+      const p10 = points[row0 * oldStride + col0 + 1] ?? p00;
+      const p01 = points[(row0 + 1) * oldStride + col0] ?? p00;
+      const p11 = points[(row0 + 1) * oldStride + col0 + 1] ?? p01;
+      const topX = p00[0] * (1 - tx) + p10[0] * tx;
+      const topY = p00[1] * (1 - tx) + p10[1] * tx;
+      const bottomX = p01[0] * (1 - tx) + p11[0] * tx;
+      const bottomY = p01[1] * (1 - tx) + p11[1] * tx;
+      out.push([
+        topX * (1 - ty) + bottomX * ty,
+        topY * (1 - ty) + bottomY * ty,
+      ]);
+    }
+  }
+  return out;
+}
+
+function barycentric(
+  point: [number, number],
+  a: [number, number],
+  b: [number, number],
+  c: [number, number]
+): [number, number, number] | null {
+  const denominator = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+  if (Math.abs(denominator) < 1e-8) return null;
+  const wa = ((b[1] - c[1]) * (point[0] - c[0]) + (c[0] - b[0]) * (point[1] - c[1])) / denominator;
+  const wb = ((c[1] - a[1]) * (point[0] - c[0]) + (a[0] - c[0]) * (point[1] - c[1])) / denominator;
+  return [wa, wb, 1 - wa - wb];
+}
+
+function remapVertexValues(
+  oldVertices: [number, number][],
+  oldIndices: number[],
+  newVertices: [number, number][],
+  oldValues: [number, number][]
+): [number, number][] {
+  if (newVertices.length === 0) return [];
+  if (oldVertices.length === 0 || oldValues.length === 0) {
+    return newVertices.map(() => [0, 0]);
+  }
+  return newVertices.map((point) => {
+    for (let index = 0; index + 2 < oldIndices.length; index += 3) {
+      const ia = oldIndices[index];
+      const ib = oldIndices[index + 1];
+      const ic = oldIndices[index + 2];
+      const a = oldVertices[ia];
+      const b = oldVertices[ib];
+      const c = oldVertices[ic];
+      if (!a || !b || !c) continue;
+      const weights = barycentric(point, a, b, c);
+      if (weights && weights.every((weight) => weight >= -1e-5 && weight <= 1 + 1e-5)) {
+        const valueA = oldValues[ia] ?? [0, 0];
+        const valueB = oldValues[ib] ?? [0, 0];
+        const valueC = oldValues[ic] ?? [0, 0];
+        return [
+          valueA[0] * weights[0] + valueB[0] * weights[1] + valueC[0] * weights[2],
+          valueA[1] * weights[0] + valueB[1] * weights[1] + valueC[1] * weights[2],
+        ];
+      }
+    }
+    let nearest = 0;
+    let nearestDistance = Infinity;
+    for (let index = 0; index < oldVertices.length; index++) {
+      const dx = point[0] - oldVertices[index][0];
+      const dy = point[1] - oldVertices[index][1];
+      const distance = dx * dx + dy * dy;
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = index;
+      }
+    }
+    return [...(oldValues[nearest] ?? [0, 0])] as [number, number];
+  });
+}
+
+function remapGlueIndices(
+  draft: Project,
+  meshId: string,
+  oldVertices: [number, number][],
+  newVertices: [number, number][]
+): void {
+  for (const glue of draft.glues ?? []) {
+    for (const pair of glue.vertex_pairs) {
+      if (glue.mesh_a_id === meshId) {
+        const point = oldVertices[pair.index_a];
+        if (point) {
+          let nearest = 0;
+          let distance = Infinity;
+          newVertices.forEach((candidate, index) => {
+            const dx = candidate[0] - point[0];
+            const dy = candidate[1] - point[1];
+            const next = dx * dx + dy * dy;
+            if (next < distance) {
+              distance = next;
+              nearest = index;
+            }
+          });
+          pair.index_a = nearest;
+        }
+      }
+      if (glue.mesh_b_id === meshId) {
+        const point = oldVertices[pair.index_b];
+        if (point) {
+          let nearest = 0;
+          let distance = Infinity;
+          newVertices.forEach((candidate, index) => {
+            const dx = candidate[0] - point[0];
+            const dy = candidate[1] - point[1];
+            const next = dx * dx + dy * dy;
+            if (next < distance) {
+              distance = next;
+              nearest = index;
+            }
+          });
+          pair.index_b = nearest;
+        }
+      }
+    }
+  }
+}
+
+function deleteNodes(draft: Project, nodeIds: Iterable<string>): void {
+  const deleted = new Set(nodeIds);
+  if (deleted.size === 0) return;
+  for (const id of deleted) {
+    assertNodeUnlocked(findNode(draft, id));
+  }
+  for (const node of draft.nodes) {
+    if (deleted.has(node.id) || !node.parent_id || !deleted.has(node.parent_id)) continue;
+    let parent: string | null = node.parent_id;
+    const visited = new Set<string>();
+    while (parent && deleted.has(parent)) {
+      if (visited.has(parent)) {
+        parent = null;
+        break;
+      }
+      visited.add(parent);
+      parent = findNode(draft, parent)?.parent_id ?? null;
+    }
+    node.parent_id = parent;
+  }
+  draft.nodes = draft.nodes.filter((node) => !deleted.has(node.id));
+  draft.keyforms = draft.keyforms.filter((binding) => !deleted.has(binding.target_node_id));
+  for (const node of draft.nodes) {
+    if (node.kind.type === 'ArtMesh' || node.kind.type === 'ArtPath') {
+      node.kind.mask_ids = (node.kind.mask_ids ?? []).filter((id) => !deleted.has(id));
+    }
+    if (node.kind.type === 'DeformPath') {
+      node.kind.target_mesh_ids = node.kind.target_mesh_ids.filter((id) => !deleted.has(id));
+    }
+  }
+  if (draft.glues) {
+    draft.glues = draft.glues.filter(
+      (glue) => !deleted.has(glue.mesh_a_id) && !deleted.has(glue.mesh_b_id)
+    );
+  }
+  for (const group of draft.pose_groups ?? []) {
+    group.part_ids = group.part_ids.filter((id) => !deleted.has(id));
+  }
+  for (const animation of draft.animations ?? []) {
+    animation.form_tracks = (animation.form_tracks ?? []).filter(
+      (track) => !deleted.has(track.target_node_id)
+    );
+  }
+}
 
 export function registerStandardCommands(bus: CommandBus): void {
   // Canvas & Project
@@ -42,14 +363,88 @@ export function registerStandardCommands(bus: CommandBus): void {
     if (!target) {
       throw new Error(`Parameter '${id}' not found`);
     }
+    const lockOnly = Object.keys(changes).every((key) => key === 'locked');
+    if (!lockOnly) {
+      assertParameterUnlocked(draft, id);
+    }
+    if (changes.id !== undefined && changes.id !== id) {
+      if (!changes.id || draft.parameters.some((parameter) => parameter.id === changes.id)) {
+        throw new Error(`Parameter ID '${changes.id}' is empty or already exists`);
+      }
+      const nextId = changes.id;
+      for (const binding of draft.keyforms) {
+        for (const dimension of binding.dimensions) {
+          if (dimension.param_id === id) dimension.param_id = nextId;
+        }
+      }
+      for (const group of draft.physics ?? []) {
+        for (const input of group.inputs) if (input.param_id === id) input.param_id = nextId;
+        for (const output of group.outputs) if (output.param_id === id) output.param_id = nextId;
+      }
+      for (const expression of draft.expressions ?? []) {
+        for (const parameter of expression.parameters) if (parameter.id === id) parameter.id = nextId;
+      }
+      for (const animation of draft.animations ?? []) {
+        for (const track of animation.tracks) if (track.target_param_id === id) track.target_param_id = nextId;
+      }
+      for (const node of draft.nodes) {
+        if (node.kind.type === 'ArtMesh') {
+          for (const morph of node.kind.morph_targets ?? []) {
+            if (morph.param_id === id) morph.param_id = nextId;
+          }
+        }
+      }
+    }
     Object.assign(target, changes);
+    if (!Number.isFinite(target.min) || !Number.isFinite(target.max)
+      || !Number.isFinite(target.default) || target.min > target.max) {
+      throw new Error(`Parameter '${target.id}' has an invalid range`);
+    }
   });
 
   bus.register<{ id: string }>('parameter.delete', (draft, { id }) => {
+    const parameter = draft.parameters.find((item) => item.id === id);
+    if (!parameter) return;
+    assertParameterUnlocked(draft, id);
+    const defaultKey = parameter.default;
     draft.parameters = draft.parameters.filter((p) => p.id !== id);
-    // Remove this parameter dimension from all keyform bindings
     for (const kf of draft.keyforms) {
-      kf.dimensions = kf.dimensions.filter((d) => d.param_id !== id);
+      const axis = kf.dimensions.findIndex((dimension) => dimension.param_id === id);
+      if (axis < 0) continue;
+      const candidates = kf.keyforms
+        .map((state, index) => ({ state, index, distance: Math.abs(state.coordinates[axis] - defaultKey) }))
+        .sort((a, b) => a.distance - b.distance);
+      const nearestDistance = candidates[0]?.distance ?? 0;
+      const keptStates = candidates
+        .filter((candidate) => Math.abs(candidate.distance - nearestDistance) <= 1e-4)
+        .map(({ state }) => ({
+          payload: state.payload,
+          coordinates: state.coordinates.filter((_, coordinateIndex) => coordinateIndex !== axis),
+        }));
+      kf.dimensions.splice(axis, 1);
+      const deduped: typeof kf.keyforms = [];
+      for (const state of keptStates) {
+        const existing = deduped.find((candidate) => stateMatches(candidate.coordinates, state.coordinates));
+        if (!existing) deduped.push(state);
+      }
+      kf.keyforms = deduped;
+    }
+    for (const group of draft.physics ?? []) {
+      group.inputs = group.inputs.filter((input) => input.param_id !== id);
+      group.outputs = group.outputs.filter((output) => output.param_id !== id);
+    }
+    for (const expression of draft.expressions ?? []) {
+      expression.parameters = expression.parameters.filter((item) => item.id !== id);
+    }
+    for (const animation of draft.animations ?? []) {
+      animation.tracks = animation.tracks.filter((track) => track.target_param_id !== id);
+    }
+    for (const node of draft.nodes) {
+      if (node.kind.type === 'ArtMesh') {
+        node.kind.morph_targets = (node.kind.morph_targets ?? []).filter(
+          (target) => target.param_id !== id
+        );
+      }
     }
   });
 
@@ -167,6 +562,7 @@ export function registerStandardCommands(bus: CommandBus): void {
   bus.register<{ mesh_id: string; hit_area_name: string | null }>('mesh.set_hit_area', (draft, { mesh_id, hit_area_name }) => {
     const node = draft.nodes.find((n) => n.id === mesh_id);
     if (node && node.kind.type === 'ArtMesh') {
+      assertNodeUnlocked(node);
       node.kind.hit_area_name = hit_area_name || undefined;
     }
   });
@@ -174,6 +570,7 @@ export function registerStandardCommands(bus: CommandBus): void {
   bus.register<{ mesh_id: string; user_data: string | null }>('mesh.set_user_data', (draft, { mesh_id, user_data }) => {
     const node = draft.nodes.find((n) => n.id === mesh_id);
     if (node && node.kind.type === 'ArtMesh') {
+      assertNodeUnlocked(node);
       node.kind.user_data = user_data || undefined;
     }
   });
@@ -186,12 +583,31 @@ export function registerStandardCommands(bus: CommandBus): void {
     draft.nodes.push(node);
   });
 
-  bus.register<{ id: string; changes: Partial<Omit<Node, 'id' | 'kind'>> }>('node.update', (draft, { id, changes }) => {
+  bus.register<{ id: string; changes: z.input<typeof nodeChangesSchema> }>('node.update', (draft, { id, changes }) => {
     const target = draft.nodes.find((n) => n.id === id);
     if (!target) {
       throw new Error(`Node '${id}' not found`);
     }
-    Object.assign(target, changes);
+    assertNodeUnlocked(target);
+    const parsed = nodeChangesSchema.parse(changes);
+    if (parsed.parent_id !== undefined && wouldCreateCycle(draft, id, parsed.parent_id)) {
+      throw new Error(`Hierarchy cycle detected while parenting '${id}' to '${parsed.parent_id}'`);
+    }
+    if (parsed.parent_id && !findNode(draft, parsed.parent_id)) {
+      throw new Error(`Parent node '${parsed.parent_id}' not found`);
+    }
+    if (parsed.kind) {
+      const kind = parsed.kind as Node['kind'];
+      if ((kind as { type: string }).type === 'ArtMesh') {
+        const artMesh = kind as Extract<Node['kind'], { type: 'ArtMesh' }>;
+        artMesh.blend_mode ??= 'normal';
+      }
+      target.kind = kind;
+    }
+    if (parsed.name !== undefined) target.name = parsed.name;
+    if (parsed.parent_id !== undefined) target.parent_id = parsed.parent_id;
+    if (parsed.visible !== undefined) target.visible = parsed.visible;
+    if (parsed.locked !== undefined) target.locked = parsed.locked;
   });
 
   bus.register<{ id: string; parent_id: string | null }>('node.reparent', (draft, { id, parent_id }) => {
@@ -199,20 +615,13 @@ export function registerStandardCommands(bus: CommandBus): void {
     if (!target) {
       throw new Error(`Node '${id}' not found`);
     }
+    assertNodeUnlocked(target);
     if (parent_id) {
-      if (parent_id === id) {
-        throw new Error('A node cannot be parented to itself');
+      if (!findNode(draft, parent_id)) {
+        throw new Error(`Parent node '${parent_id}' not found`);
       }
-      let curr: string | null | undefined = parent_id;
-      const visited = new Set<string>();
-      while (curr) {
-        if (curr === id) {
-          throw new Error(`Hierarchy cycle detected: node '${parent_id}' is a descendant of '${id}'`);
-        }
-        if (visited.has(curr)) break;
-        visited.add(curr);
-        const pNode = draft.nodes.find((n) => n.id === curr);
-        curr = pNode ? pNode.parent_id : null;
+      if (wouldCreateCycle(draft, id, parent_id)) {
+        throw new Error(`Hierarchy cycle detected: node '${parent_id}' is a descendant of '${id}'`);
       }
     }
     target.parent_id = parent_id;
@@ -236,21 +645,13 @@ export function registerStandardCommands(bus: CommandBus): void {
   });
 
   bus.register<{ id: string }>('node.delete', (draft, { id }) => {
-    // Reparent direct children to deleted node's parent
-    const target = draft.nodes.find((n) => n.id === id);
-    const parentOfDeleted = target ? target.parent_id : null;
-    for (const child of draft.nodes) {
-      if (child.parent_id === id) {
-        child.parent_id = parentOfDeleted;
-      }
-    }
-    draft.nodes = draft.nodes.filter((n) => n.id !== id);
-    draft.keyforms = draft.keyforms.filter((k) => k.target_node_id !== id);
+    deleteNodes(draft, [id]);
   });
 
   bus.register<{ node_id: string; target_index: number }>('node.reorder', (draft, { node_id, target_index }) => {
     const idx = draft.nodes.findIndex((n) => n.id === node_id);
     if (idx >= 0) {
+      assertNodeUnlocked(draft.nodes[idx]);
       const [n] = draft.nodes.splice(idx, 1);
       const clamped = Math.max(0, Math.min(draft.nodes.length, target_index));
       draft.nodes.splice(clamped, 0, n);
@@ -259,9 +660,13 @@ export function registerStandardCommands(bus: CommandBus): void {
 
   // Keyforms
   bus.register<KeyformBinding>('keyform.set', (draft, binding) => {
+    assertNodeUnlocked(findNode(draft, binding.target_node_id));
     if ((binding as any).coordinates && (binding as any).payload) {
       const targetId = (binding as any).target_node_id;
       const coords = (binding as any).coordinates as number[];
+      if (!coords.every(Number.isFinite)) {
+        throw new Error('Keyform coordinates must be finite');
+      }
       let existing = draft.keyforms.find((k) => k.target_node_id === targetId);
       if (!existing) {
         existing = { target_node_id: targetId, dimensions: [], keyforms: [] };
@@ -287,6 +692,17 @@ export function registerStandardCommands(bus: CommandBus): void {
     target_node_id: string;
     dimensions: any[];
   }>('keyform.bind', (draft, { target_node_id, dimensions }) => {
+    assertNodeUnlocked(findNode(draft, target_node_id));
+    for (const dimension of dimensions) {
+      if (!draft.parameters.some((parameter) => parameter.id === dimension.param_id)) {
+        throw new Error(`Parameter '${dimension.param_id}' not found`);
+      }
+      if (!Array.isArray(dimension.keys) || dimension.keys.length === 0
+        || !dimension.keys.every(Number.isFinite)) {
+        throw new Error(`Dimension '${dimension.param_id}' must have finite keys`);
+      }
+      dimension.keys = dedupeSortedKeys(dimension.keys);
+    }
     let existing = draft.keyforms.find((k) => k.target_node_id === target_node_id);
     if (!existing) {
       existing = { target_node_id, dimensions, keyforms: [] };
@@ -297,6 +713,7 @@ export function registerStandardCommands(bus: CommandBus): void {
   });
 
   bus.register<{ target_node_id: string }>('keyform.delete', (draft, { target_node_id }) => {
+    assertNodeUnlocked(findNode(draft, target_node_id));
     draft.keyforms = draft.keyforms.filter((k) => k.target_node_id !== target_node_id);
   });
 
@@ -310,6 +727,8 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('keyform.copy_paste', (draft, { target_node_id, source_coords, dest_coords, mirror_x }) => {
     const binding = draft.keyforms.find((k) => k.target_node_id === target_node_id);
     if (!binding) throw new Error(`Keyform binding for node '${target_node_id}' not found`);
+    const targetNode = draft.nodes.find((node) => node.id === target_node_id);
+    assertNodeUnlocked(targetNode);
 
     const sourceState = binding.keyforms.find((s) =>
       s.coordinates.length === source_coords.length &&
@@ -317,24 +736,9 @@ export function registerStandardCommands(bus: CommandBus): void {
     );
     if (!sourceState) throw new Error(`Source keyform state at coordinates ${source_coords} not found`);
 
-    let payload = JSON.parse(JSON.stringify(sourceState.payload));
+    let payload = JSON.parse(JSON.stringify(sourceState.payload)) as KeyformPayload;
     if (mirror_x) {
-      const targetNode = draft.nodes.find((n) => n.id === target_node_id);
-      if (payload.kind === 'Warp') {
-        const bounds = targetNode?.kind.type === 'WarpDeformer' ? targetNode.kind.bounds : [0, 0, 1000, 1000];
-        const centerX = bounds[0] + bounds[2] / 2;
-        payload.control_points = payload.control_points.map(([cx, cy]: [number, number]) => [
-          2 * centerX - cx,
-          cy,
-        ]);
-      } else if (payload.kind === 'Rotation') {
-        payload.angle_deg = -payload.angle_deg;
-      } else if (payload.kind === 'ArtMesh') {
-        payload.vertex_offsets = payload.vertex_offsets.map(([dx, dy]: [number, number]) => [
-          -dx,
-          dy,
-        ]);
-      }
+      payload = mirrorKeyformPayload(payload, targetNode);
     }
 
     const destIdx = binding.keyforms.findIndex((s) =>
@@ -363,6 +767,8 @@ export function registerStandardCommands(bus: CommandBus): void {
     if (!binding) {
       throw new Error(`Keyform binding for node '${params.target_node_id}' not found`);
     }
+    const targetNode = draft.nodes.find((n) => n.id === params.target_node_id);
+    assertNodeUnlocked(targetNode);
     const dimIdx = binding.dimensions.findIndex((d) => d.param_id === params.param_id);
     if (dimIdx < 0) {
       throw new Error(`Parameter dimension '${params.param_id}' not found on keyform`);
@@ -370,48 +776,25 @@ export function registerStandardCommands(bus: CommandBus): void {
 
     // Ensure dest_key is listed in keys
     const dim = binding.dimensions[dimIdx];
-    if (!dim.keys.includes(params.dest_key)) {
-      dim.keys.push(params.dest_key);
-      dim.keys.sort((a, b) => a - b);
-    }
+    dim.keys = dedupeSortedKeys([...dim.keys, params.dest_key]);
 
-    // Find state at source_key
-    const sourceState = binding.keyforms.find((s) => Math.abs(s.coordinates[dimIdx] - params.source_key) < 1e-4);
-    if (!sourceState) {
+    const sourceStates = binding.keyforms.filter(
+      (state) => Math.abs(state.coordinates[dimIdx] - params.source_key) < 1e-4
+    );
+    if (sourceStates.length === 0) {
       throw new Error(`Keyform state at source key ${params.source_key} not found`);
     }
 
-    // Compute mirrored payload
-    const targetNode = draft.nodes.find((n) => n.id === params.target_node_id);
-    let reflectedPayload = JSON.parse(JSON.stringify(sourceState.payload));
-
-    if (reflectedPayload.kind === 'Warp') {
-      const bounds = targetNode?.kind.type === 'WarpDeformer' ? targetNode.kind.bounds : [0, 0, 1000, 1000];
-      const centerX = bounds[0] + bounds[2] / 2;
-      reflectedPayload.control_points = reflectedPayload.control_points.map(([cx, cy]: [number, number]) => [
-        2 * centerX - cx,
-        cy,
-      ]);
-    } else if (reflectedPayload.kind === 'Rotation') {
-      reflectedPayload.angle_deg = -reflectedPayload.angle_deg;
-    } else if (reflectedPayload.kind === 'ArtMesh') {
-      reflectedPayload.vertex_offsets = reflectedPayload.vertex_offsets.map(([dx, dy]: [number, number]) => [
-        -dx,
-        dy,
-      ]);
-    }
-
-    const destCoords = [...sourceState.coordinates];
-    destCoords[dimIdx] = params.dest_key;
-
-    const destIdx = binding.keyforms.findIndex((s) => Math.abs(s.coordinates[dimIdx] - params.dest_key) < 1e-4);
-    if (destIdx >= 0) {
-      binding.keyforms[destIdx].payload = reflectedPayload;
-    } else {
-      binding.keyforms.push({
-        coordinates: destCoords,
-        payload: reflectedPayload,
-      });
+    for (const sourceState of sourceStates) {
+      const destCoords = [...sourceState.coordinates];
+      destCoords[dimIdx] = params.dest_key;
+      const reflectedPayload = mirrorKeyformPayload(sourceState.payload, targetNode);
+      const destIdx = binding.keyforms.findIndex((state) => stateMatches(state.coordinates, destCoords));
+      if (destIdx >= 0) {
+        binding.keyforms[destIdx].payload = reflectedPayload;
+      } else {
+        binding.keyforms.push({ coordinates: destCoords, payload: reflectedPayload });
+      }
     }
   });
 
@@ -424,13 +807,15 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('keyform.setup_points', (draft, { target_node_id, param_id, point_count }) => {
     const param = draft.parameters.find((p) => p.id === param_id);
     if (!param) throw new Error(`Parameter '${param_id}' not found`);
+    assertParameterUnlocked(draft, param_id);
 
     const node = draft.nodes.find((n) => n.id === target_node_id);
     if (!node) throw new Error(`Node '${target_node_id}' not found`);
+    assertNodeUnlocked(node);
 
-    const keys = point_count === 2
+    const keys = dedupeSortedKeys(point_count === 2
       ? [param.min, param.max]
-      : [param.min, param.default, param.max];
+      : [param.min, param.default, param.max]);
 
     let basePayload: any;
     if (node.kind.type === 'WarpDeformer') {
@@ -466,6 +851,7 @@ export function registerStandardCommands(bus: CommandBus): void {
   bus.register<{ mesh_id: string }>('mesh.reverse_winding', (draft, { mesh_id }) => {
     const target = draft.nodes.find((n) => n.id === mesh_id);
     if (target && target.kind.type === 'ArtMesh') {
+      assertNodeUnlocked(target);
       const indices = target.kind.indices;
       for (let i = 0; i < indices.length; i += 3) {
         const tmp = indices[i + 1];
@@ -488,6 +874,59 @@ export function registerStandardCommands(bus: CommandBus): void {
       throw new Error(`Texture '${id}' not found`);
     }
     Object.assign(target, changes);
+  });
+
+  bus.register<{ id: string }>('texture.delete', (draft, { id }) => {
+    const references = draft.nodes.filter(
+      (node) => node.kind.type === 'ArtMesh' && node.kind.texture_id === id
+    );
+    if (references.length > 0) {
+      throw new Error(
+        `Texture '${id}' is referenced by ${references.map((node) => node.id).join(', ')}`
+      );
+    }
+    draft.textures = draft.textures.filter((texture) => texture.id !== id);
+  });
+
+  bus.register<{
+    textures: TextureMeta[];
+    meshes: Array<{ id: string; texture_id: string; uvs: [number, number][] }>;
+  }>('atlas.apply', (draft, { textures, meshes }) => {
+    if (!Array.isArray(textures) || textures.length === 0) {
+      throw new Error('atlas.apply requires at least one atlas texture');
+    }
+    const textureIds = new Set<string>();
+    for (const texture of textures) {
+      if (textureIds.has(texture.id)) {
+        throw new Error(`Duplicate atlas texture id '${texture.id}'`);
+      }
+      textureIds.add(texture.id);
+    }
+    for (const update of meshes) {
+      const node = findNode(draft, update.id);
+      if (!node || node.kind.type !== 'ArtMesh') {
+        throw new Error(`ArtMesh '${update.id}' not found`);
+      }
+      assertNodeUnlocked(node);
+      if (!textureIds.has(update.texture_id)) {
+        throw new Error(
+          `ArtMesh '${update.id}' references atlas texture '${update.texture_id}' not supplied to atlas.apply`
+        );
+      }
+      if (update.uvs.length !== node.kind.vertices.length) {
+        throw new Error(
+          `ArtMesh '${update.id}' has ${update.uvs.length} atlas UVs for ${node.kind.vertices.length} vertices`
+        );
+      }
+    }
+    draft.textures = textures.map((texture) => ({ ...texture }));
+    for (const update of meshes) {
+      const node = findNode(draft, update.id);
+      if (node?.kind.type === 'ArtMesh') {
+        node.kind.texture_id = update.texture_id;
+        node.kind.uvs = update.uvs.map(([u, v]) => [u, v]);
+      }
+    }
   });
 
   // Multi-state parts retain their geometry keyforms and share one opacity axis.
@@ -636,9 +1075,11 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('mesh.add_morph_target', (draft, { mesh_id, morph }) => {
     const target = draft.nodes.find((n) => n.id === mesh_id);
     if (target && target.kind.type === 'ArtMesh') {
+      assertNodeUnlocked(target);
+      const parsedMorph = morphTargetSchema.parse(morph);
       if (!target.kind.morph_targets) target.kind.morph_targets = [];
-      target.kind.morph_targets = target.kind.morph_targets.filter((m) => m.id !== morph.id);
-      target.kind.morph_targets.push(morph);
+      target.kind.morph_targets = target.kind.morph_targets.filter((m) => m.id !== parsedMorph.id);
+      target.kind.morph_targets.push(parsedMorph);
     }
   });
 
@@ -648,6 +1089,7 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('mesh.remove_morph_target', (draft, { mesh_id, morph_id }) => {
     const target = draft.nodes.find((n) => n.id === mesh_id);
     if (target && target.kind.type === 'ArtMesh' && target.kind.morph_targets) {
+      assertNodeUnlocked(target);
       target.kind.morph_targets = target.kind.morph_targets.filter((m) => m.id !== morph_id);
     }
   });
@@ -750,7 +1192,10 @@ export function registerStandardCommands(bus: CommandBus): void {
     position: [number, number];
   }>('mesh.move_vertex', (draft, { mesh_id, vertex_index, position }) => {
     const target = draft.nodes.find((n) => n.id === mesh_id);
-    if (target && target.kind.type === 'ArtMesh' && vertex_index < target.kind.vertices.length) {
+    if (target?.kind.type === 'ArtMesh') {
+      assertNodeUnlocked(target);
+    }
+    if (target && target.kind.type === 'ArtMesh' && vertex_index >= 0 && vertex_index < target.kind.vertices.length) {
       target.kind.vertices[vertex_index] = position;
     }
   });
@@ -760,7 +1205,17 @@ export function registerStandardCommands(bus: CommandBus): void {
     vertex_index: number;
   }>('mesh.delete_vertex', (draft, { mesh_id, vertex_index }) => {
     const target = draft.nodes.find((n) => n.id === mesh_id);
-    if (target && target.kind.type === 'ArtMesh' && vertex_index < target.kind.vertices.length) {
+    if (!target || target.kind.type !== 'ArtMesh') {
+      throw new Error(`ArtMesh '${mesh_id}' not found`);
+    }
+    assertNodeUnlocked(target);
+    if (!Number.isInteger(vertex_index) || vertex_index < 0 || vertex_index >= target.kind.vertices.length) {
+      throw new Error(`Vertex index ${vertex_index} is out of range`);
+    }
+    if (target.kind.vertices.length <= 3) {
+      throw new Error('An ArtMesh must retain at least 3 vertices');
+    }
+    {
       target.kind.vertices.splice(vertex_index, 1);
       target.kind.uvs.splice(vertex_index, 1);
       // Remove triangles touching this vertex and re-index
@@ -778,6 +1233,27 @@ export function registerStandardCommands(bus: CommandBus): void {
         }
       }
       target.kind.indices = newIndices;
+      for (const morph of target.kind.morph_targets ?? []) {
+        morph.vertex_offsets.splice(vertex_index, 1);
+      }
+    }
+    const binding = draft.keyforms.find((item) => item.target_node_id === mesh_id);
+    for (const state of binding?.keyforms ?? []) {
+      if (state.payload.kind === 'ArtMesh') {
+        state.payload.vertex_offsets.splice(vertex_index, 1);
+      }
+    }
+    for (const glue of draft.glues ?? []) {
+      if (glue.mesh_a_id !== mesh_id && glue.mesh_b_id !== mesh_id) continue;
+      glue.vertex_pairs = glue.vertex_pairs.filter((pair) => {
+        if (glue.mesh_a_id === mesh_id && pair.index_a === vertex_index) return false;
+        if (glue.mesh_b_id === mesh_id && pair.index_b === vertex_index) return false;
+        return true;
+      });
+      for (const pair of glue.vertex_pairs) {
+        if (glue.mesh_a_id === mesh_id && pair.index_a > vertex_index) pair.index_a -= 1;
+        if (glue.mesh_b_id === mesh_id && pair.index_b > vertex_index) pair.index_b -= 1;
+      }
     }
   });
 
@@ -787,12 +1263,14 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('mesh.subdivide', (draft, { mesh_id }) => {
     const target = draft.nodes.find((n) => n.id === mesh_id);
     if (!target || target.kind.type !== 'ArtMesh') return;
+    assertNodeUnlocked(target);
 
     const vertices = target.kind.vertices;
     const uvs = target.kind.uvs;
     const indices = target.kind.indices;
 
     const edgeMap = new Map<string, number>();
+    const midpointSources = new Map<number, [number, number]>();
 
     const getMidpoint = (idxA: number, idxB: number): number => {
       const key = idxA < idxB ? `${idxA}_${idxB}` : `${idxB}_${idxA}`;
@@ -811,6 +1289,7 @@ export function registerStandardCommands(bus: CommandBus): void {
       vertices.push(midPos);
       uvs.push(midUv);
       edgeMap.set(key, newIdx);
+      midpointSources.set(newIdx, [idxA, idxB]);
       return newIdx;
     };
 
@@ -831,6 +1310,30 @@ export function registerStandardCommands(bus: CommandBus): void {
     }
 
     target.kind.indices = newIndices;
+    const expandValues = (values: [number, number][]): [number, number][] => {
+      if (values.length === 0) {
+        return vertices.map(() => [0, 0]);
+      }
+      const expanded = values.map((value) => [...value] as [number, number]);
+      for (const [newIndex, [a, b]] of midpointSources) {
+        const valueA = values[a] ?? [0, 0];
+        const valueB = values[b] ?? [0, 0];
+        expanded[newIndex] = [
+          (valueA[0] + valueB[0]) / 2,
+          (valueA[1] + valueB[1]) / 2,
+        ];
+      }
+      return expanded;
+    };
+    for (const morph of target.kind.morph_targets ?? []) {
+      morph.vertex_offsets = expandValues(morph.vertex_offsets);
+    }
+    const binding = draft.keyforms.find((item) => item.target_node_id === mesh_id);
+    for (const state of binding?.keyforms ?? []) {
+      if (state.payload.kind === 'ArtMesh') {
+        state.payload.vertex_offsets = expandValues(state.payload.vertex_offsets);
+      }
+    }
   });
 
   bus.register<{
@@ -840,23 +1343,29 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('warp.set_divisions', (draft, { node_id, cols, rows }) => {
     const target = draft.nodes.find((n) => n.id === node_id);
     if (!target || target.kind.type !== 'WarpDeformer') return;
-
-    const [bx, by, bw, bh] = target.kind.bounds;
-    const nextCps: [number, number][] = [];
-
-    for (let r = 0; r <= rows; r++) {
-      const v = r / rows;
-      const y = by + bh * v;
-      for (let c = 0; c <= cols; c++) {
-        const u = c / cols;
-        const x = bx + bw * u;
-        nextCps.push([x, y]);
-      }
+    assertNodeUnlocked(target);
+    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) {
+      throw new Error('Warp divisions must be positive integers');
     }
 
+    const oldCols = target.kind.cols;
+    const oldRows = target.kind.rows;
+    const nextCps = resampleWarpGrid(target.kind.control_points, oldCols, oldRows, cols, rows);
     target.kind.cols = cols;
     target.kind.rows = rows;
     target.kind.control_points = nextCps;
+    const binding = draft.keyforms.find((item) => item.target_node_id === node_id);
+    for (const state of binding?.keyforms ?? []) {
+      if (state.payload.kind === 'Warp') {
+        state.payload.control_points = resampleWarpGrid(
+          state.payload.control_points,
+          oldCols,
+          oldRows,
+          cols,
+          rows
+        );
+      }
+    }
   });
 
   bus.register<{
@@ -865,6 +1374,7 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('mesh.flip_uv', (draft, { mesh_id, axis }) => {
     const target = draft.nodes.find((n) => n.id === mesh_id);
     if (target && target.kind.type === 'ArtMesh') {
+      assertNodeUnlocked(target);
       for (const uv of target.kind.uvs) {
         if (axis === 'horizontal') {
           uv[0] = 1.0 - uv[0];
@@ -907,37 +1417,111 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('macro.setup_turn_xy', (draft, params) => {
     const paramX = params.param_x_id || 'ParamAngleX';
     const paramY = params.param_y_id || 'ParamAngleY';
-    const xMin = params.x_range ? params.x_range[0] : -30;
-    const xMax = params.x_range ? params.x_range[1] : 30;
-    const yMin = params.y_range ? params.y_range[0] : -30;
-    const yMax = params.y_range ? params.y_range[1] : 30;
+    const existingX = draft.parameters.find((parameter) => parameter.id === paramX);
+    const existingY = draft.parameters.find((parameter) => parameter.id === paramY);
+    const xMin = params.x_range ? params.x_range[0] : existingX?.min ?? -30;
+    const xMax = params.x_range ? params.x_range[1] : existingX?.max ?? 30;
+    const yMin = params.y_range ? params.y_range[0] : existingY?.min ?? -30;
+    const yMax = params.y_range ? params.y_range[1] : existingY?.max ?? 30;
+    if (!Number.isFinite(xMin) || !Number.isFinite(xMax) || xMin > xMax
+      || !Number.isFinite(yMin) || !Number.isFinite(yMax) || yMin > yMax) {
+      throw new Error('Turn ranges must be finite and ordered min <= max');
+    }
 
     // Ensure parameters exist
     if (!draft.parameters.some((p) => p.id === paramX)) {
-      draft.parameters.push({ id: paramX, name: 'Angle X', min: xMin, max: xMax, default: 0 });
+      draft.parameters.push({
+        id: paramX,
+        name: 'Angle X',
+        min: xMin,
+        max: xMax,
+        default: Math.max(xMin, Math.min(xMax, 0)),
+      });
     }
     if (!draft.parameters.some((p) => p.id === paramY)) {
-      draft.parameters.push({ id: paramY, name: 'Angle Y', min: yMin, max: yMax, default: 0 });
+      draft.parameters.push({
+        id: paramY,
+        name: 'Angle Y',
+        min: yMin,
+        max: yMax,
+        default: Math.max(yMin, Math.min(yMax, 0)),
+      });
     }
+    assertParameterUnlocked(draft, paramX);
+    assertParameterUnlocked(draft, paramY);
 
     const targetNode = draft.nodes.find((n) => n.id === params.target_node_id);
     if (!targetNode) {
       throw new Error(`Target node '${params.target_node_id}' not found`);
     }
+    assertNodeUnlocked(targetNode);
 
     // Build 3x3 keyform grid
-    const xKeys = [xMin, 0, xMax];
-    const yKeys = [yMin, 0, yMax];
+    const parameterX = draft.parameters.find((parameter) => parameter.id === paramX)!;
+    const parameterY = draft.parameters.find((parameter) => parameter.id === paramY)!;
+    const xKeys = dedupeSortedKeys([xMin, parameterX.default, xMax]);
+    const yKeys = dedupeSortedKeys([yMin, parameterY.default, yMax]);
     const keyformStates: KeyformBinding['keyforms'] = [];
+    const existingBinding = draft.keyforms.find((k) => k.target_node_id === params.target_node_id);
+
+    const baselinePayload = (): KeyformPayload | null => {
+      if (targetNode.kind.type === 'WarpDeformer') {
+        return {
+          kind: 'Warp',
+          control_points: targetNode.kind.control_points.map((point) => [...point]),
+        };
+      }
+      if (targetNode.kind.type === 'RotationDeformer') {
+        return {
+          kind: 'Rotation',
+          origin: [...targetNode.kind.origin],
+          angle_deg: targetNode.kind.angle_deg,
+          scale: [...targetNode.kind.scale],
+        };
+      }
+      if (targetNode.kind.type === 'DeformPath') {
+        return {
+          kind: 'DeformPath',
+          control_points: targetNode.kind.control_points.map((point) => [...point]),
+        };
+      }
+      if (targetNode.kind.type === 'ArtPath') {
+        return {
+          kind: 'ArtPath',
+          points: targetNode.kind.points.map((point) => ({
+            ...point,
+            pos: [...point.pos] as [number, number],
+          })),
+        };
+      }
+      if (targetNode.kind.type === 'ArtMesh') {
+        return {
+          kind: 'ArtMesh',
+          vertex_offsets: targetNode.kind.vertices.map(() => [0, 0]),
+          opacity: targetNode.kind.opacity,
+        };
+      }
+      return null;
+    };
 
     if (targetNode.kind.type === 'WarpDeformer') {
       const defaultCps = targetNode.kind.control_points;
       for (const y of yKeys) {
         for (const x of xKeys) {
+          const existing = existingBinding?.keyforms.find((state) =>
+            stateMatches(state.coordinates, [x, y])
+          );
+          if (existing) {
+            keyformStates.push({
+              coordinates: [x, y],
+              payload: JSON.parse(JSON.stringify(existing.payload)),
+            });
+            continue;
+          }
           // Simple perspective projection shift as initial default for AngleX/Y
           const shiftedCps = defaultCps.map(([cx, cy]): [number, number] => {
-            const shiftX = (x / (xMax || 1)) * 15;
-            const shiftY = (y / (yMax || 1)) * 15;
+            const shiftX = xMax === xMin ? 0 : ((x - parameterX.default) / (xMax - xMin)) * 30;
+            const shiftY = yMax === yMin ? 0 : ((y - parameterY.default) / (yMax - yMin)) * 30;
             return [cx + shiftX, cy + shiftY];
           });
           keyformStates.push({
@@ -950,14 +1534,39 @@ export function registerStandardCommands(bus: CommandBus): void {
       const origin = targetNode.kind.origin;
       for (const y of yKeys) {
         for (const x of xKeys) {
+          const existing = existingBinding?.keyforms.find((state) =>
+            stateMatches(state.coordinates, [x, y])
+          );
+          keyformStates.push(existing
+            ? {
+                coordinates: [x, y],
+                payload: JSON.parse(JSON.stringify(existing.payload)),
+              }
+            : {
+                coordinates: [x, y],
+                payload: {
+                  kind: 'Rotation',
+                  origin: [...origin],
+                  angle_deg: targetNode.kind.angle_deg
+                    + (xMax === xMin ? 0 : ((x - parameterX.default) / (xMax - xMin)) * 30),
+                  scale: [...targetNode.kind.scale],
+                },
+              });
+        }
+      }
+    } else {
+      const base = baselinePayload();
+      if (!base) {
+        throw new Error(`Node type '${targetNode.kind.type}' cannot be bound to a turn grid`);
+      }
+      for (const y of yKeys) {
+        for (const x of xKeys) {
+          const existing = existingBinding?.keyforms.find((state) =>
+            stateMatches(state.coordinates, [x, y])
+          );
           keyformStates.push({
             coordinates: [x, y],
-            payload: {
-              kind: 'Rotation',
-              origin,
-              angle_deg: targetNode.kind.angle_deg + x * 0.5,
-              scale: targetNode.kind.scale,
-            },
+            payload: JSON.parse(JSON.stringify(existing?.payload ?? base)),
           });
         }
       }
@@ -1107,6 +1716,7 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('warp.brush_deform', (draft, { node_id, center, delta, radius }) => {
     const target = draft.nodes.find((n) => n.id === node_id);
     if (!target || target.kind.type !== 'WarpDeformer') return;
+    assertNodeUnlocked(target);
 
     const cps = target.kind.control_points;
     for (let i = 0; i < cps.length; i++) {
@@ -1124,13 +1734,21 @@ export function registerStandardCommands(bus: CommandBus): void {
   bus.register<{
     param_id: string;
   }>('parameter.invert_keys', (draft, { param_id }) => {
+    const parameter = draft.parameters.find((item) => item.id === param_id);
+    if (!parameter) {
+      throw new Error(`Parameter '${param_id}' not found`);
+    }
+    assertParameterUnlocked(draft, param_id);
+    const reflect = (value: number) => parameter.min + parameter.max - value;
     for (const kf of draft.keyforms) {
       const dimIdx = kf.dimensions.findIndex((d) => d.param_id === param_id);
       if (dimIdx >= 0) {
         for (const s of kf.keyforms) {
-          s.coordinates[dimIdx] = -s.coordinates[dimIdx];
+          s.coordinates[dimIdx] = reflect(s.coordinates[dimIdx]);
         }
-        kf.dimensions[dimIdx].keys = kf.dimensions[dimIdx].keys.map((k) => -k).sort((a, b) => a - b);
+        kf.dimensions[dimIdx].keys = dedupeSortedKeys(
+          kf.dimensions[dimIdx].keys.map(reflect)
+        );
       }
     }
   });
@@ -1165,6 +1783,29 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('warp.create_enclosing_mesh', (draft, { mesh_id, cols = 3, rows = 3, padding = 15 }) => {
     const mesh = draft.nodes.find((n) => n.id === mesh_id);
     if (!mesh || mesh.kind.type !== 'ArtMesh') return;
+    assertNodeUnlocked(mesh);
+    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) {
+      throw new Error('Enclosing warp divisions must be positive integers');
+    }
+    if (!Number.isFinite(padding) || padding < 0) {
+      throw new Error('Enclosing warp padding must be a finite non-negative number');
+    }
+    if (mesh.kind.vertices.length === 0) {
+      throw new Error(`ArtMesh '${mesh_id}' has no vertices`);
+    }
+
+    const warpId = `warp_${mesh.id}`;
+    const existingWarp = draft.nodes.find((node) => node.id === warpId);
+    if (existingWarp) {
+      if (existingWarp.kind.type !== 'WarpDeformer') {
+        throw new Error(`Node '${warpId}' already exists and is not a WarpDeformer`);
+      }
+      if (wouldCreateCycle(draft, mesh.id, warpId)) {
+        throw new Error(`Cannot parent '${mesh.id}' to '${warpId}' because it would create a cycle`);
+      }
+      mesh.parent_id = warpId;
+      return;
+    }
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const [vx, vy] of mesh.kind.vertices) {
@@ -1191,7 +1832,6 @@ export function registerStandardCommands(bus: CommandBus): void {
       }
     }
 
-    const warpId = `warp_${mesh.id}`;
     const warpNode: any = {
       id: warpId,
       name: `${mesh.name || mesh.id} Warp`,
@@ -1993,6 +2633,7 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('deform.free_quad', (draft, { node_id, quad_corners, mode = 'perspective' }) => {
     const node = draft.nodes.find((n) => n.id === node_id);
     if (!node) throw new Error(`Node '${node_id}' not found`);
+    assertNodeUnlocked(node);
 
     if (node.kind.type === 'ArtMesh') {
       const pts = node.kind.vertices;
@@ -2037,6 +2678,7 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('warp.change_topology', (draft, { node_id, op }) => {
     const node = draft.nodes.find((n) => n.id === node_id);
     if (!node || node.kind.type !== 'WarpDeformer') return;
+    assertNodeUnlocked(node);
 
     const oldCols = node.kind.cols;
     const oldRows = node.kind.rows;
@@ -2045,32 +2687,8 @@ export function registerStandardCommands(bus: CommandBus): void {
     const newRows =
       op === 'twice_rows' ? oldRows * 2 : op === 'half_rows' ? Math.max(1, Math.floor(oldRows / 2)) : oldRows;
 
-    const resampleGrid = (srcPts: [number, number][]): [number, number][] => {
-      const stride = oldCols + 1;
-      const out: [number, number][] = [];
-      for (let r = 0; r <= newRows; r++) {
-        const v = r / newRows;
-        const gy = v * oldRows;
-        const r0 = Math.min(Math.floor(gy), oldRows - 1);
-        const ty = gy - r0;
-        for (let c = 0; c <= newCols; c++) {
-          const u = c / newCols;
-          const gx = u * oldCols;
-          const c0 = Math.min(Math.floor(gx), oldCols - 1);
-          const tx = gx - c0;
-          const p00 = srcPts[r0 * stride + c0] || [0, 0];
-          const p10 = srcPts[r0 * stride + c0 + 1] || p00;
-          const p01 = srcPts[(r0 + 1) * stride + c0] || p00;
-          const p11 = srcPts[(r0 + 1) * stride + c0 + 1] || p00;
-          const topX = p00[0] * (1 - tx) + p10[0] * tx;
-          const topY = p00[1] * (1 - tx) + p10[1] * tx;
-          const botX = p01[0] * (1 - tx) + p11[0] * tx;
-          const botY = p01[1] * (1 - tx) + p11[1] * tx;
-          out.push([topX * (1 - ty) + botX * ty, topY * (1 - ty) + botY * ty]);
-        }
-      }
-      return out;
-    };
+    const resampleGrid = (srcPts: [number, number][]): [number, number][] =>
+      resampleWarpGrid(srcPts, oldCols, oldRows, newCols, newRows);
 
     node.kind.control_points = resampleGrid(node.kind.control_points);
     node.kind.cols = newCols;
@@ -2094,11 +2712,34 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('mesh.stroke_topology', (draft, { mesh_id, stroke_points, width = 24 }) => {
     const mesh = draft.nodes.find((n) => n.id === mesh_id);
     if (!mesh || mesh.kind.type !== 'ArtMesh') return;
+    assertNodeUnlocked(mesh);
+    const oldVertices = mesh.kind.vertices.map((vertex) => [...vertex] as [number, number]);
+    const oldIndices = [...mesh.kind.indices];
     const topo = generateStrokeMeshTopology(stroke_points, width, [draft.canvas.width, draft.canvas.height]);
     if (topo.vertices.length > 0) {
       mesh.kind.vertices = topo.vertices;
       mesh.kind.uvs = topo.uvs;
       mesh.kind.indices = topo.indices;
+      for (const morph of mesh.kind.morph_targets ?? []) {
+        morph.vertex_offsets = remapVertexValues(
+          oldVertices,
+          oldIndices,
+          topo.vertices,
+          morph.vertex_offsets
+        );
+      }
+      const binding = draft.keyforms.find((item) => item.target_node_id === mesh_id);
+      for (const state of binding?.keyforms ?? []) {
+        if (state.payload.kind === 'ArtMesh') {
+          state.payload.vertex_offsets = remapVertexValues(
+            oldVertices,
+            oldIndices,
+            topo.vertices,
+            state.payload.vertex_offsets
+          );
+        }
+      }
+      remapGlueIndices(draft, mesh_id, oldVertices, topo.vertices);
     }
   });
 
@@ -2364,6 +3005,7 @@ export function registerStandardCommands(bus: CommandBus): void {
     if (!kfBinding || kfBinding.dimensions.length < 2) {
       throw new Error(`Target node '${target_node_id}' does not have a 2D keyform binding`);
     }
+    assertNodeUnlocked(draft.nodes.find((node) => node.id === target_node_id));
     const px = param_x_id || kfBinding.dimensions[0].param_id;
     const py = param_y_id || kfBinding.dimensions[1].param_id;
     const dimX = kfBinding.dimensions.find((d) => d.param_id === px);
@@ -2371,17 +3013,22 @@ export function registerStandardCommands(bus: CommandBus): void {
     if (!dimX || !dimY || dimX.keys.length < 3 || dimY.keys.length < 3) {
       throw new Error(`Dimensions must have at least 3 keys (min, center, max)`);
     }
+    const xDimIndex = kfBinding.dimensions.findIndex((dimension) => dimension.param_id === px);
+    const yDimIndex = kfBinding.dimensions.findIndex((dimension) => dimension.param_id === py);
 
     const xMin = dimX.keys[0];
-    const xMid = dimX.keys[1];
-    const xMax = dimX.keys[2];
+    const xMid = dimX.keys.find((key) => Math.abs(key - (draft.parameters.find((p) => p.id === px)?.default ?? dimX.keys[1])) < 1e-4)
+      ?? dimX.keys[1];
+    const xMax = dimX.keys[dimX.keys.length - 1];
     const yMin = dimY.keys[0];
-    const yMid = dimY.keys[1];
-    const yMax = dimY.keys[2];
+    const yMid = dimY.keys.find((key) => Math.abs(key - (draft.parameters.find((p) => p.id === py)?.default ?? dimY.keys[1])) < 1e-4)
+      ?? dimY.keys[1];
+    const yMax = dimY.keys[dimY.keys.length - 1];
 
     const findKf = (kx: number, ky: number) =>
       kfBinding.keyforms.find(
-        (k) => Math.abs(k.coordinates[0] - kx) < 1e-4 && Math.abs(k.coordinates[1] - ky) < 1e-4
+        (k) => Math.abs(k.coordinates[xDimIndex] - kx) < 1e-4
+          && Math.abs(k.coordinates[yDimIndex] - ky) < 1e-4
       );
 
     const kfCenter = findKf(xMid, yMid);
@@ -2416,7 +3063,8 @@ export function registerStandardCommands(bus: CommandBus): void {
 
     for (const [cx, cy, hKf, vKf] of corners) {
       const existingIdx = kfBinding.keyforms.findIndex(
-        (k) => Math.abs(k.coordinates[0] - cx) < 1e-4 && Math.abs(k.coordinates[1] - cy) < 1e-4
+        (k) => Math.abs(k.coordinates[xDimIndex] - cx) < 1e-4
+          && Math.abs(k.coordinates[yDimIndex] - cy) < 1e-4
       );
       let payload: any;
       if (kfCenter.payload.kind === 'Warp') {
@@ -2462,7 +3110,12 @@ export function registerStandardCommands(bus: CommandBus): void {
       }
 
       if (payload) {
-        const newKf = { coordinates: [cx, cy], payload };
+        const coordinates = kfCenter.coordinates.map((coordinate, index) => {
+          if (index === xDimIndex) return cx;
+          if (index === yDimIndex) return cy;
+          return coordinate;
+        });
+        const newKf = { coordinates, payload };
         if (existingIdx >= 0) kfBinding.keyforms[existingIdx] = newKf;
         else kfBinding.keyforms.push(newKf);
       }
@@ -2479,6 +3132,7 @@ export function registerStandardCommands(bus: CommandBus): void {
   }>('deform.soft_brush', (draft, { node_id, center, radius, delta, falloff = 'smooth' }) => {
     const node = draft.nodes.find((n) => n.id === node_id);
     if (!node) throw new Error(`Node '${node_id}' not found`);
+    assertNodeUnlocked(node);
     const r = Math.max(1, radius);
     const [cx, cy] = center;
     const [dx, dy] = delta;
@@ -2665,7 +3319,10 @@ export function registerStandardCommands(bus: CommandBus): void {
       throw new Error(`ArtMesh node '${node_id}' not found`);
     }
     const mesh = node.kind;
+    assertNodeUnlocked(node);
     if (mesh.vertices.length === 0) return;
+    const oldVertices = mesh.vertices.map((vertex) => [...vertex] as [number, number]);
+    const oldIndices = [...mesh.indices];
 
     // Compute bounding box
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -2729,6 +3386,26 @@ export function registerStandardCommands(bus: CommandBus): void {
     mesh.vertices = newVertices;
     mesh.uvs = newUvs;
     mesh.indices = newIndices;
+    for (const morph of mesh.morph_targets ?? []) {
+      morph.vertex_offsets = remapVertexValues(
+        oldVertices,
+        oldIndices,
+        newVertices,
+        morph.vertex_offsets
+      );
+    }
+    const binding = draft.keyforms.find((item) => item.target_node_id === node_id);
+    for (const state of binding?.keyforms ?? []) {
+      if (state.payload.kind === 'ArtMesh') {
+        state.payload.vertex_offsets = remapVertexValues(
+          oldVertices,
+          oldIndices,
+          newVertices,
+          state.payload.vertex_offsets
+        );
+      }
+    }
+    remapGlueIndices(draft, node_id, oldVertices, newVertices);
   });
 
   // 22. Batch Node Reparenting (`CMD_BATCH_REPARENT` / `CUB3-1250`: 親デフォーマ一括設定)
@@ -2736,11 +3413,17 @@ export function registerStandardCommands(bus: CommandBus): void {
     node_ids: string[];
     new_parent_id: string | null;
   }>('node.batch_reparent', (draft, { node_ids, new_parent_id }) => {
+    if (new_parent_id && !findNode(draft, new_parent_id)) {
+      throw new Error(`Parent node '${new_parent_id}' not found`);
+    }
     for (const nid of node_ids) {
       const node = draft.nodes.find((n) => n.id === nid);
-      if (node && nid !== new_parent_id) {
-        node.parent_id = new_parent_id;
+      if (!node) continue;
+      assertNodeUnlocked(node);
+      if (wouldCreateCycle(draft, nid, new_parent_id)) {
+        throw new Error(`Hierarchy cycle detected while parenting '${nid}' to '${new_parent_id}'`);
       }
+      node.parent_id = new_parent_id;
     }
   });
 
@@ -2752,6 +3435,7 @@ export function registerStandardCommands(bus: CommandBus): void {
     for (const nid of node_ids) {
       const node = draft.nodes.find((n) => n.id === nid);
       if (node) {
+        if (!Object.keys(changes).every((key) => key === 'locked')) assertNodeUnlocked(node);
         if (changes.visible !== undefined) node.visible = changes.visible;
         if (changes.locked !== undefined) node.locked = changes.locked;
         if (changes.opacity !== undefined) {
@@ -2766,12 +3450,7 @@ export function registerStandardCommands(bus: CommandBus): void {
   bus.register<{
     node_ids: string[];
   }>('node.batch_delete', (draft, { node_ids }) => {
-    const toDelete = new Set(node_ids);
-    draft.nodes = draft.nodes.filter((n) => !toDelete.has(n.id));
-    draft.keyforms = draft.keyforms.filter((k) => !toDelete.has(k.target_node_id));
-    if (draft.glues) {
-      draft.glues = draft.glues.filter((g) => !toDelete.has(g.mesh_a_id) && !toDelete.has(g.mesh_b_id));
-    }
+    deleteNodes(draft, node_ids);
   });
 
 }

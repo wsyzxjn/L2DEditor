@@ -3,7 +3,12 @@ import type { EvaluatedFrameJs, Project } from '@l2d/schema';
 
 export const editorRequestSchemas = {
   state: z.object({ action: z.literal('state'), nodeOffset: z.int().min(0).default(0), nodeLimit: z.int().min(1).max(500).default(50) }).strict(),
-  open_project: z.object({ action: z.literal('open_project'), path: z.string().min(1) }).strict(),
+  open_project: z.object({
+    action: z.literal('open_project'),
+    path: z.string().min(1),
+    discardChanges: z.boolean().default(false),
+  }).strict(),
+  get_project: z.object({ action: z.literal('get_project') }).strict(),
   select: z.object({ action: z.literal('select'), nodeIds: z.array(z.string()).max(500) }).strict(),
   set_parameters: z.object({ action: z.literal('set_parameters'), values: z.record(z.string(), z.number().finite()) }).strict(),
   viewport: z.object({ action: z.literal('viewport'), fit: z.boolean().optional(), zoom: z.number().min(0.01).max(20).optional(), pan: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(), flipped: z.boolean().optional(), solo: z.boolean().optional(), meshEdit: z.boolean().optional(), physics: z.boolean().optional(), autoIdle: z.boolean().optional(), gridSnap: z.boolean().optional() }).strict(),
@@ -17,7 +22,8 @@ export const editorRequestSchemas = {
 };
 
 export const editorRequestSchema = z.discriminatedUnion('action', [
-  editorRequestSchemas.state, editorRequestSchemas.open_project, editorRequestSchemas.select,
+  editorRequestSchemas.state, editorRequestSchemas.open_project, editorRequestSchemas.get_project,
+  editorRequestSchemas.select,
   editorRequestSchemas.set_parameters, editorRequestSchemas.viewport, editorRequestSchemas.playback,
   editorRequestSchemas.expression,
   editorRequestSchemas.show_panel, editorRequestSchemas.exec, editorRequestSchemas.history,
@@ -25,7 +31,8 @@ export const editorRequestSchema = z.discriminatedUnion('action', [
 ]);
 export type EditorRequest = z.infer<typeof editorRequestSchema>;
 export type RendererEditorRequest = Exclude<EditorRequest, { action: 'open_project' | 'screenshot' }>
-  | { action: 'load_project'; path: string; project: Project }
+  | { action: 'load_project'; path: string; project: Project; discardChanges?: boolean }
+  | { action: 'get_project' }
   | { action: 'wait_for_preview' }
   | { action: 'capture_model'; scale: number };
 

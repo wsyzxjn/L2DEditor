@@ -2332,6 +2332,17 @@ describe('Agent-First Full Feature Pipeline', () => {
     const bus = new CommandBus(initialProject);
     registerStandardCommands(bus);
 
+    bus.execute({
+      id: 'param_angle_x',
+      name: 'parameter.add',
+      params: { id: 'ParamAngleX', name: 'Angle X', min: -30, max: 30, default: 0 },
+    });
+    bus.execute({
+      id: 'param_angle_y',
+      name: 'parameter.add',
+      params: { id: 'ParamAngleY', name: 'Angle Y', min: -30, max: 30, default: 0 },
+    });
+
     // 1. Test macro.synthesize_4_corners on a WarpDeformer
     bus.execute({
       id: 'warp_4c',
@@ -2657,6 +2668,24 @@ describe('Agent-First Full Feature Pipeline', () => {
         visible: true,
         locked: false,
         kind: { type: 'Part', collapsed: false, opacity: 1 },
+      },
+    });
+    bus.execute({
+      id: 'root_warp_add',
+      name: 'node.add',
+      params: {
+        id: 'root_warp',
+        name: 'Root Warp',
+        parent_id: null,
+        visible: true,
+        locked: false,
+        kind: {
+          type: 'WarpDeformer',
+          cols: 1,
+          rows: 1,
+          bounds: [0, 0, 500, 500],
+          control_points: [[0, 0], [500, 0], [0, 500], [500, 500]],
+        },
       },
     });
     bus.execute({
